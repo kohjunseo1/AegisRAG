@@ -1,0 +1,39 @@
+{
+  "ax": {
+    "repo": "junseokoh/pii-ax-mixed-v1",
+    "revision": "c0f99b1dc113befefeff1a3091087d50bc3ea635"
+  },
+  "veil": {
+    "repo": "junseokoh/pii-veil-mixed-v1",
+    "revision": "e6e7d20fa9baa43a938f5f6cc780d3f2c9650fb9"
+  },
+  "labels": [
+    "person",
+    "phone_number",
+    "email",
+    "address",
+    "resident_registration_number",
+    "account_number",
+    "card_number"
+  ],
+  "owner": {
+    "person": "ax",
+    "phone_number": "ax",
+    "email": "ax",
+    "address": "veil",
+    "resident_registration_number": "ax",
+    "account_number": "ax",
+    "card_number": "ax"
+  },
+  "source_stage": "06D_FINAL_RELEASE_VALIDATION",
+  "detector_module_sha256": "c1ba75c57cae037927e6b048e733da66bb8e5d5644ebc57ce5c9d5155b62fe48",
+  "frozen_routing": {
+    "person": "ax",
+    "phone_number": "ax",
+    "email": "ax",
+    "address": "veil",
+    "resident_registration_number": "ax",
+    "account_number": "ax",
+    "card_number": "ax"
+  }
+}

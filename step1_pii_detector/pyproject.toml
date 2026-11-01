@@ -1,0 +1,13 @@
+[build-system]
+requires=["setuptools>=68"]
+build-backend="setuptools.build_meta"
+[project]
+name="step1-pii-detector"
+version="0.1.0"
+requires-python=">=3.10,<3.13"
+dependencies=["torch>=2.2.2; python_version < '3.12'", "torch>=2.5; python_version >= '3.12'","transformers>=4.55,<5","huggingface_hub>=0.30","tokenizers","safetensors","onnx>=1.16,<1.20","onnxruntime>=1.23.2","numpy>=1.23,<2.0","python-dotenv"]
+[tool.setuptools.packages.find]
+where=["src"]
+
+[tool.setuptools.package-data]
+pii_detector = ["model_manifest.json"]
