@@ -32,20 +32,25 @@ Coverage includes three/four-syllable names, surname-title whitespace/newline ca
 
 ## Official Test and Holdout comparison
 
-| Dataset | Gold rows present locally | Required frozen 05 labelwise predictions | Baseline vs. combined score |
-|---|---:|---|---|
-| Official Test | 200 | Not available | Not run |
-| Official Holdout | 187 | Not available | Not run |
+The user supplied an evaluation bundle under local-only `local_eval/`. All eight files matched its SHA-256/size manifest. The saved labelwise 05 predictions were re-scored with the repository's existing postal validator and then the two policy rules. These are offline postprocessing results, not fresh model inference.
 
-No saved 05 prediction JSONL or benchmark ZIP containing those predictions exists in the accessible project tree or the supplied policy ZIP. The policy ZIP explicitly contains no Gold or prediction data. No replacement model predictions were generated. The supplied historical validation report's V9 values are not treated as results for this integration because its postcode implementation was not verified against the repository's existing validator.
+| Dataset | Stage | Strict P | Strict R | Strict F1 | Mask Recall | Unmasked Gold chars |
+|---|---|---:|---:|---:|---:|---:|
+| Official Test (200 docs) | Frozen 05 predictions | 0.98809 | 0.99657 | 0.99231 | 0.99968 | 3 |
+| Official Test (200 docs) | After postal + policy | 0.99061 | 0.99657 | 0.99358 | 0.99968 | 3 |
+| Official Holdout (187 docs) | Frozen 05 predictions | 0.96277 | 0.99232 | 0.97732 | 0.99477 | 40 |
+| Official Holdout (187 docs) | After existing postal validator | 0.96809 | 0.99781 | 0.98272 | 1.00000 | 0 |
+| Official Holdout (187 docs) | After postal + policy | 0.98913 | 0.99781 | 0.99345 | 1.00000 | 0 |
+
+The two structural rules changed 3 Test documents and removed 3 false-positive spans; they removed no true-positive spans. On Holdout, they changed 20 documents and removed 20 false-positive spans; they removed no true-positive spans. Test changes were all `standalone_surname_title`; Holdout changes were 11 `standalone_surname_title` and 9 `explicit_internal_extension`. Holdout is post hoc policy-tuning evidence, not independent blind generalization performance.
 
 `evaluation/offline_regression.py` accepts only exact `--gold` and `--pred` paths, validates the expected row counts, applies the actual repository postal validator when `--include-existing-postal` is supplied, and reports Strict P/R/F1, TP/FP/FN, per-label counts, mask recall/unmasked Gold characters, policy changes, and postprocessing-only p50/p95. Saved 05 predictions do not carry detector status, so the script reports review rate as unavailable. It does not report model inference latency.
 
-Because the frozen predictions are missing, changed-document counts, adverse true-positive removals on Official Test/Holdout, and combined Holdout 99% reproduction remain unverified. No document-specific exception was added.
+No document-specific exception was added. The summary JSON reports are kept outside Git at `/tmp/official_test_policy_summary.json` and `/tmp/official_holdout_policy_summary.json`; raw Gold and prediction files remain local-only and are excluded by the repository `.gitignore`.
 
 ## Step 2 handoff
 
-The repository has no Step 2 pseudonymization implementation. The detector response and README now define the contract: downstream de-identification must use `mask_intervals`, route `REVIEW_REQUIRED` for review, and stop on `BLOCKED`. Tests verify the interval union preserves all pre-policy spans, but an end-to-end assertion against a real Step 2 caller could not be run.
+The repository has no Step 2 pseudonymization implementation. The detector response and README define the contract: downstream de-identification must use `mask_intervals`, route `REVIEW_REQUIRED` for review, and stop on `BLOCKED`. A mock pseudonymizer test applies those intervals and confirms even Strict spans removed by policy are masked. End-to-end integration against the future Step 2 implementation remains pending.
 
 ## Existing postal validation is not duplicated
 

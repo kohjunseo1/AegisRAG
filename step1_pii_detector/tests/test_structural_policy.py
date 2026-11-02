@@ -46,6 +46,17 @@ class PolicyTests(unittest.TestCase):
                                 for i in result["mask_intervals"]), original)
         self.assertEqual(result["policy_version"], "aegis_core_v1")
 
+        # Mock Step 2 consumes only the public mask_intervals API. Strict spans
+        # removed by policy still get redacted; ordinary detected PII does too.
+        redacted = list(text)
+        for interval in result["mask_intervals"]:
+            for index in range(interval["start"], interval["end"]):
+                redacted[index] = "*"
+        redacted = "".join(redacted)
+        for original in ("김", "5854", "1588-0000", "05299", "서울특별시 강남구"):
+            start = text.index(original)
+            self.assertEqual(redacted[start:start + len(original)], "*" * len(original))
+
     def test_structural_policy_failure_is_fail_closed(self):
         with patch("pii_detector.detector.refine_spans", side_effect=RuntimeError("secret")):
             with PIIDetector(lambda t: [], lambda t: [], parallel=False) as detector:
