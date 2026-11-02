@@ -2,128 +2,159 @@
 
 ### Privacy-Preserving Retrieval-Augmented Generation for Financial Documents
 
-금융 문서 속 개인정보를 탐지·가명처리한 후, **원문 개인정보를 외부 임베딩·LLM API에 전달하지 않고도 문서를 검색하고 답변하는 RAG 시스템**을 목표로 하는 프로젝트입니다.
+AegisRAG는 금융 문서 속 개인정보를 탐지하고 결정적으로 가명처리한 뒤, **원문 개인정보가 외부 임베딩·LLM API로 전달되지 않도록 제어하면서** 관련 문서를 검색하고 답변하는 RAG 시스템을 목표로 합니다.
 
-> **프로젝트 배경**: 멋쟁이사자처럼 NLP 6기 · 클라비 기업 프로젝트\
-> **개발 방식**: 실전 1(PII 탐지) → 실전 2(가명처리 기반 RAG) → 종합(접근 통제 및 출력 보호)\
-> **현재 상태**: Step 1 탐지기 패키지 구현 · Step 2 및 통합 서비스 개발 예정
+> **프로젝트:** 멋쟁이사자처럼 NLP 6기 · 클라비 기업 프로젝트<br>
+> **개발 단계:** Step 1 개인정보 탐지 → Step 2 가명처리 기반 RAG → 통합 접근 통제·출력 보호<br>
+> **저장소 현황 (2026-11-02):** Step 1 A.X + Veil 탐지 패키지 구현. Core Structural Policy 2규칙과 `mask_intervals` API가 feature branch에 통합되어 오프라인 회귀를 통과했습니다. 실제 모델 재추론과 Step 2 연동은 미검증이며, Step 2 및 통합 서비스는 아직 구현되지 않았습니다.
 
-## 1. Why AegisRAG?
+## 1. 문제 정의
 
-금융사의 상담 기록·민원·업무 메일·회의록에는 고객 이름, 연락처, 주민등록번호, 계좌·카드번호 등의 개인정보가 포함될 수 있습니다. 이를 그대로 벡터 DB나 외부 LLM에 전달하면 개인정보가 노출될 위험이 있습니다.
+상담 기록, 민원, 보험·금융 업무 메일에는 이름, 연락처, 주민등록번호, 계좌·카드번호, 주소 등의 개인정보가 포함될 수 있습니다. 원문을 그대로 벡터 DB 또는 외부 LLM으로 보내면 개인정보 노출 위험이 생깁니다. 반대로 모든 개인정보를 일괄 `***`로 마스킹하면 동일한 고객의 문서들을 연결하여 검색하기 어렵습니다.
 
-반면 모든 개인정보를 `***`로 단순 마스킹하면 동일 고객의 여러 문서를 연결하는 정보까지 사라져, **“특정 고객의 상담 이력 검색”** 같은 작업이 어려워집니다.
+AegisRAG는 다음 네 기능을 순차적으로 구현합니다.
 
-AegisRAG는 **개인정보 보호와 문서 활용의 양립**을 목표로 합니다.
+1. **Detect** — 금융 문서의 개인정보 유형과 문자 구간(`label`, `start`, `end`) 탐지
+2. **Pseudonymize** — 동일한 정규화 값은 일관된 가명 토큰으로 치환, 원문 매핑은 별도 Vault에 격리
+3. **Retrieve** — 권한을 확인하고 가명 토큰 메타데이터 + 의미 검색으로 문서 조회
+4. **Protect** — 외부 전송 전 보호 여부 확인, 답변 재검사 및 권한별 제한적 복원
 
-- **Detect** — 문서에서 개인정보 구간과 유형을 식별
-- **Pseudonymize** — 동일한 값을 일관된 가명 토큰으로 치환하고 원문 매핑을 분리 관리
-- **Retrieve** — 가명 토큰 필터와 의미 검색으로 관련 문서를 탐색
-- **Protect** — 접근 권한을 확인하고 답변을 재검사한 뒤 허용 범위 내에서 결과를 표시
-
-## 2. End-to-End Architecture
+## 2. 목표 End-to-End 아키텍처
 
 ```mermaid
 flowchart TD
-    A[금융 문서 입력] --> B[Step 1 · PII Detection]
-    B --> G{탐지 상태 및 안전 검토}
-    G -->|차단 / 검토 필요| H[격리 · 검토 · 재처리]
-    G -->|후속 처리 가능| C[Step 2 · 정규화 및 결정적 가명처리]
-    C --> D[가명 문서 청킹 및 임베딩]
-    D --> E[(Vector DB · 토큰 메타데이터)]
-    Q[사용자 질의] --> R[질의 PII 탐지 및 동일 키로 가명처리]
-    R --> S[권한 검증 및 토큰 필터 · 의미 검색]
-    E --> S
-    S --> T[가명 문서만 LLM에 제공]
-    T --> U[답변의 PII 재검사]
-    U --> V{사용자 권한}
-    V -->|복원 허가| W[허용된 정보만 복원하여 응답]
-    V -->|복원 불가| X[가명 토큰 상태로 응답]
+  A[금융 문서] --> B[Step 1: A.X + Veil PII Detector]
+  B --> C[기존 주소 경계 검증 및 범용 구조 후처리]
+  C --> D{탐지 상태 및 보호 검증}
+  D -->|REVIEW_REQUIRED / BLOCKED| E[격리 · 검토 · 재처리]
+  D -->|후속 처리 가능| F[Step 2: 정규화 · HMAC 가명 토큰 · Vault 분리]
+  F --> G[가명 문서 청킹 · 임베딩 · 검색 인덱스]
+  H[사용자 질의] --> I[질의 PII 처리 · 접근 권한 확인]
+  I --> J[토큰 필터 + 의미 검색]
+  G --> J
+  J --> K[가명 문서만 외부 LLM에 제공]
+  K --> L[출력 개인정보 재검사]
+  L --> M{복원 권한}
+  M -->|허가| N[허가된 항목만 복원]
+  M -->|불허| O[가명 상태로 응답]
 ```
 
-위 그림은 **목표 통합 아키텍처**입니다. 현재 저장소에서 구현이 확인된 부분은 Step 1이며, Step 2·통합 서비스는 진행에 따라 추가됩니다. 실제 외부 전송은 탐지 완료만으로 허용되지 않으며, 가명처리 완료와 안전 검증을 별도로 통과해야 합니다.
+**위 그림은 목표 설계**입니다. 현재 GitHub에서 확인되는 실행 가능한 구현은 Step 1 패키지입니다. `READY_FOR_PSEUDONYMIZATION`은 탐지 성공 상태일 뿐, 외부 전송 허가가 아닙니다. 실제 전송은 Step 2 가명처리와 별도 안전 검증을 마친 후에만 허용하도록 설계합니다.
 
-Step 1은 Strict 평가용 `entities`와 기존 탐지 구간을 보존하는 `mask_intervals`를 별도로 반환합니다. Step 2 비식별화는 `entities`가 아니라 반드시 `mask_intervals`를 사용해야 합니다. `REVIEW_REQUIRED`는 검토 경로로 보내고 `BLOCKED` 결과는 후속 처리하지 않습니다.
+## 3. 프로젝트 진행 현황
 
-## 3. Project Stages
+| 단계 | 주요 기능 | 코드 확인 상태 |
+|---|---|---|
+| **Step 1 · PII Detection** | A.X/Veil 백엔드, 라벨별 라우팅, 주소 경계 검증, 긴 문서 Window, 실패 차단, 평가기 | **구현** |
+| **Step 1 · Core Structural Policy** | 성씨 1글자+직함, 명시적 짧은 내선번호 Strict span 정제, 보수적 `mask_intervals` 계약 | **feature branch 통합 및 오프라인 회귀 완료; 실모델 검증 대기** |
+| **Step 2 · Pseudonymization & RAG** | HMAC 기반 결정적 가명처리, Vault 분리, 가명 인덱스, 검색 평가 | **개발 예정** |
+| **Integrated Service** | 접근 통제, 제한적 복원, 출력 검증, End-to-End 안전성 테스트 | **개발 예정** |
 
-| 단계 | 핵심 태스크 | 주요 산출물 | 진행 상태 |
-|---|---|---|---|
-| **Step 1 · PII Detection** | 개인정보 탐지 모델 비교·선정, Span 추출, 경계 보정 및 실패 차단 | 재사용 가능한 Hybrid 탐지기 패키지, 평가 코드 | **구현 완료** |
-| **Step 2 · Pseudonymization & RAG** | 정규화, 결정적 가명 토큰, Vault 분리, 가명 데이터 적재 및 검색 | 가명처리 모듈, 기본형 검색·답변, 검색 평가 | **개발 예정** |
-| **Integrated Service** | 문서 단위 접근 통제, 권한별 실명 복원, 출력 재검사, 통합 평가 | API/서비스, 안전성 및 검색 품질 평가 | **개발 예정** |
+Step 1 상세 구조, 설치법, 실험 재현 범위는 [Step 1 기술 문서](step1_pii_detector/README.md)를 참고하세요.
 
-### Step 1: Hybrid PII Detector
+## 4. Step 1 탐지 구조와 평가
 
-팀의 초기 **RoBERTa 탐지기**를 기준선으로 설정해 평가한 뒤, 한국어 개인정보 탐지 모델 **A.X / Veil**을 금융 문서에 맞춰 파인튜닝하고 라벨별 강점에 따라 결합한 최종 탐지기를 구성했습니다. 개인정보가 누락되거나 탐지가 불확실한 사례를 다루기 위해 보수적인 Span 검증과 `REVIEW_REQUIRED` / `BLOCKED` 상태를 제공합니다. 결과에서 평가용 `entities`와 보수적 비식별화 입력인 `mask_intervals`를 분리하며, 후속 단계는 `mask_intervals`를 사용해야 합니다.
+### 현재 구현
 
-**탐지 대상(현 구현):** 사람 이름, 전화번호, 이메일, 주소, 주민등록번호, 계좌번호, 카드번호 — 총 7종.
+- **A.X**: `person`, `phone_number`, `email`, `resident_registration_number`, `account_number`, `card_number` — PyTorch
+- **Veil**: `address` — FP32 ONNX Runtime/공식 디코더
+- 고정된 모델 리비전은 `step1_pii_detector/src/pii_detector/model_manifest.json`에서 관리
+- 공통 문자열 오프셋 `[start, end)`, 라벨별 결합, 중첩 제거, 조건부 주소/우편번호 경계 검증, 모호한 이름 경계 검토
+- feature branch에서 `standalone_surname_title` 및 `explicit_internal_extension`만 Strict `entities`에서 제외하며, 원래 후보도 `mask_intervals`에서 보호
+- 타임아웃·잘못된 입력·리소스 한도 초과 시 `BLOCKED`, 검토 필요 시 `REVIEW_REQUIRED`
 
-[Step 1 상세 기술 및 실험 결과](step1_pii_detector/README.md)
+### 성능 기록: 서로 다른 평가 단계 구분
 
-### Step 2: Deterministic Pseudonymization & Retrieval
+| 데이터 | 정책/단계 | Strict F1 | Mask Recall | 해석 |
+|---|---|---:|---:|---|
+| Official Test, 200문서 | 최초 동결 Hybrid(05) | **99.23%** | **99.97%** | 저장 예측 및 Gold로 재채점한 기준선 |
+| Official Holdout, 187문서 | **최초** 동결 Hybrid(05) | **97.73%** | **99.48%** | Holdout 오류를 보기 전 성능 |
+| Official Holdout | 기존 조건부 우편번호 보정 | **98.27%** | **100.00%** | Holdout을 본 후의 **사후 개선** |
+| Official Test | 현재 저장소 주소 검증 + 신규 2규칙, 저장 예측 재채점 | **99.36%** | **99.97%** | 오프라인 후처리 결과; 실제 detector 추론 아님 |
+| Official Holdout | 신규 2규칙만, 저장 예측 재채점 | **98.80%** | **99.48%** | 주소 보정 미포함, 사후 분석 |
+| Official Holdout | 현재 저장소 주소 검증 + 신규 2규칙, 저장 예측 재채점 | **99.3450%** | **100.00%** | 오프라인 후처리 결과; 실제 detector 추론 아님, 사후 분석 |
 
-탐지된 정보를 라벨별로 정규화하고 **HMAC 기반 결정적 토큰**으로 치환하는 것을 목표로 합니다. 토큰-원문 대응 관계는 RAG 검색용 데이터와 분리해 관리하고, 질의에도 같은 변환을 적용하여 **토큰 필터 + 의미 검색**으로 문서를 찾습니다. 실제 구현 방식과 평가 수치는 개발 후 업데이트합니다.
+> **핵심 주의:** 처음 본 Holdout 결과와 Holdout 오류를 분석한 후의 결과는 구별해야 합니다. 위 사후 결과는 새 미공개 데이터에서의 99% 일반화 성능을 입증하지 않습니다. 또한 V9 Full 6규칙의 Holdout 99.89%는 측정된 실험 기록이지만, 과도한 문맥 의존성을 피하기 위해 **배포 정책으로 채택하지 않았습니다**.
 
-### Integrated Service: Access Control & Output Safety
+위 신규 정책 수치는 명시된 05 저장 예측에 후처리를 적용한 **오프라인 재채점 참고값**입니다. 실제 `create_detector()`/`detect()` 모델 추론으로 재생성한 결과가 아니므로 최종 배포 성능으로 보지 않습니다. 실제 모델 평가 전에는 통합 버전의 99% 달성을 주장하지 않습니다.
 
-문서 접근 권한을 검색 전에 검증하고, 생성된 답변에서 개인정보를 재검사한 뒤, 권한이 확인된 사용자에 한해 필요한 정보만 복원하는 구조를 목표로 합니다.
+## 5. 저장소 구조
 
-## 4. Repository Structure
+현재 feature branch 파일/폴더:
 
 ```text
 AegisRAG/
-├── README.md                      # 전체 프로젝트 소개 (이 문서)
-├── step1_pii_detector/           # 개인정보 탐지 패키지 [현재 구현]
-│   ├── README.md                 # 탐지 로직 · 성능 · 실행 방법
-│   ├── src/pii_detector/         # detector · 모델 백엔드 · 팩토리
-│   ├── tests/                    # 회귀 · 경계 · 구조 정책 · 런타임 안전성 검사
-│   ├── evaluation/               # 탐지 성능 및 저장 예측 재채점
-│   └── pyproject.toml            # 설치 및 의존성 정의
-├── step2_pseudonymization/       # 가명처리 / 검색 구현 [추후 추가]
-└── integrated_service/          # 인증 / 권한 / 출력 검증 [추후 추가]
+├── README.md
+├── .gitignore
+└── step1_pii_detector/
+    ├── README.md
+    ├── STRUCTURAL_POLICY_VALIDATION.md
+    ├── .gitignore
+    ├── pyproject.toml
+    ├── .env.example
+    ├── src/pii_detector/
+    │   ├── __init__.py
+    │   ├── detector.py
+    │   ├── factory.py
+    │   ├── backends.py
+    │   ├── loader.py
+    │   ├── structural_policy.py
+    │   └── model_manifest.json
+    ├── tests/
+    │   ├── test_detector_boundaries.py
+    │   ├── test_detector_runtime.py
+    │   ├── test_detector_reference_parity.py
+    │   ├── test_structural_policy.py
+    │   └── test_offline_regression.py
+    └── evaluation/
+        ├── run_compare.py
+        └── offline_regression.py
 ```
 
-> 현재 GitHub `main` 브랜치에는 이 프로젝트 안내와 `step1_pii_detector/` 구현이 포함되어 있습니다. 나머지 컴포넌트는 예정 구조이며, 구현한 뒤 추가합니다.
+`step2_pseudonymization/` 및 통합 서비스 디렉터리는 목표 구성으로서 아직 저장소에 없습니다. Core Policy는 feature branch에서 통합됐지만 PR은 Draft이며 실제 모델 및 Step 2 검증이 남아 있습니다.
 
-## 5. Technical Focus
+## 6. 실행 방법
 
-| 분야 | 기술 또는 설계 방향 | 상태 |
-|---|---|---|
-| PII Detection | PyTorch · Transformers · A.X / Veil Token Classification | 구현 |
-| Inference Optimization | Veil FP32 ONNX Runtime(CPU), A.X Torch 추론 | 구현 |
-| Safe Inference | 라벨별 라우팅, 경계 검증, 긴 문서 Window, Fail-closed | 구현 |
-| Pseudonymization | 정규화 + HMAC 기반 결정적 토큰 | 계획 |
-| Retrieval | PostgreSQL / pgvector, 메타데이터 필터 + 의미 검색 | 계획 |
-| Service Security | Vault 분리, 권한별 복원, 출력 PII 재검사 | 계획 |
-
-## 6. Getting Started
-
-현재 실행 가능한 컴포넌트는 Step 1입니다. Python **3.10~3.12** 환경이 필요하며, 모델 가중치는 공개 저장소에 포함되지 않습니다. 비공개 Hugging Face 모델 접근 권한과 개인별 읽기 토큰이 필요합니다.
+Python **`>=3.10,<3.13`**, Private Hugging Face 리포지토리 두 곳에 대한 읽기 권한 및 `HF_TOKEN`이 필요합니다. 모델 파일과 토큰은 GitHub에 포함되지 않습니다.
 
 ```bash
 git clone https://github.com/kohjunseo1/AegisRAG.git
 cd AegisRAG/step1_pii_detector
 python -m pip install -e .
+python -m unittest discover -s tests -v
 ```
 
-자세한 모델 초기화, Python 사용 예시 및 단위 테스트는 [Step 1 README](step1_pii_detector/README.md)를 참고하세요.
+```python
+from pii_detector import create_detector
 
-## 7. Data & Security Principles
+with create_detector() as detector:
+    result = detector.detect("고객명: 홍길동, 연락처: 010-1234-5678")
+    print(result["status"], result["entities"])
+```
 
-- 교육용으로 제공된 **합성 금융 문서**를 대상으로 연구합니다. 실제 고객 문서를 이 저장소에 올리지 않습니다.
-- `.env`, API 키, Hugging Face 토큰, 모델 가중치, 원문-토큰 매핑(Vault)은 Git에 포함하지 않습니다.
-- **탐지 결과가 `READY_FOR_PSEUDONYMIZATION`이어도 즉시 외부 전송이 허용되는 것은 아닙니다.** 가명처리·재검사·권한 검증은 별도 단계입니다.
-- 정확도 평가는 평가 데이터와 튜닝 여부를 구분해 기록하며, 이미 오류를 분석한 Holdout에서의 후처리 개선을 독립 블라인드 성능으로 소개하지 않습니다.
+`HF_TOKEN`은 실행 환경의 비밀값 또는 Git에서 제외되는 `.env`로 설정합니다. 초기 실행은 Private Hugging Face 모델을 다운로드하고 Veil ONNX를 준비합니다. 오프라인 평가 도구에는 Gold와 저장 예측의 명시적 파일 경로를 전달합니다. 파일을 Colab 원격 커널에서 사용할 때는 해당 커널에서 실제 접근 가능한 경로를 지정해야 합니다.
 
-## 8. Roadmap
+## 7. Step 1 → Step 2 API 및 보안 계약
 
-| 구분 | 다음 작업 |
-|---|---|
-| Step 1 | 팀 환경에서 비공개 모델 로딩 및 배포 스모크 테스트, 운영 제약 추가 확인 |
-| Step 2 | 탐지기 연결, 결정적 가명처리, Vault 분리, 검색 평가 |
-| Integrated | 접근 통제, 출력 재검사, 권한별 복원, End-to-End 평가 |
+feature branch의 탐지 결과는 다음 필드를 구분해 반환합니다.
+
+- `entities`: 라벨과 경계가 정확한 **평가·구조화용** Span
+- `mask_intervals`: **실제 가명처리용** 보호 구간. 후처리로 제외된 Strict 후보의 원래 탐지 구간도 보존
+- `status`: `READY_FOR_PSEUDONYMIZATION` / `REVIEW_REQUIRED` / `BLOCKED`
+
+`mask_intervals`는 합성 mock pseudonymizer 테스트에서 적용을 확인했습니다. Step 2 코드는 아직 없으므로 실제 호출부의 계약 검증은 미완료입니다. Step 2는 반드시 이 필드를 검증하고, 누락·오류 시 fail-closed 해야 합니다. `entities`만 이용해 보호 범위를 축소하거나, `READY_FOR_PSEUDONYMIZATION`만 보고 외부로 전송해서는 안 됩니다.
+
+모든 원문-토큰 매핑은 검색 인덱스 및 Git 저장소와 격리합니다. 실험에서는 합성 데이터를 사용하며, 실제 개인정보를 커밋하거나 외부 서비스로 보내지 않습니다.
+
+## 8. 다음 단계 및 완료 기준
+
+1. **실모델 성능 재현:** 고정 모델 revision으로 Official Test/Holdout API 평가를 실행하고 오프라인 저장 예측 재채점과 구분
+2. **Step 1 안전성 검증:** `mask_intervals` 미마스킹·과잉 마스킹, 상태 처리, 긴 문서, 동시성·타임아웃 확인
+3. **Step 1 버전 동결:** 코드 SHA·모델 revision·평가 분할·사후 보정 여부 기록 후 승인
+4. **Step 2 착수:** `mask_intervals` API를 실제 가명처리에 연결하고 필드 누락·검토·차단 상태에서 외부 전송 차단
+
+실제 운영 가능 여부는 F1만이 아니라 개인정보 유형별 미탐, 과잉 마스킹, 사용자 검토 비율, p95 지연시간 및 외부 전송 통제로 판단합니다. 어떤 미래 데이터에서도 탐지율 100% 또는 Strict F1 99%를 보장하지 않습니다.
 
 ---
 
-**AegisRAG**는 개인정보 탐지 정확도뿐 아니라 **후속 처리의 안전성, 재사용 가능한 모듈 구조, 검색 품질**을 함께 고려하는 개인정보 보호형 RAG 프로토타입 프로젝트입니다.
+**AegisRAG**는 탐지 성능과 보안 실패 처리, 문서 검색 품질을 함께 검증하는 개인정보 보호형 RAG 프로젝트입니다.

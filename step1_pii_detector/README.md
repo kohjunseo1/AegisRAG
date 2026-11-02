@@ -1,256 +1,225 @@
 # Step 1 — Hybrid PII Detector
 
-**A.X + Veil 기반 한국어 금융 문서 개인정보 탐지 모듈**
+**A.X + Veil 기반 한국어 금융 문서 개인정보 탐지 패키지**
 
-금융 문서에서 개인정보 구간(Span)과 유형을 식별하고, 라벨별 탐지 모델을 결합한 뒤 경계 오류 및 추론 실패를 보수적으로 처리하는 **재사용 가능한 Python 패키지**입니다.
+7개 개인정보 라벨에 대해 모델의 원본 문자열 구간(`[start, end)`)을 추출하고, 라벨별 라우팅·주소 경계 검증·실패 차단을 수행합니다. 추가 학습이나 모델 수 증가 없이 **범용 구조 후처리 두 개**를 적용하는 Core Structural Policy가 현재 feature branch의 detector API에 통합됐습니다. 오프라인 회귀와 mock 마스킹 검사는 통과했으며, 실제 모델 재추론은 수행하지 않았습니다.
 
-> **현재 단계:** 최종 탐지 로직 확정 · 재사용 가능한 패키지 및 회귀 검증 구성\
-> **범위:** PII 탐지·Span 검증·안전 상태 판정 (HMAC 가명 토큰 생성은 Step 2 담당)\
-> [← AegisRAG 전체 프로젝트](../README.md)
+> **현재 문서가 설명하는 feature branch (2026-11-02):** 기존 2-Encoder 동결 탐지기·주소 보정에 `structural_policy.py`, `mask_intervals` 응답 및 회귀 테스트가 통합됐습니다. 실제 모델 추론 기반 Official 평가와 Step 2 end-to-end 연동은 미검증입니다.<br>
+> **범위:** 탐지, 경계·상태 검증, 후속 가명처리용 보호 구간 API. HMAC 토큰 생성·Vault·RAG는 Step 2 담당.<br>
+> [← 전체 프로젝트 README](../README.md)
 
-## 1. Task & Data
+## 1. Task와 라벨 정의
 
-**입력:** 금융 문서 텍스트\
-**출력:** strict 개체 목록(`entities`), 보수적 마스킹 범위(`mask_intervals`), 처리 상태(`status`), 검토 이슈(`issues`)
+**입력:** 합성 금융 문서의 원문 텍스트<br>
+**출력:** `status`, Strict `entities` (`label`, `start`, `end`), 보수적 `mask_intervals` (`start`, `end`), `issues`, `policy_version`, `structural_policy_events`, 실행 메타데이터
 
-탐지 대상 라벨은 다음 **7종**입니다.
+| Label | 의미 | 담당 모델 |
+|---|---|---|
+| `person` | 완전한 개인 이름 | A.X |
+| `phone_number` | 정답 정책에 따라 포함되는 전화번호 | A.X |
+| `email` | 이메일 주소 | A.X |
+| `address` | 주소 및 정답 정책상 포함되는 우편번호 경계 | Veil |
+| `resident_registration_number` | 주민등록번호 | A.X |
+| `account_number` | 계좌번호 | A.X |
+| `card_number` | 카드번호 | A.X |
 
-| 라벨 | 예시 |
-|---|---|
-| `person` | 홍길동 |
-| `phone_number` | 010-1234-5678 |
-| `email` | user@example.com |
-| `address` | 서울특별시 강남구 … |
-| `resident_registration_number` | 합성 주민등록번호 |
-| `account_number` | 합성 계좌번호 |
-| `card_number` | 합성 카드번호 |
+조직명(`organization`)은 현재 구현의 평가 대상 7개 라벨에 포함되지 않습니다. 회사·대표번호·사내 내선과 같은 정보가 법적·업무상 민감하지 않다는 의미가 아니라 **해당 평가의 라벨 기준과 자동 Span 처리 범위를 구분**한다는 뜻입니다.
 
-평가는 합성 금융 문서의 **Official Test 200건**, **Official Holdout 187건**, 별도 Generated 검증 데이터 등으로 수행했습니다. 본 모듈은 상위 과제에서 언급된 8종 후보 중 `organization`을 포함하지 않는 **7라벨 구현**입니다.
-
-## 2. Final Architecture
+## 2. 아키텍처
 
 ```mermaid
 flowchart TD
-    A[입력 금융 문서] --> B[입력 길이·토큰 제약 검사]
-    B --> C[겹침 문맥을 가진 Window 분할]
-    C --> D[A.X · PyTorch 추론]
-    C --> E[Veil · FP32 ONNX CPU 추론]
-    D --> F[라벨별 결과 선택]
-    E --> F
-    F --> G[중복·중첩 처리 / 원문 Offset 복원]
-    G --> H[기존 우편번호 경계 검증·이름 접미부 검토]
-    H --> I{기존 안전 상태 판정}
-    I -->|READY 또는 REVIEW_REQUIRED 유지| J[성씨+직함·명시적 내선 Strict Span 정제]
-    J --> K[기존·정제 Span 합집합 mask_intervals]
-    K --> L[entities · mask_intervals · 기존 상태 반환]
-    I -->|오류·시간 초과| M[BLOCKED]
+  A[문서 입력·길이 및 토큰 제한 검사] --> B[중첩 문맥 Window 분할]
+  B --> C[A.X Torch, 6개 라벨]
+  B --> D[Veil FP32 ONNX, ADDRESS]
+  C --> E[동결 라벨별 결합·겹침 처리]
+  D --> E
+  E --> F[기존 validate_boundaries]
+  F --> G[Core Structural Policy 2규칙]
+  G --> H[Strict entities 및 보수적 mask_intervals]
+  H --> I{상태 판정}
+  I -->|READY| J[Step 2 가명처리 대기]
+  I -->|REVIEW_REQUIRED| K[검토·격리]
+  I -->|BLOCKED| L[작업 중단]
 ```
 
-### 2.1. Dual-Encoder & Label-wise Routing
+### 2.1. 고정 모델 및 결합
 
-두 토큰 분류 Encoder를 금융 개인정보 데이터에 맞춰 별도로 파인튜닝한 후 **고정된 라벨 담당 정책**으로 결합합니다.
+- A.X는 PyTorch, Veil은 FP32 ONNX Runtime(공식 BIOES 제약 디코더)으로 추론합니다.
+- 모델 주소·리비전은 `src/pii_detector/model_manifest.json`에 고정합니다. 비공개 가중치는 저장소에 없습니다.
+- 기존 `fuse_labelwise()`는 A.X의 6개 라벨과 Veil의 ADDRESS를 선택하며, 겹치는 후보는 중복 처리합니다.
+- Window별 오프셋을 원문 기준으로 복원합니다. 입력/Window/토큰 제한·모델 오류·타임아웃 시 `BLOCKED` 처리합니다.
+- Core Policy로 인해 두 모델을 추가 실행하거나 다시 파인튜닝하지 않습니다.
 
-| 담당 모델 | 처리 라벨 | 추론 경로 |
+### 2.2. 이미 구현된 조건부 경계 검증 — 그대로 유지
+
+현행 `detector.py`의 `validate_boundaries()`는 주소 시작 부분의 괄호형 5자리 우편번호 및 필드 단서가 있는 비괄호형 우편번호를 **주소 형태·음성 필드 단서·다른 Span과의 중첩을 검사**한 뒤 선택적으로 포함합니다. 후행 5자리 숫자나 이름 마지막 `이`가 모호한 경우에는 무조건 경계를 변경하지 않고 검토 이슈로 남깁니다.
+
+**주의:** V9에서 사용했던 단순한 `\(\d{5}\)` 주소 확장 규칙으로 이 코드를 교체하거나 이중 적용하지 않습니다. 실제 `validate_boundaries()`의 조건은 현재 GitHub 코드를 기준으로 유지해야 합니다.
+
+### 2.3. Core Structural Policy — 통합된 두 규칙
+
+다음 두 정책은 Gold 정답값이나 문서 ID를 조회하지 않고 일반적인 필드/표현 구조만 검사합니다.
+
+| Rule | 인식 조건 | Strict `entities` 처리 | 안전성 제약 |
+|---|---|---|---|
+| `standalone_surname_title` | 한 글자 단독 성씨 뒤에 공백+직함·호칭이 오는 경우 | 완전한 PERSON으로 간주한 후보만 제거 | 3~4글자 실명·공백 없는 직함·개행을 가로지르는 패턴은 일괄 제외하지 않음 |
+| `explicit_internal_extension` | `내선:`/`내선번호:`로 명시된 **2~6자리 짧은 숫자** | PHONE 후보에서 제외 | 대표번호·고객센터·하이픈 전화번호·긴 휴대전화는 제외하지 않음 |
+
+원문이 추가로 노출되지 않게, 제거된 Strict 후보도 **`mask_intervals`에서는 계속 보호**합니다. 이 두 규칙의 선택은 이미 본 Holdout 오류 유형을 참고했으므로 Holdout 개선 점수는 독립 블라인드 일반화 성능이 아닙니다.
+
+**기본 적용 제외:** V9의 경조사/친족 역할어 제거, 이름 마지막 `이` 절단, 시설명 기반 주소 제외, 단순 우편번호 주소 확장. 새로운 데이터에서 의미가 바뀔 수 있거나 기존 보수적 경계 검증과 충돌할 위험이 있습니다.
+
+### 2.4. 상태 및 Step 2 계약
+
+| 상태 | 의미 | 요구 사항 |
 |---|---|---|
-| **A.X** | `person`, `phone_number`, `email`, `resident_registration_number`, `account_number`, `card_number` | PyTorch · 가능한 환경에서는 GPU |
-| **Veil** | `address` | FP32 ONNX Runtime · CPU, 공식 제약 디코더 |
+| `READY_FOR_PSEUDONYMIZATION` | 탐지 단계 정상 종료 | 아직 외부 전송 금지. Step 2에서 가명처리·검증 필요 |
+| `REVIEW_REQUIRED` | 경계/충돌/검토 이슈 | 해결 전 외부 전송 금지 |
+| `BLOCKED` | 잘못된 입력, 오류, 제한 초과 등 | 처리 중지, 원문·예외 메시지 노출 금지 |
 
-- 두 모델이 산출한 Span을 Python 문자열 기준 **반열린 구간 `[start, end)`**으로 통일합니다.
-- 담당 라벨에 해당하지 않는 예측은 결합 과정에서 제외하고, 중복·중첩 후보를 정리합니다.
-- Hugging Face 모델은 `model_manifest.json`에 명시된 **고정 revision**을 사용합니다. 모델 가중치는 GitHub에 저장하지 않습니다.
-
-### 2.2. Boundary Validation & Long Documents
-
-- **우편번호 검증:** 주소 앞의 `(05299)` 같은 5자리 우편번호는 주변 문맥과 충돌 여부가 확인될 때에만 주소 Span에 포함합니다. 맥락이 불충분한 5자리 수나 후행 우편번호는 자동 확장하지 않고 검토 대상으로 표시합니다.
-- **이름 경계 검토:** `이슬`과 `이슬이`처럼 접미부인지 이름의 일부인지 불확실한 경우 원본 Span을 임의로 자르지 않고 `REVIEW_REQUIRED`로 처리합니다.
-- **긴 문서 처리:** 겹침 문맥 Window를 사용해 분할하고, 각 Window의 상대 Offset을 원문 위치로 복원합니다. 지정된 입력 길이·Window 상한을 초과하면 조용히 잘라내지 않고 차단합니다.
-
-### 2.3. Reliability & Fail-closed
-
-| 상태 | 의미 | 후속 처리 원칙 |
-|---|---|---|
-| `READY_FOR_PSEUDONYMIZATION` | 탐지 단계를 정상적으로 처리 | **Step 2 가명처리 필요**. 외부 전송을 의미하지 않음 |
-| `REVIEW_REQUIRED` | 경계·중첩 등 검토 필요 | 검토·재처리 전 외부 전송 금지 |
-| `BLOCKED` | 모델 오류, 시간 초과, 길이/토큰 제약 등 | 처리 중지 및 안전한 오류 반환 |
-
-요청 단위 Lock으로 공유 백엔드의 동시 재진입을 방지하고, 한 요청 내부에서는 A.X/Veil을 병렬 실행합니다. 내부 진단 로그는 원문 PII를 포함하지 않도록 설계했습니다.
-
-### 2.4. Minimal Structural Policy & Mask Contract
-
-기존 조건부 우편번호 보정과 이름 접미부 검토 뒤에 **두 개의 Strict Span 억제 규칙만** 적용합니다.
-
-1. `standalone_surname_title`: 공백 뒤에 직함이 붙은 한 글자 성씨만 PERSON `entities`에서 제외합니다. 완전한 이름, `김과장`처럼 공백 없는 문자열, 개행을 건너는 직함은 제외하지 않습니다.
-2. `explicit_internal_extension`: `내선:` 또는 `내선번호:`로 명시된 2~6자리 숫자만 PHONE `entities`에서 제외합니다. 일반 전화, 대표번호, 고객센터 번호, 하이픈 포함 내선 표기는 제외하지 않습니다.
-
-이 규칙은 기존 모델 예측·주소 검증·상태·issues를 바꾸지 않습니다. 정제된 `entities`는 Strict 평가용입니다. 실제 비식별화는 반드시 `mask_intervals`를 입력으로 사용해야 합니다. `mask_intervals`는 정제 전후 구간의 합집합이라 Strict `entities`에서 제외한 오탐 구간도 마스킹 범위로 유지합니다.
+현재 feature branch의 출력 계약:
 
 ```python
-result = detector.detect(text)
-if result["status"] == "READY_FOR_PSEUDONYMIZATION":
-    pseudonymize(text, result["mask_intervals"])
+{
+    "status": "READY_FOR_PSEUDONYMIZATION",
+    "entities": [{"label": "person", "start": 4, "end": 7}],
+    "mask_intervals": [{"start": 4, "end": 7}],
+    "issues": [],
+    "policy_version": "aegis_core_v1",
+    "structural_policy_events": [],
+}
 ```
 
-`REVIEW_REQUIRED`는 기존 review 경로로 보내고 `BLOCKED`는 후속 처리하지 않습니다. `mask_intervals`는 `{"start": int, "end": int}` 목록이며 원문 문자열이나 PII 값을 포함하지 않습니다. 정책 이벤트는 규칙명과 offset만 담습니다. 정책 오류는 기존 fail-closed 경로에서 `BLOCKED`가 됩니다.
+`entities`는 정확한 라벨·Span 평가와 구조화 처리를 위한 값입니다. `mask_intervals`는 **기존 `validate_boundaries()`를 거친 기준 구간과 정책 적용 후 구간의 합집합으로 관리하는 보수적 보호 범위**입니다. 이 둘은 같지 않을 수 있습니다. 정책으로 FP가 제거되더라도 실제 과잉 마스킹은 그대로 남을 수 있습니다.
 
-## 3. Experiments & Results
+**Step 2는 반드시 `mask_intervals`를 사용**해야 합니다. 실제 Step 2 호출부는 아직 구현되지 않았으며, mock pseudonymizer 테스트만으로 실제 통합이 검증된 것은 아닙니다. 필드 누락·검증 오류·`REVIEW_REQUIRED`·`BLOCKED`에서는 원문 외부 전송을 차단해야 합니다. 마스킹된 구간의 라벨/치환 값 매핑은 별도의 정합성 검증이 필요합니다.
 
-처음 사용한 **팀 RoBERTa 탐지기**를 기준선(Baseline)으로 삼고, 최종적으로 **A.X + Veil 라벨별 Hybrid**를 채택했습니다. 아래 수치는 모두 **Strict F1**(라벨·시작·끝 위치 완전 일치) 및 **Mask Recall**(정답 개인정보 중 예측 구간이 덮은 문자 비율) 기준입니다.
+## 3. 평가 설계와 결과
 
-### 3.1. 초기 RoBERTa vs 최종 Hybrid
+### 3.1. 데이터 분리
 
-| 평가셋 | 지표 | 초기 팀 RoBERTa | 최종 A.X + Veil Hybrid | 변화 |
-|---|---|---:|---:|---:|
-| **Generated Validation (195문서)** | **Strict F1** | 71.35% | **96.74%** | **+25.39%p** |
-| | **Mask Recall** | 95.74% | **99.46%** | **+3.72%p** |
-| **Official Test (200문서)** | **Strict F1** | **99.57%** | 99.23% | −0.34%p |
-| | **Mask Recall** | **100.00%** | 99.97% | −0.03%p |
+| 데이터 | 규모 | 사용 방식 |
+|---|---:|---|
+| Official Test | 200문서, Gold 1,165개체 | 초기 동결 성능 및 회귀 확인 |
+| Official Holdout | 187문서, Gold 912개체 | 최초 미확인 문서 성능 기록 후 오류 분석에 사용 |
+| Generated Validation | 195문서, Gold 502개체(원본 기준) | 개발/추가 오류 진단. 일부 합성 주석 일관성 검토 필요 |
 
-**해석:** 초기 RoBERTa는 Official Test에서 이미 높은 점수를 기록했지만, 별도 생성 검증셋에서는 Strict F1이 크게 낮았습니다. 최종 Hybrid는 생성 검증셋의 경계·라벨 일치율을 큰 폭으로 높였습니다. 반면 Official Test에서는 초기 RoBERTa가 소폭 더 높았습니다. 따라서 **모든 평가셋에서 최종 모델이 우수했다고 주장하지 않습니다.**
+Official Holdout은 **이미 오류를 분석했기 때문에 더 이상 완전 블라인드 평가셋이 아닙니다**. 제공된 Official Gold를 임의로 고쳐 점수를 높이지 않으며, Generated 데이터의 주석 오류 의심 사례도 근거 없이 평가에서 제외하지 않습니다.
 
-> 위 비교는 **프로젝트 초기 시스템과 최종 시스템의 성능 변화**입니다. 학습 데이터 구성과 모델 구조가 동일하게 통제된 단일 요인 Ablation은 아니므로, 개선 폭을 오직 Hybrid 결합만의 효과로 해석하지 않습니다. Generated Validation은 모델 선정 과정에서 사용된 개발성 검증셋으로, 독립 블라인드 평가가 아닙니다. 초기 RoBERTa 지표는 팀 내 기존 측정 기록에 기반하며, 해당 모델 체크포인트와 전체 원시 평가 로그는 현재 GitHub 저장소에 포함되어 있지 않습니다.
+### 3.2. 최초 동결 기준선
 
-### 3.2. 최종 Hybrid의 평가셋별 결과
+| 데이터 | TP | FP | FN | Strict F1 | Mask Recall |
+|---|---:|---:|---:|---:|---:|
+| Official Test | 1,161 | 14 | 4 | **99.2308%** | **99.9678%** |
+| Official Holdout | 905 | 35 | 7 | **97.7322%** | **99.4766%** |
 
-| 데이터셋 | 문서 수 | Strict Precision | Strict Recall | Strict F1 | Mask Recall | 완전 보호 문서 |
-|---|---:|---:|---:|---:|---:|---:|
-| **Official Test** | 200 | 98.81% | 99.66% | **99.23%** | **99.97%** | 197/200 |
-| **Official Holdout** | 187 | 96.28% | 99.23% | **97.73%** | **99.48%** | 182/187 |
+### 3.3. 저장된 05 예측의 오프라인 재채점
 
-이 표는 **우편번호 경계 보정 이전에 설정을 동결한 Hybrid 탐지기**의 동일 공식 채점기 측정값입니다. 모델을 개발하면서 확인한 평가 데이터의 성격과, 처음 보는 데이터에서의 일반화 성능은 구분합니다.
+| 처리 단계 / 평가 | Strict F1 | Mask Recall | TP / FP / FN | 해석 |
+|---|---:|---:|---|---|
+| 최초 동결 예측 · Test | 99.2308% | 99.9678% | 1,161 / 14 / 4 | 05 저장 예측 기준선 |
+| 최초 동결 예측 · Holdout | 97.7322% | 99.4766% | 905 / 35 / 7 | 첫 확인 당시 결과; 이후 오류 분석을 수행 |
+| 신규 두 규칙만 · Test | 99.3582% | 99.9678% | 1,161 / 11 / 4 | 저장 예측에 정책만 오프라인 적용 |
+| 신규 두 규칙만 · Holdout | 98.7991% | 99.4766% | 905 / 15 / 7 | 주소 검증 미적용, 사후 분석 |
+| 현재 저장소 주소 검증 + 신규 정책 · Test | 99.3582% | 99.9678% | 1,161 / 11 / 4 | 저장 예측 후처리; 실모델 `detect()` 재실행 아님 |
+| 현재 저장소 주소 검증 + 신규 정책 · Holdout | 99.3450% | 100.0000% | 910 / 10 / 2 | 저장 예측 후처리; 실모델 `detect()` 재실행 아님, 사후 분석 |
 
-### 3.3. 최종 경계 보정 효과 — 동일 Holdout 187문서
+이 재채점은 저장된 05 예측에 현행 `validate_boundaries()`와 정책 후처리를 실행한 결과입니다. 모델 backend를 다시 실행하지 않았으므로 **통합된 API의 실모델 성능 또는 최종 배포 점수로 해석하지 않습니다.** 두 규칙은 Test에서 FP 3개, Holdout에서 FP 20개를 Strict `entities`에서 제외했고, 이번 저장 예측 비교에서는 TP 제거가 없었습니다. Holdout은 이미 오류 분석에 사용한 사후 자료입니다.
 
-| 지표 | 최종 Hybrid (기본) | 최종 Hybrid + 조건부 우편번호 보정 | 변화 |
-|---|---:|---:|---:|
-| **Strict F1** | 97.73% | **98.27%** | **+0.54%p** |
-| **Mask Recall** | 99.48% | **100.00%** | **+0.52%p** |
-| **완전 보호 문서** | 182/187 | **187/187** | **+5문서** |
+기존 초기 팀 RoBERTa 비교 기록(Official Test F1 **99.57%** vs Hybrid **99.23%**; Generated F1 **71.35%** vs Hybrid **96.74%**)은 모델 구조와 학습 데이터가 동일한 일요인 실험이 아닙니다. 특정 데이터셋에서 Hybrid가 항상 우수했다고 해석하지 않습니다.
 
-**중요한 평가 조건:** 우편번호 경계 보정은 **Holdout 오류를 확인한 이후 작성**했습니다. 따라서 보정 후 수치는 이미 확인한 Holdout에 대한 **사후 개선 결과**이며, 독립 블라인드 평가 결과가 아닙니다. Official Test에서는 보정 적용 사례가 없어 동결된 Hybrid 점수와 동일했습니다. 완전 보호 문서 수는 해당 평가셋의 정답 개인정보 문자를 모두 덮은 문서 수를 의미하며, 실제 운영 환경의 유출 위험 0%를 보장하지 않습니다.
+### 3.4. 검증 상태와 남은 확인 사항
 
-### 3.4. 저장된 05 예측에 정책 적용한 오프라인 재채점
+- Core Policy 두 규칙과 응답 `entities`, `mask_intervals`, `policy_version`, `structural_policy_events`가 feature branch에 구현됐습니다.
+- 기본·경계·정책·mock 마스킹·오프라인 평가 테스트 **29개 통과, 외부 기준 노트북 parity 1개 skip**. Wheel 빌드와 모델 Manifest 포함을 확인했습니다.
+- 모델 재추론, 실제 HF 접근, CPU-only 성능, 실제 Step 2 호출부 연동은 수행하지 않았습니다. Official 재채점은 저장된 05 예측에 대한 오프라인 후처리로 제한됩니다.
+- 실모델 동일 revision 스모크 테스트와 통합 detector API 기반 Test/Holdout 평가는 아직 필요합니다. 따라서 신규 결과를 최종 배포 점수로 주장하지 않습니다.
 
-로컬 전용 평가 파일의 기존 **05 labelwise 예측**에 저장소의 우편번호 검증과 두 가지 구조 정책을 순서대로 적용했습니다. 아래 결과는 모델 재추론이 아닌 오프라인 후처리 비교입니다.
-
-| 평가셋 | 처리 단계 | Strict P | Strict R | Strict F1 | Mask Recall |
-|---|---|---:|---:|---:|---:|
-| Official Test (200건) | 저장된 예측 | 98.81% | 99.66% | 99.23% | 99.97% |
-| | 우편번호 검증 + 구조 정책 | **99.06%** | 99.66% | **99.36%** | 99.97% |
-| Official Holdout (187건) | 저장된 예측 | 96.28% | 99.23% | 97.73% | 99.48% |
-| | 우편번호 검증 | 96.81% | 99.78% | 98.27% | 100.00% |
-| | 우편번호 검증 + 구조 정책 | **98.91%** | 99.78% | **99.34%** | 100.00% |
-
-구조 정책은 Test에서 FP 3개, Holdout에서 FP 20개를 제외했고, 두 평가에서 TP 제거는 없었습니다. 주소 우편번호 보정 효과와 구조 정책 효과는 단계별 결과로 분리해 기록했습니다. Holdout은 오류 분석과 정책 검토에 사용된 사후 자료이므로 독립 블라인드 성능으로 볼 수 없습니다. 이번 변경으로 실제 모델 추론이나 외부 평가 데이터 공개를 수행하지 않았습니다.
-
-### 3.5. 오류 분석 및 운영 안정성 개선
-
-| 관찰한 문제 | 최종 설계에 반영한 내용 |
-|---|---|
-| 주소 앞 우편번호의 Span 누락 | 주소·우편번호 문맥과 인접 구간 충돌을 확인한 후 조건부 확장 |
-| 이름 끝 음절과 조사/접미부의 불확실한 경계 | 자동 삭제·확장 대신 `REVIEW_REQUIRED` 표시 |
-| 긴 문서 분할 시 문자 위치 손실 가능성 | 문맥 중첩 Window와 전역 Offset 복원 검증 |
-| 동시에 요청한 탐지 작업에서 공유 백엔드 충돌 | 요청 단위 Lock, 요청 내부 A.X/Veil 병렬 실행 |
-| 모델 오류·타임아웃 발생 시 부분 출력 사용 위험 | `BLOCKED`와 안전한 오류 코드 반환(Fail-closed) |
-
-### 3.6. 최종 패키지 검증 범위
-
-- 기존 회귀에 신규 정책·mock 마스킹·오프라인 채점기 검사를 더해 **29개 통과, 합성 parity 1개 skip**을 확인했습니다. 스킵은 외부 기준 노트북이 clone에 없어 발생합니다.
-- 보관한 원본 탐지기와 합성 입력에서 `status`, `issues`, 허용된 `entities` 변경, 우편번호 결과 및 mask union을 비교했습니다. 이것은 실제 모델 추론 parity가 아닙니다.
-- 이번 정책 브랜치의 실제 AX/Veil 추론은 실행하지 않았습니다. 대신 로컬 전용 검증 입력의 저장된 기존 05 예측을 오프라인 재채점했습니다. Test Strict F1은 0.99231에서 0.99358, Holdout은 기존 우편번호 검증 후 0.98272에서 0.99345로 바뀌었습니다. 두 평가에서 정책이 제거한 구간은 FP였고 TP 제거는 없었습니다.
-- Holdout은 정책 검토에 사용된 사후 자료이므로 독립 블라인드 성능이나 일반화 개선으로 해석하지 않습니다. Gold와 예측 파일은 Git에 포함하지 않습니다.
-- Python wheel 구성과 모델 Manifest 포함 여부를 점검했습니다. **팀원별 Private HF 권한, 설치 환경의 호환성, CPU-only 지연시간**은 해당 실행 환경에서 추가 확인이 필요합니다.
-
-## 4. Package Structure
+## 4. 코드 구조
 
 ```text
 step1_pii_detector/
 ├── README.md
-├── pyproject.toml                  # Python 3.10~3.12 및 의존성 정의
-├── .env.example                    # HF_TOKEN 예시 (비밀값 없음)
+├── STRUCTURAL_POLICY_VALIDATION.md
+├── .gitignore
+├── pyproject.toml
+├── .env.example
 ├── src/pii_detector/
-│   ├── __init__.py                 # 공개 API
-│   ├── detector.py                 # 최종 탐지 · 결합 · Window · 상태 판정
-│   ├── structural_policy.py        # 두 개의 Strict Span 규칙과 보수적 mask union
-│   ├── factory.py                  # create_detector() 및 환경 로드
-│   ├── loader.py                   # 고정 HF revision 다운로드
-│   ├── backends.py                 # A.X Torch / Veil ONNX 추론
-│   └── model_manifest.json         # 모델 주소 · revision · 라벨 라우팅
+│   ├── __init__.py
+│   ├── detector.py              # 동결 결합, 기존 경계, 상태·런타임 제어
+│   ├── backends.py              # A.X PyTorch, Veil ONNX
+│   ├── factory.py               # create_detector()
+│   ├── loader.py                # Private HF revision 다운로드
+│   ├── model_manifest.json      # 고정 모델/라벨 및 코드 해시
+│   └── structural_policy.py     # 두 구조 규칙과 mask interval union
 ├── tests/
-│   ├── test_detector_boundaries.py # Span 및 우편번호 경계
-│   ├── test_detector_runtime.py    # 타임아웃 · 요청 직렬화 · 안전 로그
-│   ├── test_structural_policy.py   # 성씨·직함 · 내선 · mask 보존 반례
-│   ├── test_offline_regression.py  # 저장 예측 채점 요약 검사
-│   └── test_detector_reference_parity.py # 보관된 원본 대비 합성 회귀
+│   ├── test_detector_boundaries.py
+│   ├── test_detector_runtime.py
+│   ├── test_detector_reference_parity.py
+│   ├── test_structural_policy.py
+│   └── test_offline_regression.py
 └── evaluation/
-    ├── run_compare.py             # Strict / Partial / Mask Recall 평가
-    └── offline_regression.py      # 저장 예측에 기존 우편번호·정책 재적용
+    ├── run_compare.py
+    └── offline_regression.py
 ```
 
-모든 Colab 실험 노트북·원시 데이터·중간 예측값을 배포 패키지에 포함하지는 않습니다. 실험 재현 자료는 개인정보·토큰·모델 접근권한을 검사한 후 별도 문서 또는 결과 요약으로 관리합니다.
+`model_manifest.json`에는 동결 원본 해시(`baseline_detector_module_sha256`), 현재 detector 코드 해시, 정책 모듈 해시, 정책 버전이 구분되어 기록됩니다. A.X/Veil 모델 revision은 변경하지 않았습니다.
 
-## 5. Installation & Usage
+## 5. 설치 및 실행
 
-**요구 환경:** Python `>=3.10,<3.13`, PyTorch, Transformers, ONNX Runtime. Private Hugging Face 모델 **2개**의 읽기 권한이 필요합니다.
+**요구 환경:** Python `>=3.10,<3.13`, PyTorch, Transformers, ONNX Runtime. Private Hugging Face 모델 2개에 대한 읽기 권한이 필요합니다.
 
 ```bash
 cd step1_pii_detector
 python -m pip install -e .
-cp .env.example .env
-# .env의 HF_TOKEN 값을 개인별 읽기 토큰으로 설정 (커밋 금지)
+# HF_TOKEN은 환경변수 또는 Git에서 제외된 .env에 보관
+python -m unittest discover -s tests -v
 ```
 
 ```python
 from pii_detector import create_detector
 
-detector = create_detector()  # 최초 실행 시 고정 revision 로딩 및 ONNX 준비
-try:
-    result = detector.detect("고객명: 홍길동, 연락처: 010-1234-5678")
+with create_detector() as detector:
+    result = detector.detect("성명: 홍길동, 연락처: 010-1234-5678")
     print(result["status"])
-    print(result["entities"])  # [{"label": ..., "start": ..., "end": ...}, ...]
-    print(result.get("mask_intervals", []))  # Step 2 비식별화 입력
+    print(result["entities"])
+    print(result["mask_intervals"])  # Step 2 비식별화 입력
     print(result["issues"])
-finally:
-    detector.close()
 ```
 
-첫 실행은 모델 다운로드와 Veil ONNX 준비가 필요합니다. 이후에는 같은 Detector 인스턴스를 재사용합니다. 모델 가중치와 HF 토큰은 GitHub에 포함되지 않습니다.
+`create_detector()`는 private repo를 읽고 최초 실행 시 모델 다운로드/Veil ONNX 준비가 필요합니다. 단위 테스트 성공은 실모델 추론·Official 평가 성공과 같지 않습니다. CPU-only 지연시간은 별도 측정이 필요합니다.
 
-### Tests
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-보관된 기준 노트북을 포함한 개발 환경에서는 합성 입력의 baseline parity도 실행됩니다. GitHub 패키지에서 노트북이 없어 해당 테스트가 skip될 수 있습니다. 이 테스트는 실제 모델 추론 비교가 아닙니다.
-
-공식 데이터 점수는 원본 05 저장 예측을 주고 명시적으로 실행합니다. Gold/예측 파일은 Git에 추가하지 마세요.
+Gold와 저장 예측 파일은 별도로 제공되는 로컬 평가 자료를 사용하고 Git에 커밋하지 않습니다. 저장된 05 예측을 다음 명령으로 재채점할 수 있으며, 이 명령은 모델 추론을 실행하지 않습니다.
 
 ```bash
 python -m evaluation.offline_regression \
   --dataset official_test \
-  --gold /absolute/path/pii_synth_finance_test.jsonl \
-  --pred /absolute/path/official_test_labelwise.jsonl \
-  --include-existing-postal \
-  --report /absolute/path/official_test_policy_summary.json
+  --gold /path/to/official_test.jsonl \
+  --pred /path/to/official_test_labelwise.jsonl \
+  --include-existing-postal
 
 python -m evaluation.offline_regression \
   --dataset official_holdout \
-  --gold /absolute/path/holdout_labeled.jsonl \
-  --pred /absolute/path/official_holdout_labelwise.jsonl \
-  --include-existing-postal \
-  --report /absolute/path/official_holdout_policy_summary.json
+  --gold /path/to/official_holdout.jsonl \
+  --pred /path/to/official_holdout_labelwise.jsonl \
+  --include-existing-postal
 ```
 
-보고서는 Strict P/R/F1, TP/FP/FN, 라벨별 오류 수, 실제 보수적 마스크의 미가림 문자, 정책 변경 수와 **모델 추론을 제외한 후처리 p50/p95**를 기록합니다. 기존 예측에 detector status가 저장되지 않은 경우 review 비율은 측정 불가로 표시합니다. Holdout은 기존 오류를 확인한 사후 자료이므로 개선값이 나와도 독립 일반화 성능으로 표현하지 않습니다.
+이 도구는 집계 점수만 출력하며 원문·문서 ID를 보고서에 기록하지 않습니다. 저장 예측에 detector 상태가 없어 review 비율은 측정할 수 없습니다.
 
-## 6. Limitations & Next Steps
+## 6. 릴리스 체크리스트와 Step 2 연결
 
-- **탐지율 100%를 보장하지 않습니다.** 상태가 `READY_FOR_PSEUDONYMIZATION`이라도 가명처리 전 원문을 외부로 전송해서는 안 됩니다.
-- `REVIEW_REQUIRED`나 `BLOCKED` 결과는 Step 2에 무조건 전달하지 말고 안전한 재처리·차단 경로로 분기해야 합니다.
-- Holdout 우편번호 개선값은 사후 분석 기반이며, **독립 블라인드 검증은 추가로 필요**합니다.
-- 과제 운영 조건에 명시된 **CPU-only 성능**은 혼합 GPU/CPU 검증과 구분해 측정해야 합니다.
-- 다음 단계는 **탐지 Span → 정규화 → 결정적 토큰 → Vault 분리 → 가명 문서 검색**으로 이어지는 Step 2 연계입니다.
+- [x] 두 Core Policy 규칙의 detector 통합 및 신규 경계·정책 단위 테스트
+- [x] `entities` / `mask_intervals` / `status` 계약과 mock 가명처리 검사
+- [x] 오프라인 테스트 29개 통과, 외부 원본 노트북 parity 1개 skip; wheel에 정책과 Manifest 포함
+- [ ] 고정 모델 revision 실모델 추론 및 통합 API 기준 Official Test/Holdout 평가
+- [ ] CPU-only 전체 지연시간, 검토 비율, 실제 마스킹 과잉/누락 평가
+- [ ] 실제 Step 2 코드에서 `mask_intervals` 기반 가명처리 및 외부 전송 차단 테스트
+- [ ] 코드 SHA·모델 revision·평가 분할·사후 분석 여부 기록 후 최종 승인·태그
+
+현재 구현/단위 검사 통과는 Step 1의 실모델 릴리스 검증이나 Step 2 통합 완료를 의미하지 않습니다. 실제 개인정보 원문을 외부 임베딩/LLM으로 전송하는 것은 별도의 안전성 검증 없이 허용하지 않습니다.
 
 ---
 
-**Step 1의 목표는 높은 F1 자체만이 아니라, 다음 단계에서 안전하게 소비할 수 있는 개인정보 Span과 명시적인 실패·검토 상태를 제공하는 것입니다.**
+Step 1의 목표는 한 평가셋의 F1을 최대로 만드는 데 그치지 않고, **설명 가능한 판단 규칙, 안정적인 탐지 API, 후속 가명처리 단계의 보안 계약**을 제공하는 것입니다.
