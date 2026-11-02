@@ -2,9 +2,9 @@
 
 **A.X + Veil 기반 한국어 금융 문서 개인정보 탐지 패키지**
 
-7개 개인정보 라벨에 대해 모델의 원본 문자열 구간(`[start, end)`)을 추출하고, 라벨별 라우팅·주소 경계 검증·실패 차단을 수행합니다. 추가 학습이나 모델 수 증가 없이 **범용 구조 후처리 두 개**를 적용하는 Core Structural Policy가 현재 feature branch의 detector API에 통합됐습니다. 오프라인 회귀와 mock 마스킹 검사는 통과했으며, 실제 모델 재추론은 수행하지 않았습니다.
+7개 개인정보 라벨에 대해 모델의 원본 문자열 구간(`[start, end)`)을 추출하고, 라벨별 라우팅·주소 경계 검증·실패 차단을 수행합니다. 추가 학습이나 모델 수 증가 없이 **범용 구조 후처리 두 개**를 적용하는 Core Structural Policy가 현재 `main` 브랜치의 detector API에 통합됐습니다. 오프라인 회귀와 mock 마스킹 검사는 통과했으며, 실제 모델 재추론은 수행하지 않았습니다.
 
-> **현재 문서가 설명하는 feature branch (2026-11-02):** 기존 2-Encoder 동결 탐지기·주소 보정에 `structural_policy.py`, `mask_intervals` 응답 및 회귀 테스트가 통합됐습니다. 실제 모델 추론 기반 Official 평가와 Step 2 end-to-end 연동은 미검증입니다.<br>
+> **현재 문서가 설명하는 `main` 브랜치 (2026-11-02):** 기존 2-Encoder 동결 탐지기·주소 보정에 `structural_policy.py`, `mask_intervals` 응답 및 회귀 테스트가 통합됐습니다. 실제 모델 추론 기반 Official 평가와 Step 2 end-to-end 연동은 미검증입니다.<br>
 > **범위:** 탐지, 경계·상태 검증, 후속 가명처리용 보호 구간 API. HMAC 토큰 생성·Vault·RAG는 Step 2 담당.<br>
 > [← 전체 프로젝트 README](../README.md)
 
@@ -78,7 +78,7 @@ flowchart TD
 | `REVIEW_REQUIRED` | 경계/충돌/검토 이슈 | 해결 전 외부 전송 금지 |
 | `BLOCKED` | 잘못된 입력, 오류, 제한 초과 등 | 처리 중지, 원문·예외 메시지 노출 금지 |
 
-현재 feature branch의 출력 계약:
+현재 `main` 브랜치의 출력 계약:
 
 ```python
 {
@@ -131,7 +131,7 @@ Official Holdout은 **이미 오류를 분석했기 때문에 더 이상 완전 
 
 ### 3.4. 검증 상태와 남은 확인 사항
 
-- Core Policy 두 규칙과 응답 `entities`, `mask_intervals`, `policy_version`, `structural_policy_events`가 feature branch에 구현됐습니다.
+- Core Policy 두 규칙과 응답 `entities`, `mask_intervals`, `policy_version`, `structural_policy_events`가 `main` 브랜치에 구현됐습니다.
 - 기본·경계·정책·mock 마스킹·오프라인 평가 테스트 **29개 통과, 외부 기준 노트북 parity 1개 skip**. Wheel 빌드와 모델 Manifest 포함을 확인했습니다.
 - 모델 재추론, 실제 HF 접근, CPU-only 성능, 실제 Step 2 호출부 연동은 수행하지 않았습니다. Official 재채점은 저장된 05 예측에 대한 오프라인 후처리로 제한됩니다.
 - 실모델 동일 revision 스모크 테스트와 통합 detector API 기반 Test/Holdout 평가는 아직 필요합니다. 따라서 신규 결과를 최종 배포 점수로 주장하지 않습니다.

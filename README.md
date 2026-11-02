@@ -4,9 +4,9 @@
 
 AegisRAG는 금융 문서 속 개인정보를 탐지하고 결정적으로 가명처리한 뒤, **원문 개인정보가 외부 임베딩·LLM API로 전달되지 않도록 제어하면서** 관련 문서를 검색하고 답변하는 RAG 시스템을 목표로 합니다.
 
-> **프로젝트:** 멋쟁이사자처럼 NLP 6기 · 클라비 기업 프로젝트<br>
+> **프로젝트:** 기업 프로젝트<br>
 > **개발 단계:** Step 1 개인정보 탐지 → Step 2 가명처리 기반 RAG → 통합 접근 통제·출력 보호<br>
-> **저장소 현황 (2026-11-02):** Step 1 A.X + Veil 탐지 패키지 구현. Core Structural Policy 2규칙과 `mask_intervals` API가 feature branch에 통합되어 오프라인 회귀를 통과했습니다. 실제 모델 재추론과 Step 2 연동은 미검증이며, Step 2 및 통합 서비스는 아직 구현되지 않았습니다.
+> **저장소 현황 (2026-11-02):** Step 1 A.X + Veil 탐지 패키지 구현. Core Structural Policy 2규칙과 `mask_intervals` API가 `main` 브랜치에 통합되어 오프라인 회귀를 통과했습니다. 실제 모델 재추론과 Step 2 연동은 미검증이며, Step 2 및 통합 서비스는 아직 구현되지 않았습니다.
 
 ## 1. 문제 정의
 
@@ -46,7 +46,7 @@ flowchart TD
 | 단계 | 주요 기능 | 코드 확인 상태 |
 |---|---|---|
 | **Step 1 · PII Detection** | A.X/Veil 백엔드, 라벨별 라우팅, 주소 경계 검증, 긴 문서 Window, 실패 차단, 평가기 | **구현** |
-| **Step 1 · Core Structural Policy** | 성씨 1글자+직함, 명시적 짧은 내선번호 Strict span 정제, 보수적 `mask_intervals` 계약 | **feature branch 통합 및 오프라인 회귀 완료; 실모델 검증 대기** |
+| **Step 1 · Core Structural Policy** | 성씨 1글자+직함, 명시적 짧은 내선번호 Strict span 정제, 보수적 `mask_intervals` 계약 | **`main` 브랜치 통합 및 오프라인 회귀 완료; 실모델 검증 대기** |
 | **Step 2 · Pseudonymization & RAG** | HMAC 기반 결정적 가명처리, Vault 분리, 가명 인덱스, 검색 평가 | **개발 예정** |
 | **Integrated Service** | 접근 통제, 제한적 복원, 출력 검증, End-to-End 안전성 테스트 | **개발 예정** |
 
@@ -60,7 +60,7 @@ Step 1 상세 구조, 설치법, 실험 재현 범위는 [Step 1 기술 문서](
 - **Veil**: `address` — FP32 ONNX Runtime/공식 디코더
 - 고정된 모델 리비전은 `step1_pii_detector/src/pii_detector/model_manifest.json`에서 관리
 - 공통 문자열 오프셋 `[start, end)`, 라벨별 결합, 중첩 제거, 조건부 주소/우편번호 경계 검증, 모호한 이름 경계 검토
-- feature branch에서 `standalone_surname_title` 및 `explicit_internal_extension`만 Strict `entities`에서 제외하며, 원래 후보도 `mask_intervals`에서 보호
+- `main` 브랜치에서 `standalone_surname_title` 및 `explicit_internal_extension`만 Strict `entities`에서 제외하며, 원래 후보도 `mask_intervals`에서 보호
 - 타임아웃·잘못된 입력·리소스 한도 초과 시 `BLOCKED`, 검토 필요 시 `REVIEW_REQUIRED`
 
 ### 성능 기록: 서로 다른 평가 단계 구분
@@ -80,7 +80,7 @@ Step 1 상세 구조, 설치법, 실험 재현 범위는 [Step 1 기술 문서](
 
 ## 5. 저장소 구조
 
-현재 feature branch 파일/폴더:
+현재 `main` 브랜치 파일/폴더:
 
 ```text
 AegisRAG/
@@ -111,7 +111,7 @@ AegisRAG/
         └── offline_regression.py
 ```
 
-`step2_pseudonymization/` 및 통합 서비스 디렉터리는 목표 구성으로서 아직 저장소에 없습니다. Core Policy는 feature branch에서 통합됐지만 PR은 Draft이며 실제 모델 및 Step 2 검증이 남아 있습니다.
+`step2_pseudonymization/` 및 통합 서비스 디렉터리는 목표 구성으로서 아직 저장소에 없습니다. Core Policy는 `main` 브랜치에 반영됐으며 실제 모델 및 Step 2 검증이 남아 있습니다.
 
 ## 6. 실행 방법
 
@@ -136,7 +136,7 @@ with create_detector() as detector:
 
 ## 7. Step 1 → Step 2 API 및 보안 계약
 
-feature branch의 탐지 결과는 다음 필드를 구분해 반환합니다.
+`main` 브랜치의 탐지 결과는 다음 필드를 구분해 반환합니다.
 
 - `entities`: 라벨과 경계가 정확한 **평가·구조화용** Span
 - `mask_intervals`: **실제 가명처리용** 보호 구간. 후처리로 제외된 Strict 후보의 원래 탐지 구간도 보존
