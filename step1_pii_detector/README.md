@@ -11,7 +11,7 @@
 ## 1. Task & Data
 
 **입력:** 금융 문서 텍스트\
-**출력:** 개인정보 개체의 `label`, `start`, `end`, 처리 상태(`status`), 검토 이슈(`issues`)
+**출력:** strict 개체 목록(`entities`), 보수적 마스킹 범위(`mask_intervals`), 처리 상태(`status`), 검토 이슈(`issues`)
 
 탐지 대상 라벨은 다음 **7종**입니다.
 
@@ -38,11 +38,12 @@ flowchart TD
     D --> F[라벨별 결과 선택]
     E --> F
     F --> G[중복·중첩 처리 / 원문 Offset 복원]
-    G --> H[우편번호 경계 검증·이름 접미부 검토]
-    H --> I{안전 상태 판정}
-    I -->|정상| J[READY_FOR_PSEUDONYMIZATION]
-    I -->|의심 구간| K[REVIEW_REQUIRED]
-    I -->|오류·시간 초과| L[BLOCKED]
+    G --> H[기존 우편번호 경계 검증·이름 접미부 검토]
+    H --> I{기존 안전 상태 판정}
+    I -->|READY 또는 REVIEW_REQUIRED 유지| J[성씨+직함·명시적 내선 Strict Span 정제]
+    J --> K[기존·정제 Span 합집합 mask_intervals]
+    K --> L[entities · mask_intervals · 기존 상태 반환]
+    I -->|오류·시간 초과| M[BLOCKED]
 ```
 
 ### 2.1. Dual-Encoder & Label-wise Routing
@@ -73,6 +74,23 @@ flowchart TD
 | `BLOCKED` | 모델 오류, 시간 초과, 길이/토큰 제약 등 | 처리 중지 및 안전한 오류 반환 |
 
 요청 단위 Lock으로 공유 백엔드의 동시 재진입을 방지하고, 한 요청 내부에서는 A.X/Veil을 병렬 실행합니다. 내부 진단 로그는 원문 PII를 포함하지 않도록 설계했습니다.
+
+### 2.4. Minimal Structural Policy & Mask Contract
+
+기존 조건부 우편번호 보정과 이름 접미부 검토 뒤에 **두 개의 Strict Span 억제 규칙만** 적용합니다.
+
+1. `standalone_surname_title`: 공백 뒤에 직함이 붙은 한 글자 성씨만 PERSON `entities`에서 제외합니다. 완전한 이름, `김과장`처럼 공백 없는 문자열, 개행을 건너는 직함은 제외하지 않습니다.
+2. `explicit_internal_extension`: `내선:` 또는 `내선번호:`로 명시된 2~6자리 숫자만 PHONE `entities`에서 제외합니다. 일반 전화, 대표번호, 고객센터 번호, 하이픈 포함 내선 표기는 제외하지 않습니다.
+
+이 규칙은 기존 모델 예측·주소 검증·상태·issues를 바꾸지 않습니다. 정제된 `entities`는 Strict 평가용입니다. 실제 비식별화는 반드시 `mask_intervals`를 입력으로 사용해야 합니다. `mask_intervals`는 정제 전후 구간의 합집합이라 Strict `entities`에서 제외한 오탐 구간도 마스킹 범위로 유지합니다.
+
+```python
+result = detector.detect(text)
+if result["status"] == "READY_FOR_PSEUDONYMIZATION":
+    pseudonymize(text, result["mask_intervals"])
+```
+
+`REVIEW_REQUIRED`는 기존 review 경로로 보내고 `BLOCKED`는 후속 처리하지 않습니다. `mask_intervals`는 `{"start": int, "end": int}` 목록이며 원문 문자열이나 PII 값을 포함하지 않습니다. 정책 이벤트는 규칙명과 offset만 담습니다. 정책 오류는 기존 fail-closed 경로에서 `BLOCKED`가 됩니다.
 
 ## 3. Experiments & Results
 
@@ -122,9 +140,10 @@ flowchart TD
 
 ### 3.5. 최종 패키지 검증 범위
 
-- 탐지기 코드·경계·런타임을 다루는 **기본 회귀 테스트 18개 통과**.
-- 보관한 원본 탐지기와 합성 입력에서 **Span·상태·이슈 일치**를 확인하는 패리티 테스트를 별도 구성했습니다. 원본 노트북이 없는 환경에서는 해당 테스트만 건너뜁니다.
-- 최종 검수 과정에서 실제 모델 기반 추론·안전성·동시성·긴 문서 처리를 확인했습니다. **오프라인 모의 백엔드 테스트와 실제 모델 추론 테스트는 서로 다른 검증**으로 취급합니다.
+- 기존 회귀 18개에 신규 정책·마스크 계약·오프라인 채점기 검사를 더해 현재 작업공간에서 **오프라인 테스트 30개 통과**했습니다. 외부 기준 노트북이 없는 clone에서는 합성 parity 1개가 skip됩니다.
+- 보관한 원본 탐지기와 합성 입력에서 `status`, `issues`, 허용된 `entities` 변경, 우편번호 결과 및 mask union을 비교했습니다. 이것은 실제 모델 추론 parity가 아닙니다.
+- 이번 정책 브랜치의 실제 AX/Veil 추론과 Official Test/Holdout 재채점은 아직 수행하지 않았습니다. 기존 점수는 이전 동결 버전 수치이며, 신규 두 규칙의 결합 점수로 인용하지 않습니다.
+- 신규 정책과 기존 우편번호 보정을 함께 적용한 Official Test/Holdout 결과는 아래 평가 스크립트로 **저장된 기존 05 예측 파일을 제공한 경우에만** 재현할 수 있습니다. 현재 GitHub에는 해당 예측 파일이 없으며, 이 브랜치의 성능 향상이나 Holdout 99%를 주장하지 않습니다.
 - Python wheel 구성과 모델 Manifest 포함 여부를 점검했습니다. **팀원별 Private HF 권한, 설치 환경의 호환성, CPU-only 지연시간**은 해당 실행 환경에서 추가 확인이 필요합니다.
 
 ## 4. Package Structure
@@ -137,6 +156,7 @@ step1_pii_detector/
 ├── src/pii_detector/
 │   ├── __init__.py                 # 공개 API
 │   ├── detector.py                 # 최종 탐지 · 결합 · Window · 상태 판정
+│   ├── structural_policy.py        # 두 개의 Strict Span 규칙과 보수적 mask union
 │   ├── factory.py                  # create_detector() 및 환경 로드
 │   ├── loader.py                   # 고정 HF revision 다운로드
 │   ├── backends.py                 # A.X Torch / Veil ONNX 추론
@@ -144,9 +164,12 @@ step1_pii_detector/
 ├── tests/
 │   ├── test_detector_boundaries.py # Span 및 우편번호 경계
 │   ├── test_detector_runtime.py    # 타임아웃 · 요청 직렬화 · 안전 로그
+│   ├── test_structural_policy.py   # 성씨·직함 · 내선 · mask 보존 반례
+│   ├── test_offline_regression.py  # 저장 예측 채점 요약 검사
 │   └── test_detector_reference_parity.py # 보관된 원본 대비 합성 회귀
 └── evaluation/
-    └── run_compare.py             # Strict / Partial / Mask Recall 평가
+    ├── run_compare.py             # Strict / Partial / Mask Recall 평가
+    └── offline_regression.py      # 저장 예측에 기존 우편번호·정책 재적용
 ```
 
 모든 Colab 실험 노트북·원시 데이터·중간 예측값을 배포 패키지에 포함하지는 않습니다. 실험 재현 자료는 개인정보·토큰·모델 접근권한을 검사한 후 별도 문서 또는 결과 요약으로 관리합니다.
@@ -170,6 +193,7 @@ try:
     result = detector.detect("고객명: 홍길동, 연락처: 010-1234-5678")
     print(result["status"])
     print(result["entities"])  # [{"label": ..., "start": ..., "end": ...}, ...]
+    print(result.get("mask_intervals", []))  # Step 2 비식별화 입력
     print(result["issues"])
 finally:
     detector.close()
@@ -183,7 +207,27 @@ finally:
 python -m unittest discover -s tests -v
 ```
 
-Reference parity 테스트는 저장소 바깥의 원본 검증 노트북(`../notebooks/06D_Final_Release_Validation_AutoDrive.ipynb`)이 있을 때 실행되고, 없으면 건너뜁니다. 실제 모델 성능 측정 없이 돌아가는 단위 테스트와 혼동하지 마세요.
+보관된 기준 노트북을 포함한 개발 환경에서는 합성 입력의 baseline parity도 실행됩니다. GitHub 패키지에서 노트북이 없어 해당 테스트가 skip될 수 있습니다. 이 테스트는 실제 모델 추론 비교가 아닙니다.
+
+공식 데이터 점수는 원본 05 저장 예측을 주고 명시적으로 실행합니다. Gold/예측 파일은 Git에 추가하지 마세요.
+
+```bash
+python -m evaluation.offline_regression \
+  --dataset official_test \
+  --gold /absolute/path/pii_synth_finance_test.jsonl \
+  --pred /absolute/path/official_test_labelwise.jsonl \
+  --include-existing-postal \
+  --report /absolute/path/official_test_policy_summary.json
+
+python -m evaluation.offline_regression \
+  --dataset official_holdout \
+  --gold /absolute/path/holdout_labeled.jsonl \
+  --pred /absolute/path/official_holdout_labelwise.jsonl \
+  --include-existing-postal \
+  --report /absolute/path/official_holdout_policy_summary.json
+```
+
+보고서는 Strict P/R/F1, TP/FP/FN, 라벨별 오류 수, 실제 보수적 마스크의 미가림 문자, 정책 변경 수와 **모델 추론을 제외한 후처리 p50/p95**를 기록합니다. 기존 예측에 detector status가 저장되지 않은 경우 review 비율은 측정 불가로 표시합니다. Holdout은 기존 오류를 확인한 사후 자료이므로 개선값이 나와도 독립 일반화 성능으로 표현하지 않습니다.
 
 ## 6. Limitations & Next Steps
 

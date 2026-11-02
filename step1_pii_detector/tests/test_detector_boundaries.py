@@ -48,6 +48,13 @@ class TestDetectorBoundaries(unittest.TestCase):
             out,_=validate_boundaries(t,[span(t,'서울특별시 강남구')])
             self.assertEqual(t[out[0]['start']:out[0]['end']], '서울특별시 강남구')
 
+    def test_five_digit_customer_number_is_not_a_postal_code(self):
+        for t, address in [('고객번호: 12345 서울특별시 강남구', '서울특별시 강남구'),
+                            ('접수번호: 12345 경기도 성남시', '경기도 성남시')]:
+            out,events=validate_boundaries(t,[span(t,address)])
+            self.assertEqual(t[out[0]['start']:out[0]['end']], address)
+            self.assertTrue(any(e['status']=='rejected_nonpostal_field' for e in events))
+
     def test_overlapping_postcode_candidate_not_added(self):
         t='배송지: (05299) 서울특별시 강남구'
         out,events=validate_boundaries(t,[span(t,'서울특별시 강남구'), span(t,'(05299)','phone_number')])

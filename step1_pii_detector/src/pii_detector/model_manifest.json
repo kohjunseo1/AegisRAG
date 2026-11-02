@@ -26,7 +26,7 @@
     "card_number": "ax"
   },
   "source_stage": "06D_FINAL_RELEASE_VALIDATION",
-  "detector_module_sha256": "c1ba75c57cae037927e6b048e733da66bb8e5d5644ebc57ce5c9d5155b62fe48",
+  "detector_module_sha256": "7068847cf7cd673acee07a48eeb80c79d012400a4ad710ee212590f8280abee0",
   "frozen_routing": {
     "person": "ax",
     "phone_number": "ax",
@@ -35,5 +35,8 @@
     "resident_registration_number": "ax",
     "account_number": "ax",
     "card_number": "ax"
-  }
+  },
+  "baseline_detector_module_sha256": "c1ba75c57cae037927e6b048e733da66bb8e5d5644ebc57ce5c9d5155b62fe48",
+  "structural_policy_sha256": "5cbd304e1a14fc2756c1b3d120a91a9a632214485fe4002d806e86183bb12872",
+  "policy_version": "aegis_core_v1"
 }

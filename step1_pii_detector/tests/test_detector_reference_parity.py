@@ -9,6 +9,7 @@ import zlib
 from pathlib import Path
 
 from pii_detector.detector import PIIDetector
+from pii_detector.structural_policy import mask_union
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_NOTEBOOK = ROOT.parent / "notebooks" / "06D_Final_Release_Validation_AutoDrive.ipynb"
@@ -46,7 +47,15 @@ def load_reference_detector():
 def synthetic_backends():
     def ax(text):
         spans = []
-        for label, value in (("person", "김민수"), ("phone_number", "010-1234-5678")):
+        values = [("person", "김민수"), ("phone_number", "010-1234-5678"),
+                  ("phone_number", "5854"), ("phone_number", "1588-0000")]
+        if text.startswith("김 과장"):
+            values.append(("person", "김"))
+        if text.startswith("이 팀장"):
+            values.append(("person", "이"))
+        if text.startswith("홍 부장"):
+            values.append(("person", "홍"))
+        for label, value in values:
             start = text.find(value)
             if start >= 0:
                 spans.append({"label": label, "start": start, "end": start + len(value)})
@@ -75,6 +84,14 @@ class TestReferenceDetectorParity(unittest.TestCase):
             "배송지: (05299) 서울특별시 강남구 한빛로 9, 2층",
             "고객 김민수의 연락처는 010-1234-5678입니다.",
             "주소: 05299 서울특별시 강남구 한빛로 9, 2층",
+            "김 과장님에게 연락",
+            "이 팀장은 회의 중",
+            "홍 부장 안내",
+            "김민수 과장님",
+            "김과장 연락",
+            "김\n과장님",
+            "내선: 5854",
+            "대표전화: 1588-0000",
             "일반 안내 문장입니다.",
         ]
         try:
@@ -82,8 +99,21 @@ class TestReferenceDetectorParity(unittest.TestCase):
                 with self.subTest(text=text):
                     left, right = original.detect(text), packaged.detect(text)
                     self.assertEqual(left["status"], right["status"])
-                    self.assertEqual(left["entities"], right["entities"])
                     self.assertEqual(left["issues"], right["issues"])
+                    self.assertEqual(left.get("review_required"), right["review_required"])
+                    baseline = {tuple(e[k] for k in ("label", "start", "end"))
+                                for e in left["entities"]}
+                    revised = {tuple(e[k] for k in ("label", "start", "end"))
+                               for e in right["entities"]}
+                    dropped = baseline - revised
+                    events = {(e["label"], e["start"], e["end"])
+                              for e in right["structural_policy_events"]}
+                    self.assertEqual(dropped, events)
+                    self.assertLessEqual(revised, baseline)
+                    self.assertEqual(right["mask_intervals"],
+                                     mask_union(left["entities"], right["entities"], text))
+                    self.assertEqual(left.get("postal_expansions"),
+                                     right["postal_expansions"])
         finally:
             original.close()
             packaged.close()

@@ -1,0 +1,5 @@
+# macOS archive metadata
+.DS_Store
+__MACOSX/
+**/__MACOSX/
+**/.DS_Store

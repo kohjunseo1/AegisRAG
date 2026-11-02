@@ -15,6 +15,7 @@ from pathlib import Path
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from typing import Callable
+from .structural_policy import POLICY_VERSION, mask_union, refine_spans
 
 LABELS = (
     'person','phone_number','email','address','resident_registration_number',
@@ -258,7 +259,9 @@ class PIIDetector:
             return self._blocked('invalid_input_type')
         if not text.strip():
             return {'status': 'READY_FOR_PSEUDONYMIZATION', 'entities': [],
-                    'review_required': False, 'issues': [], 'elapsed_ms': 0.0, 'windows': 0}
+                    'mask_intervals': [], 'policy_version': POLICY_VERSION,
+                    'structural_policy_events': [], 'review_required': False,
+                    'issues': [], 'elapsed_ms': 0.0, 'windows': 0}
         if len(text) > self.max_chars:
             return self._blocked('input_exceeds_max_chars')
         # Preserve single-pass behavior of the frozen benchmark for short documents.
@@ -292,7 +295,7 @@ class PIIDetector:
                 veil, wv = self._predict_all_windows(self.veil_predict, windows, text)
             stage = 'fusion_and_boundary_validation'
             hybrid, collision = fuse_labelwise(ax, veil)
-            entities, post_events = validate_boundaries(text, hybrid)
+            baseline_entities, post_events = validate_boundaries(text, hybrid)
             issues = wa + wv
             # no original PII strings in logs/results, only type and character offsets
             issues.extend({'code': x['status'], 'rule': x['rule'],
@@ -301,7 +304,7 @@ class PIIDetector:
             issues.extend({'code':'span_overlap_discarded', **x} for x in collision)
             # Protect genuinely ambiguous full-name/subject-particle boundaries.
             # Review only; the PII span is NOT silently expanded or shortened.
-            for e in entities:
+            for e in baseline_entities:
                 if e['label'] != 'person':
                     continue
                 a, b = int(e['start']), int(e['end'])
@@ -312,7 +315,14 @@ class PIIDetector:
                         issues.append({'code': 'possible_uncovered_name_suffix',
                                        'start': b, 'end': b+1})
             status = 'REVIEW_REQUIRED' if issues else 'READY_FOR_PSEUDONYMIZATION'
-            return {'status': status, 'entities': entities, 'review_required': bool(issues),
+            stage = 'structural_policy'
+            entities, policy_events = refine_spans(text, baseline_entities)
+            mask_intervals = mask_union(baseline_entities, entities, text)
+            return {'status': status, 'entities': entities,
+                    'mask_intervals': mask_intervals,
+                    'policy_version': POLICY_VERSION,
+                    'structural_policy_events': policy_events,
+                    'review_required': bool(issues),
                     'issues': issues, 'elapsed_ms': round((time.perf_counter()-t0)*1000,2),
                     'windows': len(windows),
                     'postal_expansions': sum(e['status'].startswith('applied_') for e in post_events)}

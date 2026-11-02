@@ -43,6 +43,8 @@ flowchart TD
 
 위 그림은 **목표 통합 아키텍처**입니다. 현재 저장소에서 구현이 확인된 부분은 Step 1이며, Step 2·통합 서비스는 진행에 따라 추가됩니다. 실제 외부 전송은 탐지 완료만으로 허용되지 않으며, 가명처리 완료와 안전 검증을 별도로 통과해야 합니다.
 
+Step 1은 Strict 평가용 `entities`와 기존 탐지 구간을 보존하는 `mask_intervals`를 별도로 반환합니다. Step 2 비식별화는 `entities`가 아니라 반드시 `mask_intervals`를 사용해야 합니다. `REVIEW_REQUIRED`는 검토 경로로 보내고 `BLOCKED` 결과는 후속 처리하지 않습니다.
+
 ## 3. Project Stages
 
 | 단계 | 핵심 태스크 | 주요 산출물 | 진행 상태 |
@@ -75,8 +77,8 @@ AegisRAG/
 ├── step1_pii_detector/           # 개인정보 탐지 패키지 [현재 구현]
 │   ├── README.md                 # 탐지 로직 · 성능 · 실행 방법
 │   ├── src/pii_detector/         # detector · 모델 백엔드 · 팩토리
-│   ├── tests/                    # 회귀 · 경계 · 런타임 안전성 검사
-│   ├── evaluation/               # 탐지 성능 채점
+│   ├── tests/                    # 회귀 · 경계 · 구조 정책 · 런타임 안전성 검사
+│   ├── evaluation/               # 탐지 성능 및 저장 예측 재채점
 │   └── pyproject.toml            # 설치 및 의존성 정의
 ├── step2_pseudonymization/       # 가명처리 / 검색 구현 [추후 추가]
 └── integrated_service/          # 인증 / 권한 / 출력 검증 [추후 추가]
