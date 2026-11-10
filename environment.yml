@@ -1,0 +1,9 @@
+name: aegisrag-baseline
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11.13
+  - pip
+  - pip:
+      - -r requirements.lock
+      - -e ./step1_pii_detector

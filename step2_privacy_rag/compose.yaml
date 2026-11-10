@@ -1,0 +1,30 @@
+name: aegisrag-step2
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: ${POSTGRES_DB:-pii_rag}
+      RAG_PASSWORD: ${RAG_PASSWORD:?required}
+      RAG_READONLY_PASSWORD: ${RAG_READONLY_PASSWORD:?required}
+      VAULT_PASSWORD: ${VAULT_PASSWORD:?required}
+      EMBED_DIM: ${EMBED_DIM:-1024}
+
+    ports:
+      - "127.0.0.1:5433:5432"
+
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-pii_rag}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  pgdata:

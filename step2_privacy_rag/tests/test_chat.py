@@ -1,0 +1,91 @@
+"""Offline regression tests for the V6 live HCX E2E bridge."""
+import unittest
+from unittest.mock import MagicMock, patch
+from core import order_results, PreparedQuery
+from hcx import (validate_response, validate_outbound, redact_residual_pii,
+                 OutboundError)
+from app import respond
+
+TK='<PERSON_' + 'a'*24 + '>'
+
+class TestE2EContract(unittest.TestCase):
+    def setUp(self):
+        self.docs=[dict(doc_id='H%04d'%i, text='안전교육은 매주 수요일입니다.',
+                        tokens=[], region_keys=[], dense_rank=i,
+                        hmac_matches=0, region_matches=0,
+                        verified_region_match=None) for i in range(1,6)]
+
+    def test_ranking_preserved(self):
+        rows=[dict(doc_id='A',tokens=[],region_keys=[],dense_rank=1),
+              dict(doc_id='B',tokens=[TK],region_keys=[],dense_rank=2)]
+        self.assertEqual(order_results(rows,{TK},set())[0]['doc_id'],'B')
+
+    def test_redact_doc_preserve_hmac(self):
+        text='고객 '+TK+' 연락처: 010-1234-5678; mail person@example.com'
+        red,counts=redact_residual_pii(text)
+        self.assertIn(TK,red)
+        self.assertNotIn('010-1234-5678',red)
+        self.assertNotIn('person@example.com',red)
+        self.assertEqual(counts['phone'],1)
+        self.assertEqual(counts['email'],1)
+
+    def test_document_redaction_not_total_block(self):
+        self.docs[1]['text']='문의 010-1234-5678 / '+TK
+        q,docs,counts=validate_outbound('경조사 공지 알려줘',self.docs)
+        self.assertEqual(len(docs),5)
+        self.assertIn(TK,docs[1]['text'])
+        self.assertIn('[REDACTED_PHONE]',docs[1]['text'])
+        self.assertEqual(counts['phone'],1)
+
+    def test_unmasked_query_not_sent(self):
+        with self.assertRaisesRegex(OutboundError,'QUERY_RESIDUAL_PII_REQUIRES_REVIEW'):
+            validate_outbound('010-1234-5678 누구?',self.docs)
+
+    def test_long_doc_is_bounded_excerpt(self):
+        self.docs[0]['text']='교육 안내 '*1000
+        _,docs,counts=validate_outbound('교육 안내',self.docs)
+        self.assertLessEqual(len(docs[0]['text']),1500)
+        self.assertEqual(counts['clipped_documents'],1)
+
+    def test_hcx_answer_valid(self):
+        result=validate_response({'decision':'ANSWER','answer':'수요일','citations':['H0001']},self.docs,False)
+        self.assertEqual(result['decision'],'ANSWER')
+
+    def test_unsupported_citation_blocked(self):
+        with self.assertRaisesRegex(OutboundError,'UNSUPPORTED_CITATION_ID'):
+            validate_response({'decision':'ANSWER','answer':'답','citations':['H9999']},self.docs,False)
+
+    def test_clarify_fallback(self):
+        result=validate_response({'decision':'CLARIFY','answer':'','citations':[]},self.docs,False)
+        self.assertTrue(result['answer'].endswith('?'))
+
+    def test_insufficient(self):
+        result=validate_response({'decision':'INSUFFICIENT_EVIDENCE','answer':'','citations':[]},self.docs,False)
+        self.assertFalse(result['citations'])
+
+    def test_region_mismatch_fails(self):
+        with self.assertRaisesRegex(OutboundError,'REGION_MISMATCH_CITATION'):
+            validate_response({'decision':'ANSWER','answer':'답','citations':['H0001']},self.docs,True)
+
+    @patch('app.call_hcx')
+    def test_live_chat_auto_hcx(self, mock_call):
+        pl=MagicMock()
+        pl.root='.'
+        pl.ask_local.return_value=('READY',PreparedQuery('안전교육 알려줘',set(),set()),self.docs)
+        mock_call.return_value=({'decision':'ANSWER','answer':'수요일입니다.','citations':['H0001']},
+                                {'prompt_tokens':100,'completion_tokens':20},
+                                {'email':0,'phone':0,'id_number':0,'clipped_documents':0})
+        result=respond(pl,{'question':'안전교육 알려줘'})
+        self.assertEqual(result['decision'],'ANSWER')
+        self.assertEqual(result['mode'],'hcx')
+        mock_call.assert_called_once()
+
+    @patch('app.call_hcx')
+    def test_review_never_calls_hcx(self,mock_call):
+        pl=MagicMock()
+        pl.ask_local.return_value=('REVIEW_REQUIRED',None,[])
+        result=respond(pl,{'question':'검토 질의'})
+        self.assertEqual(result['decision'],'REVIEW_REQUIRED')
+        mock_call.assert_not_called()
+
+if __name__=='__main__':unittest.main()

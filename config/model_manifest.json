@@ -1,0 +1,18 @@
+{
+  "koe5": {
+    "repo": "nlpai-lab/KoE5",
+    "revision": "237b580aea358e3042fcf5baf78124c33c3afd16",
+    "dimension": 1024,
+    "max_seq_length": 512,
+    "query_prefix": "query: ",
+    "passage_prefix": "passage: ",
+    "normalize_embeddings": true
+  },
+  "hcx": {
+    "model": "HCX-007",
+    "temperature": 0,
+    "reasoning_effort": "none",
+    "max_completion_tokens": 1024
+  },
+  "step1_manifest": "step1_pii_detector/src/pii_detector/model_manifest.json"
+}

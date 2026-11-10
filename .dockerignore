@@ -1,0 +1,26 @@
+**/.env
+**/.env.*
+**/local_eval/
+**/*_private/
+**/private/
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/
+**/*.dump
+**/*.sql.gz
+**/*.safetensors
+**/*.onnx*
+**/*.bin
+**/*.pt
+**/*.pth
+**/*.pem
+**/*.key
+.git/
+.vscode/
+.cache/
+CODEX.md
+.venv/
+venv/
+
+# Database dump exports
+*.sql

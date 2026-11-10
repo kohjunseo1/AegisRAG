@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>AegisRAG · 문서 상담</title><link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script></head>
+<body>
+<div class="layout">
+<aside class="sidebar">
+  <div class="brand"><span class="brandmark">A</span><div><strong>AegisRAG</strong><small>Privacy-aware RAG</small></div></div>
+  <button id="reset" class="newchat" type="button">＋ 화면 비우기</button>
+  <section class="sidebar-section"><h2>문서 상담</h2><div class="feature">근거를 확인하며 답변합니다</div><div class="feature">각 질문은 독립적으로 처리됩니다</div></section>
+  <section class="sidebar-section"><h2>질문 예시</h2><button class="sample" type="button">경조사 관련 공지 알려줘</button><button class="sample" type="button">최근 복리후생 공지 찾아줘</button><button class="sample" type="button">출장비 신청 절차 알려줘</button></section>
+  <div class="footer-note">이 화면의 대화는 서버에 저장하지 않습니다.<br>이전 질문의 내용을 기억하지 않습니다.</div>
+</aside>
+<section class="right">
+  <header><div class="header-title"><strong>문서 기반 AI 챗봇</strong><span>보호된 문서에서 찾는 업무 안내</span></div><span class="pill" id="mode-pill">문서 상담</span></header>
+  <div class="chat" id="chat">
+    <div class="welcome" id="welcome"><div class="logo">A</div><h1>어떤 문서를 찾아드릴까요?</h1><p>업무 문서에서 필요한 정보를 찾아드립니다.</p><div class="hint">질문과 관련된 근거를 확인하고 답변합니다. 정보가 부족하거나 보호 검토가 필요하면 안내해 드립니다.</div></div>
+    <div id="thread" role="log" aria-live="polite" aria-relevant="additions"></div>
+  </div>
+  <div class="composer-wrap">
+    <div class="composer"><textarea id="question" rows="2" maxlength="1000" placeholder="질문을 입력하세요. 예: 경조사에 대해서 알려줘"></textarea><button type="button" id="send">전송</button></div>
+    <div class="composer-caption"><span>Enter 전송 · Shift+Enter 줄바꿈</span><span id="status">서버 연결 확인 중…</span></div>
+  </div>
+</section>
+</div>
+</body></html>
