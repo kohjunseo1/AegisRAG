@@ -136,3 +136,9 @@ Hit@5는 적어도 하나의 정답을 찾은 질의 비율이고 Recall@5는 �
 - 실제 단일 CLI로 챗봇 시작→health→UI 정적 파일 확인을 완료했습니다(검증 포트 18768, 안내 기본 URL은 8768).
 
 - 실제 합성 자유 질의 E2E(질의 A.X/Veil→Gate→공개 fixture DB→HCX→인용)도 ANSWER로 통과했습니다. CPU 새 프로세스 1회 계측: Step1 25,235.97ms, 질의 embedding 7,118.43ms, DB 33.06ms, rerank 0.04ms, HCX 1,207.73ms, total 33,595.31ms. 모델 초기 로딩을 포함한 한 번의 관측이며 p50/p95나 운영 지연이 아닙니다. 주요 비용은 Step1/KoE5 로딩·추론이고 DB 재정렬 비용은 작았습니다. 캐싱/병렬화 정책은 바꾸지 않았습니다.
+
+- `git clone --no-local --single-branch --branch main`으로 도구 캡처 ref와 object 저장소 복사 최적화를 제외한 새 clone을 만들었습니다. clone에 `.env`/local_eval이 없음을 확인했고, 잠금 의존성·Step1 편집 설치·pip check·동일 회귀·공개 smoke를 통과했습니다. clone의 **모든 ref** 보안 검사도 민감 경로/토큰 패턴 0건입니다. 원래 작업 저장소에서는 현재 `.env`의 비밀값 8개도 대조 검사했습니다.
+- 기존 V6 테이블 행 수 177 및 전체 행 지문은 검증 전후 동일했습니다.
+
+- `.env`가 없는 새 clone에서도 별도 환경 파일의 개인 HF 권한으로 실제 A.X/Veil→고정 KoE5→독립 PGVector 적재/검색/멱등 검증 및 HCX mock을 통과했습니다.
+- 검증용으로 새로 만든 Docker 컨테이너/익명 볼륨과 임시 비밀 환경 파일만 정리했습니다. 원래 팀 DB 컨테이너/볼륨은 유지했습니다.
