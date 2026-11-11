@@ -52,7 +52,26 @@
 3. cold 1회 + warm 최소 20회, 일반/이름/주소/번호/REVIEW 합성 질의 및 허가된 비공개 회귀 세트. CPU, 프로세스 조건, 메모리(RSS), `step1_ms`, `embedding_ms`, `db_ms`, `hcx_ms`, `total_ms` 구분.
 4. **채택 조건:** 출력 상태·보호 구간·가명 토큰·문서 검색 순위·Step1 테스트·V6 baseline이 같고, 실제 warm p50/p95 개선 및 메모리 사용량이 수용 가능할 것. 속도 개선 수치는 측정 뒤 기록.
 
-**현재 상태:** 실험 미실행 / 코드 변경 없음.
+**현재 상태:** **후보 구현 완료, 실제 모델/DB 측정 전**. 실험 브랜치 `perf/l001-step1-detector-reuse`에서만 `--reuse-step1`을 활성화할 수 있고, 기본 실행 경로는 기존처럼 매 요청 생성·종료합니다.
+
+- 변경: `LivePipeline`에 opt-in 탐지기 재사용·명시적 종료, 생성/모델 로딩(`step1_init_ms`)과 Step1 탐지+Gate+가명처리(`step1_process_ms`) 분리 계측, 예외 시 재사용 중단을 추가했습니다. **탐지 추론만의 시간과 Gate 시간은 아직 분리되지 않았습니다.**
+- 회귀: 합성 탐지기에서 동일 처리/REVIEW 유지/종료/예외 후 자동 재시도 금지 테스트 추가. 실제 A.X·Veil, 비공개 문서, Mac 16GB 메모리 영향은 별도 실측 필요.
+- 독립 프로세스로 비교(기존 DB 읽기 전용, **HCX 미호출**):
+
+```bash
+# 실험 브랜치 checkout 후 가벼운 사전 점검
+python scripts/benchmark_step1_reuse.py --mode baseline --runs 3 --device cpu
+python scripts/benchmark_step1_reuse.py --mode reuse --runs 5 --device cpu
+
+# 메모리가 안정적일 때 반복 실험 확대
+python scripts/benchmark_step1_reuse.py --mode reuse --runs 20 --device cpu
+
+# 실험용 로컬 챗봇은 명시적 opt-in
+AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
+python scripts/aegisrag.py run-chat --device cpu --port 8768 --reuse-step1
+```
+
+실행 결과의 단계별 p50/p95와 peak RSS 및 실제 검색 기준선 재현을 확인한 뒤 채택/폐기를 결정합니다. Mac에서 두 모델과 KoE5 동시 상주가 메모리 압박을 유발하면 즉시 baseline 모드로 복귀합니다.
 
 ---
 
