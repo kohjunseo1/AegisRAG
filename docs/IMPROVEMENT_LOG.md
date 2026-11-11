@@ -137,6 +137,41 @@ PYTHONPATH=step1_pii_detector:step1_pii_detector/src python -m unittest discover
 
 ---
 
+## L-002 · 2026-11-11 · 모델 Preloading 실험 (구현·CI 검증 완료 / Mac 실측 전)
+
+**문제:** L-001 warm 평균 444.9ms(p95 504.0ms)까지 개선했지만, 첫 질의는 Step1 및 KoE5 초기화로 약 35.98초 소요. 서비스가 준비된 후 첫 사용자의 대기시간을 줄여야 함.
+
+**가설:** 서버가 HTTP 요청을 받기 전에 A.X·Veil과 KoE5를 로딩하고 **비민감 공개형 합성 문장으로 1회 추론 워밍업**하면 첫 사용자의 질의 처리시간이 기존 warm 처리에 근접할 것. 서버 시작 → 최초 답변의 총시간은 크게 단축되지 않을 수 있음.
+
+**변경 후보 (별도 브랜치 `perf/l002-preload-models`):**
+- `LivePipeline.preload_models()`: L-001의 Step1 재사용 옵션을 전제하고 Step1 보호 파이프라인 + KoE5 임베딩을 로컬에서 워밍업. DB/HCX/비공개 문서에는 접근하지 않음. 중복 호출은 추가 로딩 없이 유지.
+- `run-chat --reuse-step1 --preload`: 워밍업이 성공한 다음에만 HTTP 서버를 생성하고 `READY` 출력. 워밍업 실패는 안전 코드로 차단, 서버 바인딩 없음.
+- `scripts/benchmark_preload.py`: 독립 프로세스에서 `lazy` 대 `preload` 비교. `ready_after_ms`, `first_request_ms`, `startup_through_first_ms`, warm p50/p95, 최대 RSS 및 Top-5 서명 보고. 실험 시 HCX 호출·DB 쓰기 없음.
+- 기존 `check_step1_reuse_parity.py`에 `--mode preload` 추가하여 L-001에서 수집한 기준 지문과 동일한 12개 개인질의 상태·가명처리 결과를 비교할 수 있도록 함.
+
+**CI/합성 테스트:** 7가지 신규 테스트(사전로딩 성공·중복 호출·REVIEW·인코딩 오류·HTTP 바인딩 순서·시작 실패·CLI 옵션 결합) 및 기존 회귀 테스트. 비공개 모델/DB 기반의 실제 성능 개선은 CI에서 측정 불가.
+
+**Mac 확인 절차 (별도 프로세스 실행, HCX 미호출):**
+
+```bash
+# 활성 Conda 환경: 기존에 정상 실행한 aegisrag-retrieval
+python scripts/benchmark_preload.py --mode lazy --runs 5 --device cpu
+python scripts/benchmark_preload.py --mode preload --runs 5 --device cpu
+
+# L-001에서 저장한 기준 지문과 새 preloading 처리 결과 동등성
+python scripts/check_step1_reuse_parity.py --mode preload --limit 12 \
+  --out step2_privacy_rag/local_eval/l002_preload.json
+python scripts/check_step1_reuse_parity.py --compare \
+  --baseline step2_privacy_rag/local_eval/l001_baseline.json \
+  --reuse step2_privacy_rag/local_eval/l002_preload.json
+```
+
+**채택 조건:** 기존 12개 유형의 상태·마스킹·HMAC·Region 비교 지문 12/12 일치, 같은 일반 질문의 Top-5 순위 서명 동일, warm 성능 악화 없음, 첫 요청 대기시간의 실질적 감소, 16GB Mac에서 허용 가능한 메모리·서버 시작 안정성, 합성 회귀 성공. 성능 확인 전 **`main` 미병합, 서비스 기본값 변경 없음**.
+
+**운영 주의:** 모델 사전로딩은 외부 HCX 안전 인증을 의미하지 않음. 실제 서비스는 기존 외부 전송 승인 조건을 그대로 따르며, 준비 상태는 모델 워밍업 성공을 뜻할 뿐 DB의 현재 연결·내용 검증까지 포함하지 않음.
+
+---
+
 ## 후속 개선 백로그 (착수 전)
 
 | 순서 | 영역 | 핵심 검증 |
