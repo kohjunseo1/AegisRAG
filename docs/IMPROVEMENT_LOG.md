@@ -214,7 +214,16 @@ python scripts/diagnose_review_q001.py --ids \
 
 **후속 설계:** 진단 결과를 바탕으로 Dev/합성 데이터에 '이'가 (a) 실제 이름의 마지막 글자인 사례, (b) 주격 조사인 사례, (c) 역할/직책 연결, (d) 정보 상충, (e) 문서 내 복수 동일 표기 인물 등을 포함하고, 보호 구간 recall·오보호 길이·잘못된 동일인 연결·자동 승인율을 동시에 검증. **Holdout을 임계값 선택/규칙 튜닝용으로 사용하지 않음.** 기존 V6 인덱스 및 HMAC 규격은 계속 고정.
 
-**상태:** 진단 도구 후보 구현. 실제 문서 세부 증거 집계 및 신규 정책 채택 전. 자동 처리율·Mask Recall 개선값 미측정.
+**1차 실제 진단(10문서, 민감 원문 제외):** 7문서 `possible_uncovered_name_suffix`는 각각 마스킹 후보 **1글자 추가**를 제안했으나, 모두 `AMBIGUOUS_PROTECT_ONLY`로 확실한 인물 경계 증거가 없음. 2문서 `review_only`는 신규 보호 글자 **0개**이지만 이름의 마지막 `이` 경계가 여전히 모호함. 9건 전체 자동 처리 승격은 **0건(미구현)**, 정책 성능 개선 수치 미측정.
+
+- H0091은 Step1 READY이나 Gate `unresolved_veil_person`으로 보류. 별도 분류에서는 `kinship_bereavement_word` 사유가 확인됐지만 Gate 정책 카운터는 `ambiguous:1`. `IGNORE_EXTRA_CANDIDATE` 분류는 기존 strict PII 또는 A.X 주소 후보와 충돌할 경우 무효화되므로 충돌의 원인을 재진단해야 함.
+- 진단 스크립트에 후보의 `strict_entity_overlap`, `ax_address_overlap`, `ignore_candidate_vetoed` **개수만** 기록하도록 추가(민감 텍스트·오프셋 출력 없음).
+- H0091만 재진단:
+  `python scripts/diagnose_review_q001.py --ids H0091`
+
+**다음 정책 시도:** 이름 경계는 추가 보호 자체와 동일 인물 HMAC 연동을 분리하고, 반례를 포함한 합성/Dev 테스트로 보호 범위 누락·과보호·잘못된 연결 여부를 확인. Gate 충돌은 안전한 이유가 확인되기 전 REVIEW를 유지. 문서별 임시 예외 또는 Holdout 특정 사례에만 맞춘 규칙은 채택하지 않음.
+
+**상태:** 원인 분류 및 추가 충돌 진단 구현 완료 / 모델 정책 미변경·실제 처리율 개선 미검증.
 
 ---
 
