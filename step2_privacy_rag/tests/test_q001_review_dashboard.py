@@ -51,6 +51,7 @@ class ReviewRecordContracts(unittest.TestCase):
                             fake_case())
 
     def test_local_private_journal_permissions(self):
+        m.LOCAL.mkdir(parents=True, exist_ok=True)
         with TemporaryDirectory(dir=m.LOCAL) as directory:
             out = Path(directory) / "reviews.jsonl"
             record = m.review_record({"id":"SYNTH001","candidate":1,"choice":"UNRESOLVED"},
