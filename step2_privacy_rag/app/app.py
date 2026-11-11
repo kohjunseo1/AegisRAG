@@ -160,8 +160,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--device', choices=['cpu', 'mps', 'auto'], default='cpu')
     ap.add_argument('--port', type=int, default=8767)
-    ap.add_argument('--reuse-step1', action='store_true', help='opt-in persistent A.X/Veil detector (compare memory and latency before adoption)')
-    ap.add_argument('--preload', action='store_true', help='warm Step1 and KoE5 before accepting HTTP requests; requires --reuse-step1')
+    ap.add_argument('--reuse-step1', action=argparse.BooleanOptionalAction, default=True,
+                    help='reuse A.X/Veil across requests (default: enabled)')
+    ap.add_argument('--preload', action=argparse.BooleanOptionalAction, default=True,
+                    help='warm Step1 and KoE5 before accepting HTTP requests (default: enabled)')
     args = ap.parse_args()
     if not 1024 <= args.port <= 65535:
         ap.error('port must be between 1024 and 65535')
