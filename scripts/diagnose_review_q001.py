@@ -26,7 +26,7 @@ def summarize(doc_id: str, source: str, detector) -> dict:
     from name_protection_policy import decide
     from name_protection_handoff import _FrozenDetectorView
     from privacy_gate import check_privacy_gate
-    from gate_validation import check_spans, merge_masks, covered, find_safe_name_merges
+    from gate_validation import check_spans, merge_masks, covered, overlaps, find_safe_name_merges
     from veil_person_policy import classify_veil_only_person
 
     result = detector.detect(source)
@@ -66,6 +66,24 @@ def summarize(doc_id: str, source: str, detector) -> dict:
         missing = [e for e in veil_person if not covered(e, expanded)]
         decisions = [classify_veil_only_person(source, e['start'], e['end']) for e in missing]
         output['veil_candidate_reason_counts'] = dict(sorted(Counter(x.reason for x in decisions).items()))
+        # Mirror Gate's conflict veto; a lexical IGNORE decision alone does
+        # not authorize suppressing an overlapping strict/A.X PII candidate.
+        ax = check_spans(detector.ax_predict(source), len(source), True)
+        conflicts = Counter()
+        for candidate, decision in zip(missing, decisions):
+            strict_overlap = any(overlaps(candidate, ent) for ent in strict)
+            ax_address_overlap = any(
+                ent['label'] == 'address' and overlaps(candidate, ent) for ent in ax
+            )
+            if strict_overlap:
+                conflicts['strict_entity_overlap'] += 1
+            if ax_address_overlap:
+                conflicts['ax_address_overlap'] += 1
+            if decision.action == 'IGNORE_EXTRA_CANDIDATE' and (strict_overlap or ax_address_overlap):
+                conflicts['ignore_candidate_vetoed'] += 1
+            if decision.action == 'REVIEW_REQUIRED':
+                conflicts['lexical_review'] += 1
+        output['veil_conflict_counts'] = dict(sorted(conflicts.items()))
     return output
 
 
