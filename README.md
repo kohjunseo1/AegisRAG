@@ -108,6 +108,16 @@ python scripts/aegisrag.py evaluate-v6 \
 
 Recall@5는 **적재 가능한 Gold** 기준입니다(전체 Gold 기준 0.8791). 이 결과는 반복 분석한 Holdout에서 측정한 검색 기준선이며 PII 탐지 정확도, 미공개 데이터 성능 또는 LLM 답변 정확도를 뜻하지 않습니다.
 
+## 기준 데이터 탐색
+
+제공된 Dev·Test·Holdout의 구성, 원문, 정답 개체 구간은 독립된 [데이터 탐색실](dataset_explorer/README.md)에서 확인할 수 있습니다. 모델·DB·Conda·추가 패키지 없이 로컬에서 실행합니다.
+
+```bash
+python3 dataset_explorer/server.py
+```
+
+접속 주소는 **http://127.0.0.1:8770**입니다. 기존 비공개 원본만 읽으며 데이터 복사·외부 전송·원본 수정은 하지 않습니다.
+
 ## 테스트와 문서
 
 ```bash

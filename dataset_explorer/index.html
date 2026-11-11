@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AegisRAG · 데이터 탐색실</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<aside class="sidebar">
+ <a class="brand" href="/"><span class="brand-symbol">A</span><span>AegisRAG<small>DATA EXPLORER</small></span></a>
+ <div class="side-label">데이터 탐색실</div>
+ <nav aria-label="탐색 메뉴"><button class="nav active" data-page="overview">◫ <span>전체 구성</span></button><button class="nav" data-page="documents">▤ <span>문서 탐색</span><b id="nav-count">—</b></button><button class="nav" data-page="quality">⊞ <span>스키마 · 품질</span></button></nav>
+ <div class="side-caption">기준 제공 분할</div><div id="side-splits"></div>
+ <div class="side-footer"><span class="live-dot"></span> 로컬 전용 · 읽기 전용<p>원본 파일을 그대로 읽습니다.<br>데이터를 외부로 전송하지 않습니다.</p></div>
+</aside>
+<main>
+ <header><div><div class="eyebrow">CORPUS WORKSPACE</div><h1 id="page-title">데이터 전체 구성</h1><p id="page-description">Dev, Test, Holdout의 문서와 정답 라벨 구성을 한눈에 비교합니다.</p></div><span class="local-badge">● LOCAL DATA</span></header>
+ <div id="error" class="error" hidden></div><div id="loading" class="loading">기준 데이터 파일을 읽고 있습니다…</div>
+ <section id="overview" class="page" hidden>
+  <div class="stats" id="stats"></div>
+  <div class="section-heading"><div><h2>세 개의 분할, 하나의 기준 데이터</h2><p>추가 실험용 데이터와 검색 질의·Gold 파일은 포함하지 않았습니다.</p></div><button id="browse-all" class="primary">문서 살펴보기 ↗</button></div>
+  <div class="split-cards" id="split-cards"></div>
+  <div class="two-columns"><article class="panel"><div class="panel-head"><div><h2>개인정보 라벨 분포</h2><p>정답 라벨에 표시된 개체 구간 수입니다.</p></div><select id="label-mode" aria-label="라벨 집계 기준"><option value="labels">개체 구간 수</option><option value="label_documents">포함 문서 수</option></select></div><div id="label-chart"></div><div class="legend"><span class="dev-dot">Dev</span><span class="test-dot">Test</span><span class="holdout-dot">Holdout</span></div></article>
+  <article class="panel"><div class="panel-head"><div><h2>문서 길이</h2><p>분할별 문자 수 비교 · 공백과 줄바꿈 포함</p></div></div><div id="length-chart"></div><div id="length-table"></div></article></div>
+  <article class="panel"><div class="panel-head"><div><h2>문서 유형 비교</h2><p>색이 진할수록 해당 분할의 문서 수가 많습니다. 숫자를 누르면 문서로 이동합니다.</p></div></div><div class="table-scroll" id="type-table"></div></article>
+  <article class="panel"><div class="panel-head"><div><h2>어려운 사례 태그</h2><p>원본 hard_cases 태그 기준 · 한 문서에 여러 태그가 있을 수 있습니다.</p></div></div><div id="hard-cases" class="tag-cloud"></div></article>
+ </section>
+ <section id="documents" class="page" hidden>
+  <div class="filters"><label class="search"><span>⌕</span><input id="search" placeholder="문서 ID, 원문, 개체 텍스트 검색" aria-label="문서 검색"></label><select id="split-filter" aria-label="분할"><option value="">전체 분할</option><option value="dev">Dev</option><option value="test">Test</option><option value="holdout">Holdout</option></select><select id="type-filter" aria-label="문서 유형"></select><select id="label-filter" aria-label="개인정보 라벨"></select><select id="hard-filter" aria-label="어려운 사례 태그"></select><button id="clear-filters" class="quiet">초기화</button></div>
+  <div class="document-workspace"><div class="document-list-panel"><div class="list-heading"><strong id="result-count"></strong><select id="sort" aria-label="정렬"><option value="source">원본 순서</option><option value="long">긴 문서순</option><option value="entities">개체 많은 순</option></select></div><div id="document-list" role="list" aria-label="문서 목록"></div></div><article class="document-detail" id="document-detail"><div class="empty">왼쪽에서 문서를 선택하세요.</div></article></div>
+ </section>
+ <section id="quality" class="page" hidden>
+  <div class="notice"><strong>정답 데이터의 구조를 점검하는 화면입니다.</strong><p>여기에 표시되는 구간·태그는 제공된 정답 annotation입니다. 모델의 탐지 결과나 성능 지표가 아닙니다. Holdout은 이미 사후 분석에 사용한 분할입니다.</p></div>
+  <article class="panel"><div class="panel-head"><div><h2>분할별 필드 구성</h2><p>각 필드가 존재하는 문서 수입니다. 누락과 빈 값은 서로 다릅니다.</p></div></div><div id="schema-table" class="table-scroll"></div></article>
+  <div class="two-columns"><article class="panel"><h2>Annotation 점검</h2><p class="muted">오프셋 범위, 원문 일치, 개체 구간 겹침을 검사합니다. 겹침 자체가 오류라는 뜻은 아닙니다.</p><div id="quality-table"></div></article><article class="panel"><h2>분할 사이의 차이</h2><div id="insights"></div></article></div>
+  <article class="panel"><h2>원본 파일 확인</h2><p class="muted">시작 시 읽은 파일의 SHA256입니다. 별도 복사본이나 분석 결과 파일을 만들지 않습니다.</p><div id="file-table"></div></article>
+ </section>
+ <footer>기준 데이터 탐색 전용 · Dev / Test / Holdout · 원문 및 정답 구간 로컬 열람</footer>
+</main>
+</body></html>
