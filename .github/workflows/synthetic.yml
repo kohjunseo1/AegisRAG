@@ -24,5 +24,7 @@ jobs:
       - run: python scripts/check_step1_reuse_parity.py --help
       - run: python -m py_compile scripts/diagnose_review_q001.py
       - run: python scripts/diagnose_review_q001.py --help
+      - run: python -m py_compile scripts/review_dashboard_q001.py
+      - run: python scripts/review_dashboard_q001.py --help
       - run: python scripts/aegisrag.py smoke
       - run: python scripts/scan_git.py --history
