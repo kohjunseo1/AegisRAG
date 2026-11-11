@@ -6,6 +6,7 @@ report observed warm p95. The benchmark only queries an existing V6 table.
 """
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import resource
@@ -45,6 +46,7 @@ def main():
         p.error('runs must be between 1 and 100')
     pipeline = LivePipeline(ROOT, args.device, reuse_step1=(args.mode == 'reuse'))
     data = []
+    signatures = set()
     try:
         for i in range(args.runs + 1):
             start = time.perf_counter()
@@ -54,11 +56,15 @@ def main():
             if state != 'READY' or prepared is None or len(docs) != 5:
                 raise RuntimeError('BENCHMARK_UNEXPECTED_PIPELINE_STATUS')
             data.append({k: float(timings.get(k, 0)) for k in FIELDS})
+            # Only a digest of public-style document IDs; never print PII or tokens.
+            signatures.add(hashlib.sha256('|'.join(d['doc_id'] for d in docs).encode()).hexdigest()[:16])
     finally:
         pipeline.close()
+    if len(signatures) != 1:
+        raise RuntimeError('BENCHMARK_RANKING_CHANGED_BETWEEN_RUNS')
     cold, warm = data[0], data[1:]
     result = {
-        'mode': args.mode, 'device': args.device, 'cold_ms': {k: round(v, 1) for k, v in cold.items()},
+        'mode': args.mode, 'device': args.device, 'top5_rank_signature': next(iter(signatures)), 'cold_ms': {k: round(v, 1) for k, v in cold.items()},
         'warm_runs': len(warm), 'warm_metrics': {
             k: {'mean_ms': round(statistics.mean(x[k] for x in warm), 1),
                 'p50_ms': percentile([x[k] for x in warm], .5),
