@@ -70,11 +70,30 @@ def summarize(doc_id: str, source: str, detector) -> dict:
         # not authorize suppressing an overlapping strict/A.X PII candidate.
         ax = check_spans(detector.ax_predict(source), len(source), True)
         conflicts = Counter()
+        overlap_labels = Counter()
+        overlap_relations = Counter()
+        total_uncovered_chars = 0
         for candidate, decision in zip(missing, decisions):
-            strict_overlap = any(overlaps(candidate, ent) for ent in strict)
+            intersecting = [ent for ent in strict if overlaps(candidate, ent)]
+            strict_overlap = bool(intersecting)
             ax_address_overlap = any(
                 ent['label'] == 'address' and overlaps(candidate, ent) for ent in ax
             )
+            # Counts and enum labels only: no private strings or offsets.
+            total_uncovered_chars += sum(
+                1 for position in range(candidate['start'], candidate['end'])
+                if not any(m['start'] <= position < m['end'] for m in expanded)
+            )
+            for ent in intersecting:
+                overlap_labels[ent['label']] += 1
+                if (ent['start'] <= candidate['start'] and
+                        candidate['end'] <= ent['end']):
+                    overlap_relations['strict_contains_veil'] += 1
+                elif (candidate['start'] <= ent['start'] and
+                      ent['end'] <= candidate['end']):
+                    overlap_relations['veil_contains_strict'] += 1
+                else:
+                    overlap_relations['partial_overlap'] += 1
             if strict_overlap:
                 conflicts['strict_entity_overlap'] += 1
             if ax_address_overlap:
@@ -84,6 +103,9 @@ def summarize(doc_id: str, source: str, detector) -> dict:
             if decision.action == 'REVIEW_REQUIRED':
                 conflicts['lexical_review'] += 1
         output['veil_conflict_counts'] = dict(sorted(conflicts.items()))
+        output['veil_strict_overlap_labels'] = dict(sorted(overlap_labels.items()))
+        output['veil_strict_overlap_relations'] = dict(sorted(overlap_relations.items()))
+        output['veil_uncovered_characters_total'] = total_uncovered_chars
     return output
 
 
