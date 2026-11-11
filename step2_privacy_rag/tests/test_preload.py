@@ -73,7 +73,7 @@ class PreloadingContract(unittest.TestCase):
         )
         mock_http.side_effect = lambda *_: events.append('bind') or Mock()
         with patch.dict(os.environ, {'AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED':'YES'}), \
-             patch.object(sys, 'argv', ['app.py', '--port', '8768', '--reuse-step1', '--preload']):
+             patch.object(sys, 'argv', ['app.py', '--port', '8768']):
             self.assertEqual(app.main(), 0)
         self.assertEqual(events, ['preload', 'bind'])
         mock_pipeline.return_value.close.assert_called_once()
@@ -88,8 +88,30 @@ class PreloadingContract(unittest.TestCase):
         mock_http.assert_not_called()
         mock_pipeline.return_value.close.assert_called_once()
 
+    @patch('app.HTTPServer')
+    @patch('app.LivePipeline')
+    def test_legacy_mode_disables_preload_and_reuse(self, mock_pipeline, mock_http):
+        mock_http.return_value = Mock()
+        with patch.dict(os.environ, {'AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED':'YES'}), \
+             patch.object(sys, 'argv', ['app.py', '--port', '8768', '--no-preload', '--no-reuse-step1']):
+            self.assertEqual(app.main(), 0)
+        mock_pipeline.assert_called_once()
+        self.assertFalse(mock_pipeline.call_args.kwargs['reuse_step1'])
+        mock_pipeline.return_value.preload_models.assert_not_called()
+        mock_http.assert_called_once()
+
+    @patch('app.HTTPServer')
+    @patch('app.LivePipeline')
+    def test_reuse_without_preload_option(self, mock_pipeline, mock_http):
+        mock_http.return_value = Mock()
+        with patch.dict(os.environ, {'AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED':'YES'}), \
+             patch.object(sys, 'argv', ['app.py', '--port', '8768', '--no-preload']):
+            self.assertEqual(app.main(), 0)
+        self.assertTrue(mock_pipeline.call_args.kwargs['reuse_step1'])
+        mock_pipeline.return_value.preload_models.assert_not_called()
+
     def test_cli_rejects_preload_without_reuse(self):
-        with patch.object(sys, 'argv', ['app.py', '--preload']):
+        with patch.object(sys, 'argv', ['app.py', '--preload', '--no-reuse-step1']):
             with self.assertRaises(SystemExit) as err:
                 app.main()
         self.assertEqual(err.exception.code, 2)
