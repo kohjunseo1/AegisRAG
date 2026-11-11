@@ -133,4 +133,8 @@ python scripts/scan_git.py --history
 
 [재현 가이드](docs/REPRODUCIBILITY.md)에는 설치·모델/DB 교체·평가를, [실험 이력](docs/EXPERIMENT_HISTORY.md)에는 각 버전의 선택 근거와 최초 평가/사후 개선 결과를 기록했습니다.
 
+## 개선 실험 일지
+
+[V6 이후 개선 실험 일지](docs/IMPROVEMENT_LOG.md)에는 Latency 기준선, 향후 개선 가설, 지표 변화와 채택 여부를 간단하게 기록합니다. 과거 버전별 개발 과정은 [실험 이력](docs/EXPERIMENT_HISTORY.md)에 별도로 보존합니다.
+
 **현재 범위:** 개인 로컬 MVP입니다. 사용자 인증, 문서별 접근 통제, Vault 복원, 운영용 출력 보호·관리자 REVIEW 워크플로, 원격 서버 배포는 후속 통합 단계에서 구현해야 합니다.
