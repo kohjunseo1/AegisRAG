@@ -19,5 +19,7 @@ jobs:
       - run: python -m unittest discover -s step2_privacy_rag/tests -v
         env:
           PYTHONPATH: step2_privacy_rag/app
+      - run: python -m py_compile scripts/benchmark_step1_reuse.py scripts/check_step1_reuse_parity.py
+      - run: python scripts/check_step1_reuse_parity.py --help
       - run: python scripts/aegisrag.py smoke
       - run: python scripts/scan_git.py --history

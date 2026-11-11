@@ -160,13 +160,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--device', choices=['cpu', 'mps', 'auto'], default='cpu')
     ap.add_argument('--port', type=int, default=8767)
+    ap.add_argument('--reuse-step1', action='store_true', help='opt-in persistent A.X/Veil detector (compare memory and latency before adoption)')
     args = ap.parse_args()
     if not 1024 <= args.port <= 65535:
         ap.error('port must be between 1024 and 65535')
     if os.environ.get('AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED') != 'YES':
         ap.error('service requires one-time external transfer authorization: AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES')
     try:
-        pipeline = LivePipeline(Path(__file__).resolve().parents[2], args.device)
+        pipeline = LivePipeline(Path(__file__).resolve().parents[2], args.device, reuse_step1=args.reuse_step1)
     except Exception as e:
         print('LIVE_CHAT_STARTUP_FAILED', type(e).__name__, flush=True)
         return 2
@@ -182,6 +183,7 @@ def main() -> int:
         pass
     finally:
         server.server_close()
+        pipeline.close()
     return 0
 
 

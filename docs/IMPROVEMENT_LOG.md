@@ -42,7 +42,7 @@
 
 **판정:** 추가 구현 없이 측정값을 고정. 다음 우선순위 **L-001 Step1 생성/추론 분리 계측 및 탐지기 재사용**. DB SQL·KoE5 모델 교체는 현재 우선순위 아님.
 
-## L-001 · 계획 · Step1 탐지기 재사용
+## L-001 · 채택(옵션 기능) · Step1 탐지기 재사용
 
 **가설:** A.X·Veil 모델 객체를 프로세스 내 안전하게 재사용하면 반복 요청 지연이 줄어듦.
 
@@ -52,7 +52,88 @@
 3. cold 1회 + warm 최소 20회, 일반/이름/주소/번호/REVIEW 합성 질의 및 허가된 비공개 회귀 세트. CPU, 프로세스 조건, 메모리(RSS), `step1_ms`, `embedding_ms`, `db_ms`, `hcx_ms`, `total_ms` 구분.
 4. **채택 조건:** 출력 상태·보호 구간·가명 토큰·문서 검색 순위·Step1 테스트·V6 baseline이 같고, 실제 warm p50/p95 개선 및 메모리 사용량이 수용 가능할 것. 속도 개선 수치는 측정 뒤 기록.
 
-**현재 상태:** 실험 미실행 / 코드 변경 없음.
+**현재 상태:** **실제 CPU 속도·12질의 보호 동등성·합성 회귀 검증 완료; `--reuse-step1` 선택 기능으로 채택**. 기본 실행은 매 요청 생성·종료를 유지하며, 서비스를 상시 재사용 기본값으로 바꾸는 것은 별도의 장시간 운영 검증 후 결정합니다. 실험 브랜치 `perf/l001-step1-detector-reuse`에서만 `--reuse-step1`을 활성화할 수 있고, 기본 실행 경로는 기존처럼 매 요청 생성·종료합니다.
+
+- 변경: `LivePipeline`에 opt-in 탐지기 재사용·명시적 종료, 생성/모델 로딩(`step1_init_ms`)과 Step1 탐지+Gate+가명처리(`step1_process_ms`) 분리 계측, 예외 시 재사용 중단을 추가했습니다. **탐지 추론만의 시간과 Gate 시간은 아직 분리되지 않았습니다.**
+- 회귀: 합성 탐지기에서 동일 처리/REVIEW 유지/종료/예외 후 자동 재시도 금지 테스트 추가. 실제 A.X·Veil, 비공개 문서, Mac 16GB 메모리 영향은 별도 실측 필요.
+- 독립 프로세스로 비교(기존 DB 읽기 전용, **HCX 미호출**):
+
+```bash
+# 실험 브랜치 checkout 후 가벼운 사전 점검
+python scripts/benchmark_step1_reuse.py --mode baseline --runs 3 --device cpu
+python scripts/benchmark_step1_reuse.py --mode reuse --runs 5 --device cpu
+
+# 메모리가 안정적일 때 반복 실험 확대
+python scripts/benchmark_step1_reuse.py --mode reuse --runs 20 --device cpu
+
+# 실험용 로컬 챗봇은 명시적 opt-in
+AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
+python scripts/aegisrag.py run-chat --device cpu --port 8768 --reuse-step1
+```
+
+### 2026-11-11 · 실제 Mac CPU 예비 비교 (cold 1회 + warm 3회 / 모드)
+
+- **실행 환경:** 동일 Mac, `aegisrag-retrieval` Conda 환경의 A.X/Veil·KoE5 실모델, 기존 177문서 PGVector. 동일 공개형 일반 질문을 반복했으며 HCX 호출·DB 쓰기 없음.
+- **오류 수정:** 처음 실행에 사용된 다른 Conda 환경 `aegisrag`는 torch/transformers 호환성 오류로 중단. 정상 사용하던 `aegisrag-retrieval` 환경에서 재측정함. 해당 오류는 탐지기 재사용 효과 측정 결과에 포함하지 않음.
+
+| 지표 | 기본 방식 | 재사용 방식 |
+|---|---:|---:|
+| Cold 전체 로컬 | 37,261.2 ms | 36,865.7 ms |
+| Warm 전체 로컬 평균 | **14,324.7 ms** | **482.5 ms** |
+| Warm Step1 평균 | 14,004.8 ms | 220.4 ms |
+| Warm Step1 초기화 평균 | 13,508.5 ms | 0.0 ms |
+| Warm 임베딩 평균 | 261.9 ms | 217.6 ms |
+| Warm DB 평균 | 57.0 ms | 43.7 ms |
+| Peak RSS (별도 프로세스) | 4,196.5 MiB | 2,707.5 MiB |
+| Top-5 ID 순위 해시 | `cd22fad63a17f8fe` | 동일 |
+
+**예비 효과:** warm 전체 평균 약 **29.7배 빠름**, 처리시간 약 **96.6% 감소**. 반복 Step1 초기화 약 **13.5초**가 주요 병목이었음. Cold는 큰 변화 없음. Top-5 문서 ID 순서는 해당 질문에서만 일치 확인. 서로 다른 프로세스의 peak RSS는 비교 참고용일 뿐 메모리 감소 보장 아님.
+
+**현재 판정:** **유망 / PR 유지·main 미병합**. 각 모드 warm 3회뿐이라 p95 없음; 이름·주소·REVIEW/BLOCKED 실모델 질의의 보호 결과 parity, 폭넓은 회귀, warm 20회 p50/p95 및 메모리 안정성 검증 후 채택 결정. 특히 현재 baseline 평가 CLI는 준비된 질의를 읽기 때문에 **실시간 탐지기 재사용 동작 자체의 동등성 검증을 대신할 수 없음**.
+
+### 2026-11-11 · Warm 20회 및 테스트 재검증
+
+- **실행:** `--mode reuse --runs 20 --device cpu`; cold 1회 + warm 20회, 동일 일반 질문. 실모델·기존 V6 177문서 읽기 전용 DB, HCX 미호출. 기존 방식의 참조 평균은 앞서 관측한 warm 3회로서 완전히 같은 횟수의 대조 측정은 아님.
+- **Cold 로컬 전체:** **35,975.2 ms** (Step1 최초 생성 26,638.6ms, KoE5 초기 임베딩 8,197.6ms).
+- **Warm 전체:** **평균 444.9ms / p50 432.0ms / p95 504.0ms** (20회).
+- **Warm 세부:** Step1 평균 198.3ms (p95 229.1ms); KoE5 평균 201.8ms (p95 234.6ms); DB 평균 43.8ms (p95 100.4ms); 재정렬 평균 0.8ms.
+- **최대 프로세스 RSS:** 2,687.2 MiB; Top-5 순위 해시 `cd22fad63a17f8fe`는 모든 재사용 요청과 기존 기본 방식에 일치. 데이터베이스 쓰기/HCX 호출 없음.
+- **예비 비교:** 기존 warm 3회 평균 14,324.7ms 대비 재사용 warm 20회 444.9ms → 약 **32.2배**. 서로 다른 관측 횟수로 계산한 참고 비율이며, 실제 E2E/전체 질의 분포 속도 향상을 뜻하지 않음.
+- **테스트 로그:** Step1 30개 중 29개 `ok`, 1개 reference notebook 부재 `skipped`; Step2 71개 각 테스트 `ok` (새 L-001 회귀 4개 포함). 제공된 Step2 로그 마지막의 `OK` 요약 줄은 누락됐으나 개별 71개 성공 기록을 확인함.
+- **최종 채택 전 남은 검증:** 모델 재사용과 기본 방식의 **실제 원본 질의 다유형 가명처리·상태·토큰 결과 동등성**, 현재 탐지기/검색 안정성, 운영에서의 메모리 장기 안정성.
+
+**보호 동등성 비교 도구:** `scripts/check_step1_reuse_parity.py`는 실제 비공개 원본 질의를 로컬에서 직접 처리하고, **상태 + 가명처리된 출력/토큰/Region의 키드 지문만** Git 무시 경로에 기록함. 원문·토큰·키는 저장하거나 출력하지 않고, DB/HCX를 호출하지 않음. 서로 독립적인 두 Python 프로세스에서 실행 후 동일 질의 ID의 지문을 비교함.
+
+```bash
+python scripts/check_step1_reuse_parity.py --mode baseline --limit 12 \
+  --out step2_privacy_rag/local_eval/l001_baseline.json
+python scripts/check_step1_reuse_parity.py --mode reuse --limit 12 \
+  --out step2_privacy_rag/local_eval/l001_reuse.json
+python scripts/check_step1_reuse_parity.py --compare \
+  --baseline step2_privacy_rag/local_eval/l001_baseline.json \
+  --reuse step2_privacy_rag/local_eval/l001_reuse.json
+```
+
+`--limit 12`는 현재 REVIEW/BLOCKED 3개 질의와 Gold 유형별 대표 질의를 우선 선택. 실제 위험 데이터는 로컬에서만 처리하며 외부 반출 금지. 이 비교에서 전체 88개 질의를 다 검증한 것은 아님.
+
+### 2026-11-11 · 12질의 개인정보 처리 동등성 검증
+
+- 기존 방식 `baseline`: **READY 9 / REVIEW 2 / BLOCKED 1**, 총 12개.
+- 최적화 방식 `reuse`: **READY 9 / REVIEW 2 / BLOCKED 1**, 총 12개.
+- `L001_PARITY_RESULT`: **checked 12 / equal 12 / mismatch_qids []**. 상태와 가명처리 결과(마스킹 텍스트·HMAC 토큰·Region Key)의 비밀키 기반 지문이 모두 동일. 외부 HCX 호출·DB 변경 없음.
+- 이 결과는 **대표 12질의 및 20회 동일 일반 질의**에서의 동등성·속도 실측이며 88질의 전체, 모든 모델 오류 조건 또는 장기 서비스 안정성을 보증하지 않음.
+- **판정:** L-001 재사용 구현을 `--reuse-step1` 명시적 opt-in 기능으로 채택. `main` 기본값은 계속 `reuse_step1=False`. 실제 개인/업무 데이터의 외부 전송 권한은 별도로 확인해야 함. 전면 기본 활성화는 별도 실험으로 보류.
+
+**후속 검증:** 온디바이스 장기 메모리 안정성, 다양한 동의·검토·차단 질의, 완전한 88질의 동등성, cold 시작 최적화, 실제 HCX 포함 E2E 지연을 추적합니다.
+
+**다음 로컬 실행:**
+```bash
+python scripts/benchmark_step1_reuse.py --mode reuse --runs 20 --device cpu
+PYTHONPATH=step2_privacy_rag/app python -m unittest discover -s step2_privacy_rag/tests -v
+PYTHONPATH=step1_pii_detector:step1_pii_detector/src python -m unittest discover -s step1_pii_detector/tests -v
+```
+
+실행 결과의 단계별 p50/p95와 peak RSS 및 실제 검색 기준선 재현을 확인한 뒤 채택/폐기를 결정합니다. Mac에서 두 모델과 KoE5 동시 상주가 메모리 압박을 유발하면 즉시 baseline 모드로 복귀합니다.
 
 ---
 
