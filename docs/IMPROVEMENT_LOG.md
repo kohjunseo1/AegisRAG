@@ -229,6 +229,22 @@ python scripts/diagnose_review_q001.py --ids \
 python scripts/diagnose_review_q001.py --ids H0091
 ```
 
+### Q-001 · 로컬 Human Review 대시보드 MVP (Mac 실측 전)
+
+Q-001의 이름 끝 '이' 9건 및 H0091 Veil vs strict PERSON 충돌을 사람에게 확인받기 위한 **로컬 전용 검토 도구**를 실험 브랜치에 추가함. 관리자용 프로덕션 기능이 아님.
+
+- 입력: 지정한 문서 ID만 Git에 없는 local_eval/holdout_labeled.jsonl에서 읽고 실제 Step1/Gate/Veil 탐지 결과를 준비.
+- 표시: 오직 127.0.0.1:8771 로컬 브라우저에서 인증 토큰 확인 후 원문/마스킹 범위/문제 후보를 표시. 외부 스크립트/서비스 없음.
+- 검토 분류: 이름 경계 LONG_NAME / SHORT_NAME_PLUS_PARTICLE / UNRESOLVED, Veil 후보 PERSON_PII / NON_PERSON_EXPRESSION / UNRESOLVED.
+- 로컬 기록: Git 무시 경로 local_eval/q001_review_decisions.jsonl에 문서 ID/후보 구간/원문 SHA256/판단 코드/UTC 시간만 기록. 원문·HMAC 토큰은 저장하지 않음. 파일 권한 0600.
+- 의도적 미구현: 이 UI의 분류 결과는 **자동 승인/Step1 REVIEW 해제/HMAC 생성/DB 적재/HCX 호출 권한이 전혀 없음**. 모두 NEEDS_INDEPENDENT_REVALIDATION 상태로만 기록하며, 적용하기 전에 별도의 안전한 검증·교정 파이프라인이 필요함.
+- 보안 한계: 개인 Mac의 신뢰된 브라우저 1명 전용. 브라우저 확장/공유 기기/OS 사용자/스크린샷 위협은 방어하지 않으므로 운영 배포 금지. 토큰·원문·화면 캡처는 GitHub/채팅에 공유하지 않음.
+- 평가: Holdout 문구/문서 번호를 자동 정책 예외에 사용하지 않음. 수동 진단 근거를 확보한 뒤 일반 규칙은 독립 합성/Dev 사례로 검증.
+
+실행 순서: 현재 Q-001 브랜치 동기화 → conda activate aegisrag-retrieval → python scripts/review_dashboard_q001.py --ids H0002 H0057 H0072 H0091 H0103 H0105 H0116 H0117 H0119 H0135 → 터미널의 로컬 URL 접속/세션 토큰 입력 → 항목 검토 → Ctrl+C 종료.
+
+**검증 상태:** 신규 synthetic CI, 실제 Mac의 10문서 로딩/로컬 화면/판단 기록은 후속 확인 필요. main에 미반영.
+
 **다음 정책 시도:** 이름 경계는 추가 보호 자체와 동일 인물 HMAC 연동을 분리하고, 반례를 포함한 합성/Dev 테스트로 보호 범위 누락·과보호·잘못된 연결 여부를 확인. Gate 충돌은 안전한 이유가 확인되기 전 REVIEW를 유지. 문서별 임시 예외 또는 Holdout 특정 사례에만 맞춘 규칙은 채택하지 않음.
 
 **상태:** 원인 분류 및 추가 충돌 진단 구현 완료 / 모델 정책 미변경·실제 처리율 개선 미검증.
