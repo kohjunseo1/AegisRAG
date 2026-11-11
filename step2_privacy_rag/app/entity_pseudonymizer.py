@@ -1,7 +1,7 @@
 """AegisRAG Step 2: fail-closed, offline HMAC pseudonymization (V1).
 
 Contract:
-  - Takes text and READY result from privacy_gate_v4.check_privacy_gate.
+  - Takes text and READY result from privacy_gate.check_privacy_gate.
   - No DB, model, network or filesystem I/O.
   - HMAC entity spans, redact role spans, redact *every* residual mask-only span.
   - Strictly validate spans, labels, ranges, overlaps and full mask coverage.
@@ -76,46 +76,6 @@ def _covered(s: dict, masks: list[dict]) -> bool:
     return any(m["start"] <= s["start"] and s["end"] <= m["end"] for m in masks)
 
 
-
-# Candidate V2.2: deliberately conservative; not a national address parser.
-REGION_ALIASES = {
-    '서울특별시': '서울특별시', '서울시': '서울특별시', '서울': '서울특별시',
-    '부산광역시': '부산광역시', '부산시': '부산광역시', '부산': '부산광역시',
-    '대구광역시': '대구광역시', '대구시': '대구광역시', '대구': '대구광역시',
-    '인천광역시': '인천광역시', '인천시': '인천광역시', '인천': '인천광역시',
-    '광주광역시': '광주광역시',  # bare 광주/광주시 is ambiguous
-    '대전광역시': '대전광역시', '대전시': '대전광역시', '대전': '대전광역시',
-    '울산광역시': '울산광역시', '울산시': '울산광역시', '울산': '울산광역시',
-    '세종특별자치시': '세종특별자치시', '세종시': '세종특별자치시', '세종': '세종특별자치시',
-    '경기도': '경기도', '경기': '경기도',
-    '강원특별자치도': '강원특별자치도', '강원도': '강원특별자치도', '강원': '강원특별자치도',
-    '충청북도': '충청북도', '충북': '충청북도',
-    '충청남도': '충청남도', '충남': '충청남도',
-    '전북특별자치도': '전북특별자치도', '전라북도': '전북특별자치도', '전북': '전북특별자치도',
-    '전라남도': '전라남도', '전남': '전라남도',
-    '경상북도': '경상북도', '경북': '경상북도',
-    '경상남도': '경상남도', '경남': '경상남도',
-    '제주특별자치도': '제주특별자치도', '제주도': '제주특별자치도', '제주': '제주특별자치도',
-}
-
-
-def canonicalize_address_v22(raw: str) -> str:
-    s = unicodedata.normalize('NFKC', raw).strip()
-    s = re.sub(r'\s+', ' ', s)
-    head, sep, tail = s.partition(' ')
-    if head in REGION_ALIASES:
-        s = REGION_ALIASES[head] + (sep + tail if sep else '')
-    s = re.sub(r'(?<=\d)\s*-\s*(?=\d)', '-', s)
-    s = re.sub(r'(?<=[로길])(?=\d{1,5}(?:-\d{1,4})?(?=\s|$|\())', ' ', s)
-    s = re.sub(r'\s*\(', ' (', s)
-    s = re.sub(r'(?<!\d)(\d{1,3})\s*동\s*(\d{3,4})\s*호(?=\s|$)',
-               r'\1동 \2호', s)
-    # Only recognize compact apartment unit when an explicit street building
-    # number appears before it. Ambiguous bare '101-1203' is not normalized.
-    s = re.sub(r'((?:로|길|대로)\s+\d{1,5}(?:-\d{1,4})?\s+)'
-               r'(\d{1,3})-(\d{3,4})(?=\s|$)', r'\1\2동 \3호', s)
-    return re.sub(r'\s+', ' ', s).strip()
-
 def canonicalize(label: str, value: str) -> str:
     """Conservative, label-specific canonicalization, not linguistic identity resolution.
 
@@ -142,7 +102,7 @@ def canonicalize(label: str, value: str) -> str:
         # Email local-part is *not* universally case insensitive.
         return local + "@" + domain.casefold()
     if label == "address":
-        return canonicalize_address_v22(val)
+        return re.sub(r"\s+", " ", val)
     if label == "phone_number":
         if not re.fullmatch(r"[+\d\s.()\-]+", val):
             _fail("invalid_phone_value")

@@ -1,6 +1,6 @@
 import unittest
-from name_mask_decision_v5 import decide, score, summarize, _particle_cue, _explicit_names, POLICIES
-from name_mask_pareto_v4 import chars
+from name_protection_policy import decide, score, summarize, _particle_cue, _explicit_names, POLICIES
+from name_masking_strategies import chars
 
 READY='READY_FOR_PSEUDONYMIZATION'
 REVIEW='REVIEW_REQUIRED'

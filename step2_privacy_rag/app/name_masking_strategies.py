@@ -8,7 +8,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
-from name_boundary_policy_v3_1 import baseline_masks, propose, merge_intervals
+from name_boundary_policy import baseline_masks, propose, merge_intervals
 
 POLICIES = (
     'baseline',

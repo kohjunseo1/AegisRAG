@@ -9,7 +9,7 @@ import hashlib
 import hmac
 import re
 import unicodedata
-from local_pseudonymizer_v2 import REGION_ALIASES, canonicalize_address_v22
+from local_pseudonymizer import REGION_ALIASES, canonicalize_address_v22
 
 _PROVINCES = '|'.join(re.escape(x) for x in sorted(REGION_ALIASES, key=len, reverse=True))
 _CITY = r'[가-힣0-9]{1,12}(?:시|군|구)'

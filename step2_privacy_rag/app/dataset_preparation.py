@@ -78,7 +78,7 @@ def main(argv=None):
     p.add_argument('--overwrite',action='store_true')
     a=p.parse_args(argv)
     if not (ROOT/'step1_pii_detector/src/pii_detector/detector.py').is_file():p.error('run_from_AegisRAG_root')
-    if not (E2E/'safe_e2e_contract_v2.py').is_file():p.error('missing_e2e_local_v1_dependency')
+    if not (E2E/'document_preparation.py').is_file():p.error('missing_e2e_local_v1_dependency')
     if a.out.exists():p.error('v6_refuses_to_overwrite_existing_private_file')
     if not (a.docs.is_file() and a.queries.is_file()):p.error('missing_input: provide --docs and --queries (two JSONL files)')
     try:key=fixed_key(a.env)
@@ -88,7 +88,7 @@ def main(argv=None):
     from pii_detector import create_detector
     from pii_detector import detector as step1_mod
     if Path(step1_mod.__file__).resolve() != (ROOT/'step1_pii_detector/src/pii_detector/detector.py').resolve():p.error('unexpected_pii_detector_module')
-    from safe_e2e_contract_v2 import prepare
+    from document_preparation import prepare
     if bool(a.starter_zip) == bool(a.gold_jsonl):p.error('specify_exactly_one_of_--starter-zip_or_--gold-jsonl')
     docs_in=load_jsonl(a.docs); queries_in=load_jsonl(a.queries)
     gold_in=load_gold(a.starter_zip) if a.starter_zip else load_jsonl(a.gold_jsonl)

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from privacy_gate_v3 import (
+from gate_validation import (
     READY, check_spans, merge_masks, covered, overlaps, find_safe_name_merges,
 )
 from veil_person_policy import (

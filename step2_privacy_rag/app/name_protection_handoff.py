@@ -14,8 +14,8 @@ import os
 import re
 from typing import Any
 
-from name_mask_decision_v5 import decide, _classify, _explicit_names, _FIELD_RE
-from name_boundary_policy_v3_1 import propose, baseline_masks, merge_intervals
+from name_protection_policy import decide, _classify, _explicit_names, _FIELD_RE
+from name_boundary_policy import propose, baseline_masks, merge_intervals
 
 STEP1_READY = 'READY_FOR_PSEUDONYMIZATION'
 GATE_READY = 'READY_FOR_LOCAL_PSEUDONYMIZATION'
@@ -250,7 +250,7 @@ def preview_one(doc_id: str, text: str, detector: Any, *, key: bytes | None = No
         if decision.get('would_abstain'):
             return _result(doc_id,'REVIEW_QUEUE','V5_POLICY_ABSTAIN',**counters)
 
-        from privacy_gate_v4 import check_privacy_gate
+        from privacy_gate import check_privacy_gate
         gate = check_privacy_gate(_FrozenDetectorView(detector, result), text)
         if gate.get('decision') != GATE_READY:
             code = 'GATE_REVIEW' if gate.get('decision') == 'REVIEW_REQUIRED' else 'GATE_BLOCKED'
@@ -266,7 +266,7 @@ def preview_one(doc_id: str, text: str, detector: Any, *, key: bytes | None = No
         except ValueError:
             return _result(doc_id,'BLOCKED','INVALID_GATE_CONTRACT',**counters)
 
-        from local_pseudonymizer_v1 import pseudonymize_local, PseudonymizationError
+        from entity_pseudonymizer import pseudonymize_local, PseudonymizationError
         if key is None:
             key = os.urandom(32)  # throwaway; never persist or log key
         try:

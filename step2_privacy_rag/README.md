@@ -75,18 +75,24 @@ python scripts/aegisrag.py ingest-v6 \
 
 ```text
 app/
-  safe_e2e_contract_v2.py   Step1 → Gate → 가명처리 연결
-  privacy_gate_v4.py        보호 누락 검토
-  local_pseudonymizer_v2.py HMAC·주소 정규화
-  region_keys_v1.py         부분 지역 검색 키
-  prepare_v6_retrieval_v1.py  비공개 데이터 준비
-  core.py                   실시간 질의 보호·임베딩·DB 검색
-  reproduction.py           비파괴 적재·평가
-  hcx.py                    전송 보조 검사·HCX 답변·인용 검증
-  app.py                    로컬 HTTP API/웹 서버
+  document_preparation.py     Step1 → Gate → 가명처리 연결
+  privacy_gate.py             개인정보 보호 검토
+  gate_validation.py          보호 구간·탐지 결과 검증
+  name_boundary_policy.py     이름 경계 후보 제안
+  name_protection_policy.py   이름 보호 정책 결정
+  name_masking_strategies.py  이름 마스킹 전략·평가 보조
+  name_protection_handoff.py  이름 보호와 동일인 연결 분리
+  entity_pseudonymizer.py     기본 개체 정규화·HMAC 처리
+  local_pseudonymizer.py      주소 정규화를 포함한 로컬 가명처리
+  region_keys.py              부분 지역 검색 키
+  dataset_preparation.py      비공개 데이터 준비
+  core.py                     실시간 질의 보호·임베딩·DB 검색
+  reproduction.py             비파괴 적재·평가
+  hcx.py                      전송 보조 검사·HCX 답변·인용 검증
+  app.py                      로컬 HTTP API/웹 서버
   index.html, app.js, style.css 웹 UI
-tests/                      합성·회귀 테스트
-compose.yaml, init/         기존 팀 PostgreSQL/PGVector 초기 구성
+tests/                        합성·회귀 테스트
+compose.yaml, init/           기존 팀 PostgreSQL/PGVector 초기 구성
 ```
 
 공통 실행 CLI는 루트의 `scripts/aegisrag.py`입니다. 문서 적재 시 한 번 임베딩하고, 질문마다 새 질의만 임베딩합니다. DB의 기본 테이블은 `rag.aegis_koe5_v6_exp1`이며, 재현 테이블 사용 시 `AEGISRAG_TABLE`로 선택합니다.

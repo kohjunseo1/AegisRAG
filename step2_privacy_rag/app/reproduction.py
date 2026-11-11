@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from core import PII, PreparedQuery, LivePipeline
-from prepare_v6_retrieval_v1 import fixed_key, key_tag, private_write
+from dataset_preparation import fixed_key, key_tag, private_write
 from settings import ROOT, MANIFEST, db_config, load_embedding_model, table_identifier
 
 PIPELINE = 'step1-v5-nonlinked-v2-gate-v4-address-v2.2-region-v1'

@@ -4,11 +4,11 @@ from unittest.mock import patch
 import json
 
 from core import LivePipeline, PreparedQuery, PII, order_results
-from safe_e2e_contract_v2 import prepare
-from local_pseudonymizer_v2 import make_hmac_token
-from region_keys_v1 import keys_from_query
+from document_preparation import prepare
+from local_pseudonymizer import make_hmac_token
+from region_keys import keys_from_query
 from hcx import validate_response, OutboundError
-from prepare_v6_retrieval_v1 import key_tag
+from dataset_preparation import key_tag
 from reproduction import PIPELINE, target, encode_docs, ingest
 from settings import ROOT, db_config, table_identifier
 

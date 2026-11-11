@@ -105,3 +105,5 @@ DB 연결은 `app/settings.py`, SQL 적재는 `app/reproduction.py`, 읽기는 `
 Git 검사 `python scripts/scan_git.py --history`는 인덱스 및 일반 push 대상인 HEAD 이력에서 민감 경로·현재 `.env`의 비밀값·일부 토큰 패턴을 검사합니다. 알려지지 않은 모든 비밀값의 부재를 수학적으로 보증하지는 않습니다. 이번 정리에서는 비공개 파일을 추적하지 않으며, 과거 Git 이력을 재작성하지 않습니다.
 
 로컬 Codex 자동 캡처 ref(`refs/codex/turn-diffs/...`)에는 작업 시작 당시 미추적 비공개 평가 파일이 포함되어 있었습니다. `main` 및 원격 main 이력과 분리되어 있으며 일반 `git push origin main`은 이 ref를 보내지 않습니다. `git push --mirror`/`--all`이나 이 ref의 명시적 push를 사용하지 마세요. `scan_git.py --all-refs`는 이 로컬 캡처까지 검사하므로 비공개 경로를 보고합니다. 사용자 작업/도구 복구 이력을 보존하기 위해 로컬 캡처 ref는 변경하지 않았습니다.
+
+파일명은 `privacy_gate.py`, `document_preparation.py`, `dataset_preparation.py`, `region_keys.py`처럼 역할명으로 관리합니다. 이전 파일명과의 대응은 실험 이력에 보존합니다. 파일명도 코드 provenance 해시에 포함되므로 이번 이름 정리 이후 새 적재 테이블 해시는 달라지며, 기존 테이블은 `--table`/`AEGISRAG_TABLE`로 계속 읽을 수 있습니다.

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from reproduction import ingest, target, validate_target, provenance
 from smoke import FIXTURE_KEY
-from prepare_v6_retrieval_v1 import key_tag
+from dataset_preparation import key_tag
 
 
 class ReproductionSafety(unittest.TestCase):

@@ -39,8 +39,8 @@ def main():
             load_embedding_model(args.device)
             print('PINNED_MODELS_READY')
         elif args.command == 'prepare-v6':
-            import prepare_v6_retrieval_v1
-            return prepare_v6_retrieval_v1.main(['--env', str(args.env)] + rest)
+            import dataset_preparation
+            return dataset_preparation.main(['--env', str(args.env)] + rest)
         elif args.command == 'run-chat':
             if args.env.resolve() != (ROOT/'.env').resolve():
                 p.error('run-chat uses team root .env; select table with process environment')

@@ -53,7 +53,7 @@ class LivePipeline:
         step1 = self.root / 'step1_pii_detector' / 'src'
         if str(step1) not in sys.path:
             sys.path.insert(0, str(step1))
-        from prepare_v6_retrieval_v1 import fixed_key, key_tag
+        from dataset_preparation import fixed_key, key_tag
         self.secret = fixed_key(env_file)
         if not isinstance(self.secret, bytes) or len(self.secret) < 32:
             raise PipelineError('INVALID_HMAC_SECRET')
@@ -69,7 +69,7 @@ class LivePipeline:
 
     def prepare(self, raw_question: str) -> PreparedQuery | str:
         from pii_detector import create_detector
-        from safe_e2e_contract_v2 import prepare
+        from document_preparation import prepare
         # Detector can be a large model; close it before loading KoE5.
         try:
             with create_detector() as detector:

@@ -142,3 +142,27 @@ Hit@5는 적어도 하나의 정답을 찾은 질의 비율이고 Recall@5는 �
 
 - `.env`가 없는 새 clone에서도 별도 환경 파일의 개인 HF 권한으로 실제 A.X/Veil→고정 KoE5→독립 PGVector 적재/검색/멱등 검증 및 HCX mock을 통과했습니다.
 - 검증용으로 새로 만든 Docker 컨테이너/익명 볼륨과 임시 비밀 환경 파일만 정리했습니다. 원래 팀 DB 컨테이너/볼륨은 유지했습니다.
+
+## 2026-11-11 역할에 따른 파일명 정리
+
+파일명의 버전 표기를 제거하고 import·mock patch·실행 스크립트·현재 문서 참조를 함께 변경했습니다. 위의 과거 실험 기록과 원본 파일명은 당시 증거이므로 보존합니다. HMAC domain/key tag, Region 접두사, 정책 ID, 비공개 artifact 형식, CLI 하위 명령과 기존 DB 테이블명은 호환성을 위해 유지합니다.
+
+| 이전 모듈 | 현재 모듈 |
+|---|---|
+| `local_pseudonymizer_v1.py` | `entity_pseudonymizer.py` |
+| `local_pseudonymizer_v2.py` | `local_pseudonymizer.py` |
+| `name_boundary_policy_v3_1.py` | `name_boundary_policy.py` |
+| `name_mask_decision_v5.py` | `name_protection_policy.py` |
+| `name_mask_pareto_v4.py` | `name_masking_strategies.py` |
+| `name_v5_nonlinked_handoff_v2.py` | `name_protection_handoff.py` |
+| `privacy_gate_v3.py` | `gate_validation.py` |
+| `privacy_gate_v4.py` | `privacy_gate.py` |
+| `region_keys_v1.py` | `region_keys.py` |
+| `safe_e2e_contract_v2.py` | `document_preparation.py` |
+| `prepare_v6_retrieval_v1.py` | `dataset_preparation.py` |
+
+관련 테스트 파일명도 같은 역할명으로 바꿨습니다. 코드 파일명과 내용이 재현 적재 provenance 해시에 들어가므로, 이름 변경 후 새 적재의 해시 테이블명은 달라집니다. 기존 테이블을 읽을 때는 기존처럼 `--table` 또는 `AEGISRAG_TABLE`로 지정하며, 기존 DB를 변경하지 않습니다.
+
+이름 정리 검증: Python 소스 41개는 모듈 참조 치환 외 변경 없음, Step2 67건 통과, Step1 29건 통과/reference notebook 부재 1건 skip, 공개 합성 smoke 통과. `.env`·Compose·초기화 스크립트 해시는 변경 전과 동일합니다. Git 추적 파일명의 버전 접미사 0건 및 import/mock 참조 정리를 확인했습니다.
+
+기존 DB를 읽기 전용으로 재평가해 177문서/READY 85/eligible 81, Hit@1 73/81, Hit@5 79/81, indexable Recall@5 0.8802/full-Gold 0.8791, MRR 0.9340 동일성을 확인했습니다. 처음에는 DB 컨테이너가 종료돼 있어 연결 실패했고, 기존 컨테이너를 잠시 시작해 평가한 뒤 원래 종료 상태로 돌렸습니다. DB 설정·데이터는 수정하지 않았습니다.

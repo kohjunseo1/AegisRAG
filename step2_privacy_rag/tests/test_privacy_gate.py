@@ -1,7 +1,7 @@
 """Fast deterministic V4 contract tests. No model, no network, no DB."""
 from __future__ import annotations
 
-from privacy_gate_v4 import check_privacy_gate, READY
+from privacy_gate import check_privacy_gate, READY
 from veil_policy_fixtures import self_test
 
 

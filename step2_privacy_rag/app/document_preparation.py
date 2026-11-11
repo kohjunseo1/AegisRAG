@@ -11,11 +11,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from name_v5_nonlinked_handoff_v2 import (
+from name_protection_handoff import (
     STEP1_READY, GATE_READY, _FrozenDetectorView, _protection_plan,
 )
-from name_mask_decision_v5 import decide
-from name_boundary_policy_v3_1 import propose
+from name_protection_policy import decide
+from name_boundary_policy import propose
 
 _ID = re.compile(r'[A-Za-z0-9_-]{1,64}\Z')
 _TOKEN = re.compile(r'<[A-Z_]+_[0-9a-f]{24}>')
@@ -47,16 +47,16 @@ def prepare(doc_id: str, text: str, detector: Any, key: bytes) -> Outcome:
         if decision.get('would_abstain'):
             return Outcome(doc_id,'REVIEW','V5_ABSTAIN')
         proposals = propose(text,result)
-        from privacy_gate_v4 import check_privacy_gate
+        from privacy_gate import check_privacy_gate
         g = check_privacy_gate(_FrozenDetectorView(detector,result), text)
         if not isinstance(g,dict) or g.get('decision')!=GATE_READY:
             return Outcome(doc_id,'REVIEW','GATE_NOT_READY')
         g,counts = _protection_plan(text,result,g,decision,proposals)
-        from region_keys_v1 import keys_from_gate, keys_from_query
+        from region_keys import keys_from_gate, keys_from_query
         region_keys = set(keys_from_gate(text, g, key))
         if doc_id.startswith('Q'):
             region_keys.update(keys_from_query(text, key))
-        from local_pseudonymizer_v2 import pseudonymize_local
+        from local_pseudonymizer import pseudonymize_local
         p = pseudonymize_local(text,g,hmac_key=key,include_vault_records=False)
         # These contract checks do not prove that unrecognized PII is absent.
         if p.vault_records is not None or not isinstance(p.sanitized_text,str):

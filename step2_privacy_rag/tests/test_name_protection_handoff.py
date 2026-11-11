@@ -2,10 +2,10 @@
 import unittest
 from unittest.mock import patch
 
-from name_v5_nonlinked_handoff_v2 import preview_one, summarize, _protection_plan
-from name_mask_decision_v5 import decide
-from name_boundary_policy_v3_1 import propose
-from local_pseudonymizer_v1 import pseudonymize_local
+from name_protection_handoff import preview_one, summarize, _protection_plan
+from name_protection_policy import decide
+from name_boundary_policy import propose
+from entity_pseudonymizer import pseudonymize_local
 
 KEY=b'test-key-for-local-only-contract-checks!'  # test-only, not secret
 
@@ -48,8 +48,8 @@ class TestNonlinkedHandoff(unittest.TestCase):
     def test_03_mask_full_candidate_without_person_hmac(self):
         t='고객 김민준이 조건을 신청했다'
         r=response(t,names=['김민준'])
-        from privacy_gate_v4 import check_privacy_gate
-        from name_v5_nonlinked_handoff_v2 import _FrozenDetectorView
+        from privacy_gate import check_privacy_gate
+        from name_protection_handoff import _FrozenDetectorView
         gate=check_privacy_gate(_FrozenDetectorView(Fake(r),r),t)
         self.assertEqual(gate['decision'],'READY_FOR_LOCAL_PSEUDONYMIZATION')
         new,counts=_protection_plan(t,r,gate,decide(t,r,'v5_privacy_first'),propose(t,r))
@@ -68,13 +68,13 @@ class TestNonlinkedHandoff(unittest.TestCase):
 
     def test_05_gate_review_kept(self):
         t='고객 김민준이 조건을 신청했다'
-        with patch('privacy_gate_v4.check_privacy_gate',return_value={'decision':'REVIEW_REQUIRED'}):
+        with patch('privacy_gate.check_privacy_gate',return_value={'decision':'REVIEW_REQUIRED'}):
             x=preview_one('F005',t,Fake(response(t,names=['김민준'])),key=KEY)
         self.assertEqual(x['reason'],'GATE_REVIEW')
 
     def test_06_gate_block_kept(self):
         t='고객 김민준이 조건을 신청했다'
-        with patch('privacy_gate_v4.check_privacy_gate',return_value={'decision':'BLOCKED'}):
+        with patch('privacy_gate.check_privacy_gate',return_value={'decision':'BLOCKED'}):
             x=preview_one('F006',t,Fake(response(t,names=['김민준'])),key=KEY)
         self.assertEqual((x['state'],x['reason']),('BLOCKED','GATE_BLOCKED'))
 
@@ -82,7 +82,7 @@ class TestNonlinkedHandoff(unittest.TestCase):
         t='고객 김민준이 조건을 신청했다'; r=response(t,names=['김민준'])
         def broken_decision(_,__,___):
             return {'mask_intervals':[(t.index('김민준'),t.index('김민준')+3)],'added':set(),'would_abstain':False}
-        with patch('name_v5_nonlinked_handoff_v2.decide',side_effect=broken_decision):
+        with patch('name_protection_handoff.decide',side_effect=broken_decision):
             x=preview_one('F007',t,Fake(r),key=KEY)
         self.assertEqual(x['reason'],'NAME_PROTECTION_INCOMPLETE')
         self.assertEqual(x['state'],'REVIEW_QUEUE')
@@ -95,11 +95,11 @@ class TestNonlinkedHandoff(unittest.TestCase):
 
     def test_09_role_overlap_review(self):
         t='고객 김민준이 조건을 신청했다';r=response(t,names=['김민준'])
-        from privacy_gate_v4 import check_privacy_gate
-        from name_v5_nonlinked_handoff_v2 import _FrozenDetectorView
+        from privacy_gate import check_privacy_gate
+        from name_protection_handoff import _FrozenDetectorView
         g=check_privacy_gate(_FrozenDetectorView(Fake(r),r),t)
         g['redaction_intervals']=[{'start':t.index('김민준'),'end':t.index('김민준')+1}]
-        with patch('privacy_gate_v4.check_privacy_gate',return_value=g):
+        with patch('privacy_gate.check_privacy_gate',return_value=g):
             x=preview_one('F009',t,Fake(r),key=KEY)
         self.assertEqual(x['reason'],'NAME_SPAN_COLLISION')
 
@@ -109,8 +109,8 @@ class TestNonlinkedHandoff(unittest.TestCase):
         x=preview_one('F010',t,Fake(r),key=KEY)
         self.assertEqual(x['state'],'LOCAL_DRYRUN_OK')
         self.assertEqual(x['suppressed_person_hmac_entities'],1)
-        from privacy_gate_v4 import check_privacy_gate
-        from name_v5_nonlinked_handoff_v2 import _FrozenDetectorView
+        from privacy_gate import check_privacy_gate
+        from name_protection_handoff import _FrozenDetectorView
         g=check_privacy_gate(_FrozenDetectorView(Fake(r),r),t)
         new,_=_protection_plan(t,r,g,decide(t,r,'v5_privacy_first'),propose(t,r))
         out=pseudonymize_local(t,new,hmac_key=KEY)
@@ -202,8 +202,8 @@ class TestNonlinkedHandoff(unittest.TestCase):
 
     def test_22_no_cover_reduction_on_extra(self):
         t='고객 김민준이 조건을 신청했다';r=response(t,names=['김민준'])
-        from privacy_gate_v4 import check_privacy_gate
-        from name_v5_nonlinked_handoff_v2 import _FrozenDetectorView
+        from privacy_gate import check_privacy_gate
+        from name_protection_handoff import _FrozenDetectorView
         g=check_privacy_gate(_FrozenDetectorView(Fake(r),r),t)
         d=decide(t,r,'v5_privacy_first')
         revised,_=_protection_plan(t,r,g,d,propose(t,r))
@@ -213,7 +213,7 @@ class TestNonlinkedHandoff(unittest.TestCase):
 
     def test_23_gate_invalid_contract_blocks(self):
         t='고객 김민준이 조건을 신청했다';r=response(t,names=['김민준'])
-        with patch('privacy_gate_v4.check_privacy_gate',return_value={
+        with patch('privacy_gate.check_privacy_gate',return_value={
             'decision':'READY_FOR_LOCAL_PSEUDONYMIZATION',
             'mask_intervals':[], 'entities':[], 'entities_for_pseudonymization':'oops',
             'redaction_intervals':[]}):
@@ -226,8 +226,8 @@ class TestNonlinkedHandoff(unittest.TestCase):
         out=preview_one('F024',t,Fake(r),key=KEY)
         self.assertEqual(out['state'],'LOCAL_DRYRUN_OK')
         self.assertEqual(out['explicit_name_field_added_chars'],3)
-        from privacy_gate_v4 import check_privacy_gate
-        from name_v5_nonlinked_handoff_v2 import _FrozenDetectorView
+        from privacy_gate import check_privacy_gate
+        from name_protection_handoff import _FrozenDetectorView
         g=check_privacy_gate(_FrozenDetectorView(Fake(r),r),t)
         safe,_=_protection_plan(t,r,g,decide(t,r,'v5_privacy_first'),propose(t,r))
         rendered=pseudonymize_local(t,safe,hmac_key=KEY)

@@ -1,7 +1,7 @@
 """Offline pseudonymizer tests (no model, DB, secret, network)."""
 from __future__ import annotations
 
-from local_pseudonymizer_v1 import (
+from entity_pseudonymizer import (
     READY, PseudonymizationError, canonicalize, make_hmac_token, pseudonymize_local,
 )
 
@@ -116,7 +116,7 @@ def main():
     count+=3
 
     # Explicitly verify V4 integration with a fully synthetic fake detector.
-    from privacy_gate_v4 import check_privacy_gate
+    from privacy_gate import check_privacy_gate
     class Fake:
         def __init__(self,output,ax=(),veil=()):self.output=output;self.ax=list(ax);self.veil=list(veil)
         def detect(self,text):return self.output

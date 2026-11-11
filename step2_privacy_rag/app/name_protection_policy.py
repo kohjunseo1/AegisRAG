@@ -7,8 +7,8 @@ This module purposely treats non-identity-linked masking as a *contract proposal
 from __future__ import annotations
 from collections import Counter
 import re
-from name_boundary_policy_v3_1 import propose, baseline_masks, merge_intervals, _has_batchim
-from name_mask_pareto_v4 import chars, valid_result, run_policy as v4_run
+from name_boundary_policy import propose, baseline_masks, merge_intervals, _has_batchim
+from name_masking_strategies import chars, valid_result, run_policy as v4_run
 
 POLICIES = (
     'baseline',
