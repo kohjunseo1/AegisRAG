@@ -43,7 +43,7 @@ class PreparedQuery:
 
 
 class LivePipeline:
-    def __init__(self, root: Path, device: str = 'cpu', env_file: Path | None = None):
+    def __init__(self, root: Path, device: str = 'cpu', env_file: Path | None = None, *, reuse_step1: bool = False):
         self.root = root.resolve()
         env_file = env_file or self.root / '.env'
         self.device = device
@@ -66,15 +66,49 @@ class LivePipeline:
         self.db = db_config(env_file)
         self.timings = {}
         self._model = None
+        # Opt-in only until the real Mac memory/latency regression is verified.
+        self.reuse_step1 = bool(reuse_step1)
+        self._detector = None
+        self._detector_failed = False
+
+    def close(self) -> None:
+        """Release a long-lived detector when the chat/benchmark process exits."""
+        detector = self._detector
+        self._detector = None
+        if detector is not None:
+            detector.close()
 
     def prepare(self, raw_question: str) -> PreparedQuery | str:
         from pii_detector import create_detector
         from document_preparation import prepare
-        # Detector can be a large model; close it before loading KoE5.
+        if self._detector_failed:
+            raise PipelineError('STEP1_DETECTOR_FAILED_RESTART_REQUIRED')
+        # The default continues to release Step1 before loading KoE5.
+        detector = None
         try:
-            with create_detector() as detector:
+            started = time.perf_counter()
+            if self.reuse_step1:
+                if self._detector is None:
+                    self._detector = create_detector()
+                detector = self._detector
+            else:
+                detector = create_detector()
+            self.timings['step1_init_ms'] = (time.perf_counter() - started) * 1000
+            started = time.perf_counter()
+            try:
                 result = prepare('Q_LIVE', raw_question, detector, self.secret)
+            finally:
+                self.timings['step1_process_ms'] = (time.perf_counter() - started) * 1000
+                if not self.reuse_step1 and detector is not None:
+                    started_close = time.perf_counter()
+                    detector.close()
+                    self.timings['step1_close_ms'] = (time.perf_counter() - started_close) * 1000
         except Exception as exc:
+            if self.reuse_step1:
+                # Do not silently recreate or retry a detector after a failed call.
+                # A timed-out backend can still have an active worker thread.
+                self._detector_failed = True
+                self.close()
             raise PipelineError('STEP1_GATE_FAILED') from exc
         if getattr(result, 'state', None) != 'LOCAL_PREPARED' or getattr(result, 'unlinked_mentions', ()):
             state = str(getattr(result, 'state', 'REVIEW_REQUIRED'))
@@ -149,7 +183,7 @@ class LivePipeline:
     def ask_local(self, raw_question: str) -> tuple[str, PreparedQuery | None, list[dict]]:
         if not isinstance(raw_question, str) or not raw_question.strip() or len(raw_question) > 1000:
             raise PipelineError('INVALID_QUESTION')
-        self.timings = dict.fromkeys(('step1_ms', 'embedding_ms', 'db_ms', 'rerank_ms', 'hcx_ms', 'total_ms'), 0.0)
+        self.timings = dict.fromkeys(('step1_ms', 'step1_init_ms', 'step1_process_ms', 'step1_close_ms', 'embedding_ms', 'db_ms', 'rerank_ms', 'hcx_ms', 'total_ms'), 0.0)
         start = time.perf_counter()
         prepared = self.prepare(raw_question)
         self.timings['step1_ms'] = (time.perf_counter() - start) * 1000
