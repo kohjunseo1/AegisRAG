@@ -66,6 +66,20 @@ AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
 python scripts/aegisrag.py run-chat --device cpu --port 8768
 ```
 
+**L-002 기본 실행:** 서버가 A.X·Veil + KoE5를 로딩·워밍업한 뒤에만 HTTP 요청을 받습니다. 실제 Mac CPU 평가에서 준비 이후 첫 질문의 로컬 처리시간이 약 **0.44초**였고, 서버 시작(모델 준비)에는 **약 38초**가 걸렸습니다. 외부 HCX 답변 생성시간은 별도입니다. 콘솔의 `AEGISRAG_V6_LIVE_CHAT_READY`가 출력된 이후 브라우저에서 접속하세요.
+
+재현·문제 진단을 위한 비활성화 옵션:
+
+```bash
+# 모델 재사용은 유지하되, 서버 시작 시 워밍업만 해제
+AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
+python scripts/aegisrag.py run-chat --device cpu --port 8768 --no-preload
+
+# L-000 방식: 요청마다 Step1 새로 로딩하고, KoE5는 지연 초기화
+AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
+python scripts/aegisrag.py run-chat --device cpu --port 8768 --no-preload --no-reuse-step1
+```
+
 브라우저: **http://127.0.0.1:8768**. 이 서버는 로컬(127.0.0.1)에만 바인딩되며 **실행 중인 터미널 프로세스가 살아 있는 동안에만 동작**합니다. `Ctrl+C`로 종료합니다. Mac 재시작 후에는 Docker Desktop/DB와 챗봇을 다시 실행해야 할 수 있습니다. `docker compose up -d`로 실행한 DB 컨테이너와 웹 서버는 별도 프로세스입니다.
 
 새 Clone에는 DB 데이터가 없습니다. 팀에서 승인된 비공개 입력을 준비해 **별도 테이블에 최초 적재**해야 챗봇을 실제 문서로 사용할 수 있습니다.

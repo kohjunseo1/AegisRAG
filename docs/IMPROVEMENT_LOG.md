@@ -137,6 +137,68 @@ PYTHONPATH=step1_pii_detector:step1_pii_detector/src python -m unittest discover
 
 ---
 
+## L-002 · 2026-11-11 · 모델 Preloading (실측 검증·서비스 기본 동작 채택)
+
+**문제:** L-001 warm 평균 444.9ms(p95 504.0ms)까지 개선했지만, 첫 질의는 Step1 및 KoE5 초기화로 약 35.98초 소요. 서비스가 준비된 후 첫 사용자의 대기시간을 줄여야 함.
+
+**가설:** 서버가 HTTP 요청을 받기 전에 A.X·Veil과 KoE5를 로딩하고 **비민감 공개형 합성 문장으로 1회 추론 워밍업**하면 첫 사용자의 질의 처리시간이 기존 warm 처리에 근접할 것. 서버 시작 → 최초 답변의 총시간은 크게 단축되지 않을 수 있음.
+
+**변경 후보 (별도 브랜치 `perf/l002-preload-models`):**
+- `LivePipeline.preload_models()`: L-001의 Step1 재사용 옵션을 전제하고 Step1 보호 파이프라인 + KoE5 임베딩을 로컬에서 워밍업. DB/HCX/비공개 문서에는 접근하지 않음. 중복 호출은 추가 로딩 없이 유지.
+- `run-chat --reuse-step1 --preload`: 워밍업이 성공한 다음에만 HTTP 서버를 생성하고 `READY` 출력. 워밍업 실패는 안전 코드로 차단, 서버 바인딩 없음.
+- `scripts/benchmark_preload.py`: 독립 프로세스에서 `lazy` 대 `preload` 비교. `ready_after_ms`, `first_request_ms`, `startup_through_first_ms`, warm p50/p95, 최대 RSS 및 Top-5 서명 보고. 실험 시 HCX 호출·DB 쓰기 없음.
+- 기존 `check_step1_reuse_parity.py`에 `--mode preload` 추가하여 L-001에서 수집한 기준 지문과 동일한 12개 개인질의 상태·가명처리 결과를 비교할 수 있도록 함.
+
+**CI/합성 테스트:** 7가지 신규 테스트(사전로딩 성공·중복 호출·REVIEW·인코딩 오류·HTTP 바인딩 순서·시작 실패·CLI 옵션 결합) 및 기존 회귀 테스트. 비공개 모델/DB 기반의 실제 성능 개선은 CI에서 측정 불가.
+
+**Mac 확인 절차 (별도 프로세스 실행, HCX 미호출):**
+
+```bash
+# 활성 Conda 환경: 기존에 정상 실행한 aegisrag-retrieval
+python scripts/benchmark_preload.py --mode lazy --runs 5 --device cpu
+python scripts/benchmark_preload.py --mode preload --runs 5 --device cpu
+
+# L-001에서 저장한 기준 지문과 새 preloading 처리 결과 동등성
+python scripts/check_step1_reuse_parity.py --mode preload --limit 12 \
+  --out step2_privacy_rag/local_eval/l002_preload.json
+python scripts/check_step1_reuse_parity.py --compare \
+  --baseline step2_privacy_rag/local_eval/l001_baseline.json \
+  --reuse step2_privacy_rag/local_eval/l002_preload.json
+```
+
+**검증 결과:** Mac CPU 단일 질의 기준으로 첫 질문의 로컬 지연이 크게 감소했고, 12개 개인정보 처리 동등성·검색 기준선·CI가 유지됨. warm 평균은 5회 표본에서 389ms → 449ms였으므로 무조건 악화 없음을 증명한 것은 아님. 기본 서비스는 Preloading + Step1 재사용을 켜되, 옵션으로 해제할 수 있도록 함.
+
+### 2026-11-11 · 실제 Mac CPU 검증 결과
+
+```text
+비교조건: 동일 Mac, CPU, 별도 프로세스, 모드별 cold 1회 + warm 5회
+데이터: 기존 V6 검색 177문서 DB 읽기 전용, 일반 질의 1개
+외부 HCX 요청/DB 쓰기 없음
+```
+
+| 지표 | Lazy (L-001) | Preload (L-002) |
+|---|---:|---:|
+| 서버 준비시간 | 1,028.1ms | **38,033.9ms** |
+| 첫 요청 로컬 처리 | 46,687.9ms | **436.6ms** |
+| 서버 시작~첫 요청 완료 | 47,716.0ms | **38,470.5ms** |
+| warm 평균 (각 5회) | 388.9ms | 449.0ms |
+| warm p50 | 394.8ms | 418.2ms |
+| peak RSS | 2,670.3MiB | 2,675.9MiB |
+| Top-5 순위 지문 | `4b95ebd92f75de95` | 동일 |
+
+**해석:** 모델 초기화 비용이 첫 요청에서 서버 시작 단계로 이동함. 첫 요청만 비교하면 약 **106.9배 빠름**; 시작~첫 요청 완료는 약 **19.4% 감소**한 이 관측 사례에서만 해당. Preload 워밍업 구성 요소 Step1 29,573.58ms, KoE5 7,967.94ms. 위 두 결과 모두 동일 입력 반복 5회이므로 p95 추정 불가; 실제 HCX 포함 서비스 응답 성능이나 일반화 성능을 주장하지 않음. 최대 RSS 차이는 5.6MiB로 관측 편차의 범위일 수 있음.
+
+**보안·검색 동등성:**
+- L-001 기본 방식 대비 Preload **12/12 상태·가명처리·HMAC 토큰·Region 키 지문 일치**. READY 9, REVIEW 2, BLOCKED 1. Gold 입력을 모델에 제공하지 않음.
+- 기존 DB 읽기 전용 재평가: `documents=177, eligible=81, ready_queries=85, Hit@1=73/81, Hit@5=79/81, Recall@5(indexable)=0.8802, Recall@5(full)=0.8791, MRR=0.934`. 이 지표는 준비된 질의 대상 검색 평가이며 Preload 내부 호출 동등성 자체와 구분함.
+- GitHub 합성 CI 성공. 로컬 추가 테스트 이력: Step1 29 성공/1 skip, Step2 71 성공(이전 L-001 단계); L-002 신규 테스트는 CI에 포함됨.
+
+**채택:** L-002를 로컬 챗봇 시작 시 **기본 모델 사전로딩 및 Step1 재사용**으로 채택. 원래 Lazy 방식은 `--no-preload`, 원래 매번 새 탐지기 생성 방식은 `--no-preload --no-reuse-step1`로 재현 가능. 코드 레벨 `LivePipeline(..., reuse_step1=False)` 기본값은 보존. 단일 프로세스/CPU 기준 검증이며 장시간 메모리·멀티 사용자 운영·HCX E2E 지연은 미검증.
+
+**운영 주의:** 모델 사전로딩은 외부 HCX 안전 인증을 의미하지 않음. 실제 서비스는 기존 외부 전송 승인 조건을 그대로 따르며, 준비 상태는 모델 워밍업 성공을 뜻할 뿐 DB의 현재 연결·내용 검증까지 포함하지 않음.
+
+---
+
 ## 후속 개선 백로그 (착수 전)
 
 | 순서 | 영역 | 핵심 검증 |
