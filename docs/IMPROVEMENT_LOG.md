@@ -221,6 +221,14 @@ python scripts/diagnose_review_q001.py --ids \
 - H0091만 재진단:
   `python scripts/diagnose_review_q001.py --ids H0091`
 
+**2차 H0091 진단 (2026-11-11):** 기존 Veil 후보에 `kinship_bereavement_word: 1`이 있으나, `strict_entity_overlap: 1`, `ignore_candidate_vetoed: 1`로 인한 Gate 차단이 확정됨. A.X 주소 겹침은 출력되지 않음(관측된 양수 카운트 없음). Step1 strict PII 개체가 있는 상태에서 Veil의 사전 기반 IGNORE 후보를 바로 무시하면 기존 개인정보를 잘못 해제할 수 있음. **상태 REVIEW 유지.**
+
+**보완 진단:** strict 개인정보의 **라벨 종류**, 후보와 strict 구간의 **포함/부분 겹침 관계**, 후보의 **기존 보호 범위 밖 글자 수**만 추가 집계. 원문·개체 문자열·오프셋·토큰은 출력하지 않음. 부고 친족어와 기존 strict 개체가 일부 겹치는 합성 반례를 추가해, 사전상의 IGNORE가 Step1 strict 보호를 무효화할 수 없음을 회귀 검증.
+
+```bash
+python scripts/diagnose_review_q001.py --ids H0091
+```
+
 **다음 정책 시도:** 이름 경계는 추가 보호 자체와 동일 인물 HMAC 연동을 분리하고, 반례를 포함한 합성/Dev 테스트로 보호 범위 누락·과보호·잘못된 연결 여부를 확인. Gate 충돌은 안전한 이유가 확인되기 전 REVIEW를 유지. 문서별 임시 예외 또는 Holdout 특정 사례에만 맞춘 규칙은 채택하지 않음.
 
 **상태:** 원인 분류 및 추가 충돌 진단 구현 완료 / 모델 정책 미변경·실제 처리율 개선 미검증.
