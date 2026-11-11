@@ -70,6 +70,47 @@ class LivePipeline:
         self.reuse_step1 = bool(reuse_step1)
         self._detector = None
         self._detector_failed = False
+        self._models_preloaded = False
+        self._preload_metrics = {}
+
+    def preload_models(self) -> dict[str, float]:
+        """Warm local Step1 and KoE5 before the HTTP server starts.
+
+        No DB, network LLM, or private document access. A safe public-style
+        synthetic sentence is passed through the identical query preparation
+        path to warm both model inference backends, not just load their files.
+        """
+        if not self.reuse_step1:
+            raise PipelineError('PRELOAD_REQUIRES_STEP1_REUSE')
+        if self._detector_failed:
+            raise PipelineError('STEP1_DETECTOR_FAILED_RESTART_REQUIRED')
+        if self._models_preloaded:
+            return dict(self._preload_metrics)
+
+        start = time.perf_counter()
+        try:
+            ready = self.prepare('출장 결과 보고의 목적을 알려줘')
+            if not isinstance(ready, PreparedQuery):
+                raise PipelineError('PRELOAD_STEP1_PROBE_NOT_READY')
+            step1_ms = (time.perf_counter() - start) * 1000
+            embed_start = time.perf_counter()
+            # The model remains cached on the same LivePipeline instance.
+            self._encode(ready.text)
+            embedding_ms = (time.perf_counter() - embed_start) * 1000
+            metrics = dict(step1_ms=round(step1_ms, 2),
+                           embedding_ms=round(embedding_ms, 2),
+                           total_ms=round((time.perf_counter() - start) * 1000, 2))
+            self._preload_metrics = metrics
+            self._models_preloaded = True
+            return dict(metrics)
+        except Exception as exc:
+            # Never start a half-warmed service, nor reuse an uncertain detector.
+            self._detector_failed = True
+            self._models_preloaded = False
+            self._preload_metrics = {}
+            self._model = None
+            self.close()
+            raise PipelineError('MODEL_PRELOAD_FAILED') from exc
 
     def close(self) -> None:
         """Release a long-lived detector when the chat/benchmark process exits."""
