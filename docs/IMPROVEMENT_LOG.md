@@ -91,6 +91,31 @@ python scripts/aegisrag.py run-chat --device cpu --port 8768 --reuse-step1
 
 **현재 판정:** **유망 / PR 유지·main 미병합**. 각 모드 warm 3회뿐이라 p95 없음; 이름·주소·REVIEW/BLOCKED 실모델 질의의 보호 결과 parity, 폭넓은 회귀, warm 20회 p50/p95 및 메모리 안정성 검증 후 채택 결정. 특히 현재 baseline 평가 CLI는 준비된 질의를 읽기 때문에 **실시간 탐지기 재사용 동작 자체의 동등성 검증을 대신할 수 없음**.
 
+### 2026-11-11 · Warm 20회 및 테스트 재검증
+
+- **실행:** `--mode reuse --runs 20 --device cpu`; cold 1회 + warm 20회, 동일 일반 질문. 실모델·기존 V6 177문서 읽기 전용 DB, HCX 미호출. 기존 방식의 참조 평균은 앞서 관측한 warm 3회로서 완전히 같은 횟수의 대조 측정은 아님.
+- **Cold 로컬 전체:** **35,975.2 ms** (Step1 최초 생성 26,638.6ms, KoE5 초기 임베딩 8,197.6ms).
+- **Warm 전체:** **평균 444.9ms / p50 432.0ms / p95 504.0ms** (20회).
+- **Warm 세부:** Step1 평균 198.3ms (p95 229.1ms); KoE5 평균 201.8ms (p95 234.6ms); DB 평균 43.8ms (p95 100.4ms); 재정렬 평균 0.8ms.
+- **최대 프로세스 RSS:** 2,687.2 MiB; Top-5 순위 해시 `cd22fad63a17f8fe`는 모든 재사용 요청과 기존 기본 방식에 일치. 데이터베이스 쓰기/HCX 호출 없음.
+- **예비 비교:** 기존 warm 3회 평균 14,324.7ms 대비 재사용 warm 20회 444.9ms → 약 **32.2배**. 서로 다른 관측 횟수로 계산한 참고 비율이며, 실제 E2E/전체 질의 분포 속도 향상을 뜻하지 않음.
+- **테스트 로그:** Step1 30개 중 29개 `ok`, 1개 reference notebook 부재 `skipped`; Step2 71개 각 테스트 `ok` (새 L-001 회귀 4개 포함). 제공된 Step2 로그 마지막의 `OK` 요약 줄은 누락됐으나 개별 71개 성공 기록을 확인함.
+- **최종 채택 전 남은 검증:** 모델 재사용과 기본 방식의 **실제 원본 질의 다유형 가명처리·상태·토큰 결과 동등성**, 현재 탐지기/검색 안정성, 운영에서의 메모리 장기 안정성.
+
+**보호 동등성 비교 도구:** `scripts/check_step1_reuse_parity.py`는 실제 비공개 원본 질의를 로컬에서 직접 처리하고, **상태 + 가명처리된 출력/토큰/Region의 키드 지문만** Git 무시 경로에 기록함. 원문·토큰·키는 저장하거나 출력하지 않고, DB/HCX를 호출하지 않음. 서로 독립적인 두 Python 프로세스에서 실행 후 동일 질의 ID의 지문을 비교함.
+
+```bash
+python scripts/check_step1_reuse_parity.py --mode baseline --limit 12 \
+  --out step2_privacy_rag/local_eval/l001_baseline.json
+python scripts/check_step1_reuse_parity.py --mode reuse --limit 12 \
+  --out step2_privacy_rag/local_eval/l001_reuse.json
+python scripts/check_step1_reuse_parity.py --compare \
+  --baseline step2_privacy_rag/local_eval/l001_baseline.json \
+  --reuse step2_privacy_rag/local_eval/l001_reuse.json
+```
+
+`--limit 12`는 현재 REVIEW/BLOCKED 3개 질의와 Gold 유형별 대표 질의를 우선 선택. 실제 위험 데이터는 로컬에서만 처리하며 외부 반출 금지. 이 비교에서 전체 88개 질의를 다 검증한 것은 아님.
+
 **다음 로컬 실행:**
 ```bash
 python scripts/benchmark_step1_reuse.py --mode reuse --runs 20 --device cpu
