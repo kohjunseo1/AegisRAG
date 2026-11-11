@@ -161,19 +161,32 @@ def main() -> int:
     ap.add_argument('--device', choices=['cpu', 'mps', 'auto'], default='cpu')
     ap.add_argument('--port', type=int, default=8767)
     ap.add_argument('--reuse-step1', action='store_true', help='opt-in persistent A.X/Veil detector (compare memory and latency before adoption)')
+    ap.add_argument('--preload', action='store_true', help='warm Step1 and KoE5 before accepting HTTP requests; requires --reuse-step1')
     args = ap.parse_args()
     if not 1024 <= args.port <= 65535:
         ap.error('port must be between 1024 and 65535')
+    if args.preload and not args.reuse_step1:
+        ap.error('--preload requires --reuse-step1')
     if os.environ.get('AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED') != 'YES':
         ap.error('service requires one-time external transfer authorization: AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES')
+    pipeline = None
     try:
         pipeline = LivePipeline(Path(__file__).resolve().parents[2], args.device, reuse_step1=args.reuse_step1)
+        if args.preload:
+            metrics = pipeline.preload_models()
+            # Safe aggregate timings only: never print prompts, HMAC or model internals.
+            print('L002_MODELS_PRELOADED step1_ms=' + str(metrics['step1_ms']) +
+                  ' embedding_ms=' + str(metrics['embedding_ms']) +
+                  ' total_ms=' + str(metrics['total_ms']), flush=True)
+        # Do not listen for incoming connections until preload has succeeded.
+        Handler.pipeline = pipeline
+        Handler.allow_hcx = True
+        server = HTTPServer(('127.0.0.1', args.port), Handler)
     except Exception as e:
+        if pipeline is not None:
+            pipeline.close()
         print('LIVE_CHAT_STARTUP_FAILED', type(e).__name__, flush=True)
         return 2
-    Handler.pipeline = pipeline
-    Handler.allow_hcx = True
-    server = HTTPServer(('127.0.0.1', args.port), Handler)
     print('AEGISRAG_V6_LIVE_CHAT_READY http://127.0.0.1:' + str(args.port), flush=True)
     print('MODE=V6_LIVE_AUTOMATIC_HCX_APPROVED', flush=True)
     print('DB_READ_ONLY=TRUE GOLD_USED=FALSE SERVER_LOCALHOST_ONLY=TRUE', flush=True)
