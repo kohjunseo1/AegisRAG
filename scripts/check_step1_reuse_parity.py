@@ -91,9 +91,11 @@ def run_mode(args) -> int:
     from core import LivePipeline
 
     selected = choose_queries(args.queries, args.prepared, args.limit)
-    pipe = LivePipeline(ROOT, device=args.device, reuse_step1=(args.mode == "reuse"))
+    pipe = LivePipeline(ROOT, device=args.device, reuse_step1=(args.mode != "baseline"))
     records = []
     try:
+        if args.mode == "preload":
+            pipe.preload_models()
         for qid, raw_query in selected:
             result = pipe.prepare(raw_query)
             if isinstance(result, str):
@@ -126,7 +128,8 @@ def compare(args) -> int:
     a = json.loads(safe_path(args.baseline).read_text(encoding="utf-8"))
     b = json.loads(safe_path(args.reuse).read_text(encoding="utf-8"))
     if (a.get("format") != "aegisrag-l001-parity-v1" or a.get("mode") != "baseline"
-            or b.get("format") != "aegisrag-l001-parity-v1" or b.get("mode") != "reuse"):
+            or b.get("format") != "aegisrag-l001-parity-v1"
+            or b.get("mode") not in {"reuse", "preload"}):
         raise ValueError("INVALID_PARITY_CAPTURE")
     baseline = {x["qid"]: x for x in a["records"]}
     candidate = {x["qid"]: x for x in b["records"]}
@@ -135,7 +138,8 @@ def compare(args) -> int:
     mismatches = [qid for qid in sorted(baseline)
                   if baseline[qid]["state"] != candidate[qid]["state"]
                   or baseline[qid]["fingerprint"] != candidate[qid]["fingerprint"]]
-    print("L001_PARITY_RESULT", json.dumps({
+    label = "L002_PARITY_RESULT" if b["mode"] == "preload" else "L001_PARITY_RESULT"
+    print(label, json.dumps({
         "checked": len(baseline), "equal": len(baseline)-len(mismatches),
         "mismatch_qids": mismatches, "states": dict(Counter(
             x["state"] for x in baseline.values())),
@@ -147,7 +151,7 @@ def compare(args) -> int:
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--mode", choices=("baseline", "reuse"))
+    g.add_argument("--mode", choices=("baseline", "reuse", "preload"))
     g.add_argument("--compare", action="store_true")
     p.add_argument("--queries", type=Path, default=RAW_QUERIES)
     p.add_argument("--prepared", type=Path, default=PREPARED)
