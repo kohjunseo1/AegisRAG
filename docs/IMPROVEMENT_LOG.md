@@ -52,7 +52,7 @@
 3. cold 1회 + warm 최소 20회, 일반/이름/주소/번호/REVIEW 합성 질의 및 허가된 비공개 회귀 세트. CPU, 프로세스 조건, 메모리(RSS), `step1_ms`, `embedding_ms`, `db_ms`, `hcx_ms`, `total_ms` 구분.
 4. **채택 조건:** 출력 상태·보호 구간·가명 토큰·문서 검색 순위·Step1 테스트·V6 baseline이 같고, 실제 warm p50/p95 개선 및 메모리 사용량이 수용 가능할 것. 속도 개선 수치는 측정 뒤 기록.
 
-**현재 상태:** **후보 구현 완료, 실제 모델/DB 측정 전**. 실험 브랜치 `perf/l001-step1-detector-reuse`에서만 `--reuse-step1`을 활성화할 수 있고, 기본 실행 경로는 기존처럼 매 요청 생성·종료합니다.
+**현재 상태:** **CPU 실제 모델·기존 DB 3회 비교에서 큰 개선 확인, 추가 검증 전**. 실험 브랜치 `perf/l001-step1-detector-reuse`에서만 `--reuse-step1`을 활성화할 수 있고, 기본 실행 경로는 기존처럼 매 요청 생성·종료합니다.
 
 - 변경: `LivePipeline`에 opt-in 탐지기 재사용·명시적 종료, 생성/모델 로딩(`step1_init_ms`)과 Step1 탐지+Gate+가명처리(`step1_process_ms`) 분리 계측, 예외 시 재사용 중단을 추가했습니다. **탐지 추론만의 시간과 Gate 시간은 아직 분리되지 않았습니다.**
 - 회귀: 합성 탐지기에서 동일 처리/REVIEW 유지/종료/예외 후 자동 재시도 금지 테스트 추가. 실제 A.X·Veil, 비공개 문서, Mac 16GB 메모리 영향은 별도 실측 필요.
@@ -69,6 +69,33 @@ python scripts/benchmark_step1_reuse.py --mode reuse --runs 20 --device cpu
 # 실험용 로컬 챗봇은 명시적 opt-in
 AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
 python scripts/aegisrag.py run-chat --device cpu --port 8768 --reuse-step1
+```
+
+### 2026-11-11 · 실제 Mac CPU 예비 비교 (cold 1회 + warm 3회 / 모드)
+
+- **실행 환경:** 동일 Mac, `aegisrag-retrieval` Conda 환경의 A.X/Veil·KoE5 실모델, 기존 177문서 PGVector. 동일 공개형 일반 질문을 반복했으며 HCX 호출·DB 쓰기 없음.
+- **오류 수정:** 처음 실행에 사용된 다른 Conda 환경 `aegisrag`는 torch/transformers 호환성 오류로 중단. 정상 사용하던 `aegisrag-retrieval` 환경에서 재측정함. 해당 오류는 탐지기 재사용 효과 측정 결과에 포함하지 않음.
+
+| 지표 | 기본 방식 | 재사용 방식 |
+|---|---:|---:|
+| Cold 전체 로컬 | 37,261.2 ms | 36,865.7 ms |
+| Warm 전체 로컬 평균 | **14,324.7 ms** | **482.5 ms** |
+| Warm Step1 평균 | 14,004.8 ms | 220.4 ms |
+| Warm Step1 초기화 평균 | 13,508.5 ms | 0.0 ms |
+| Warm 임베딩 평균 | 261.9 ms | 217.6 ms |
+| Warm DB 평균 | 57.0 ms | 43.7 ms |
+| Peak RSS (별도 프로세스) | 4,196.5 MiB | 2,707.5 MiB |
+| Top-5 ID 순위 해시 | `cd22fad63a17f8fe` | 동일 |
+
+**예비 효과:** warm 전체 평균 약 **29.7배 빠름**, 처리시간 약 **96.6% 감소**. 반복 Step1 초기화 약 **13.5초**가 주요 병목이었음. Cold는 큰 변화 없음. Top-5 문서 ID 순서는 해당 질문에서만 일치 확인. 서로 다른 프로세스의 peak RSS는 비교 참고용일 뿐 메모리 감소 보장 아님.
+
+**현재 판정:** **유망 / PR 유지·main 미병합**. 각 모드 warm 3회뿐이라 p95 없음; 이름·주소·REVIEW/BLOCKED 실모델 질의의 보호 결과 parity, 폭넓은 회귀, warm 20회 p50/p95 및 메모리 안정성 검증 후 채택 결정. 특히 현재 baseline 평가 CLI는 준비된 질의를 읽기 때문에 **실시간 탐지기 재사용 동작 자체의 동등성 검증을 대신할 수 없음**.
+
+**다음 로컬 실행:**
+```bash
+python scripts/benchmark_step1_reuse.py --mode reuse --runs 20 --device cpu
+PYTHONPATH=step2_privacy_rag/app python -m unittest discover -s step2_privacy_rag/tests -v
+PYTHONPATH=step1_pii_detector:step1_pii_detector/src python -m unittest discover -s step1_pii_detector/tests -v
 ```
 
 실행 결과의 단계별 p50/p95와 peak RSS 및 실제 검색 기준선 재현을 확인한 뒤 채택/폐기를 결정합니다. Mac에서 두 모델과 KoE5 동시 상주가 메모리 압박을 유발하면 즉시 baseline 모드로 복귀합니다.
