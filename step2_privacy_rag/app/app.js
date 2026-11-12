@@ -61,6 +61,7 @@ function addMessage(role, text, result = null) {
             debug.appendChild(el("p", "",
               c.doc_id + " · HMAC 일치 " + c.hmac_matches +
               " · 지역 일치 " + c.region_matches +
+              " · 주제 적합도 " + (c.topic_score || 0) +
               " · Dense 순위 " + c.dense_rank));
           }
           if (result.decision === "INSUFFICIENT_EVIDENCE") {

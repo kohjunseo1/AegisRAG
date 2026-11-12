@@ -73,7 +73,8 @@ def respond(pipeline: LivePipeline, message: dict, allow_hcx: bool = True) -> di
     # candidates are NOT citations or proof that the answer was supported.
     retrieval_candidates = [
         {'doc_id': d['doc_id'], 'dense_rank': d['dense_rank'],
-         'hmac_matches': d['hmac_matches'], 'region_matches': d['region_matches']}
+         'hmac_matches': d['hmac_matches'], 'region_matches': d['region_matches'],
+         'topic_score': d.get('topic_score', 0)}
         for d in evidence
     ]
     diagnostics = {

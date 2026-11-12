@@ -43,7 +43,7 @@ INSUFFICIENT_EVIDENCE: 해당 질문과 관련된 증거가 없거나 요구한 
 검색 결과가 있다는 이유만으로 그 문서에 없는 사실을 만들어내지 마세요.
 decision, answer, citations를 갖는 JSON 객체만 반환하세요.'''
 FALLBACK_CLARIFY = '어떤 대상이나 항목을 말씀하시는지 조금 더 구체적으로 알려주시겠어요?'
-FALLBACK_INSUFFICIENT = '확인 가능한 문서에서 질문에 답할 충분한 근거를 찾지 못했습니다.'
+FALLBACK_INSUFFICIENT = '현재 검색된 문서만으로는 요청하신 내용을 확인하기 어려워요. 관련 문서 제목이나 부서, 기간을 더 알려주시면 범위를 좁혀 찾아볼게요.'
 # Heuristics are defense-in-depth, NOT proof that no personal data remains.
 EMAIL = re.compile(r'(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b')
 PHONE = re.compile(r'(?<!\d)(?:01[016789][- ]?\d{3,4}[- ]?\d{4}|0[2-9]\d?[- ]?\d{3,4}[- ]?\d{4})(?!\d)')

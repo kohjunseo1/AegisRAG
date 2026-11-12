@@ -127,6 +127,7 @@ class TestE2EContract(unittest.TestCase):
         self.assertEqual(diag['retrieved_count'], 5)
         self.assertEqual(diag['retrieval_candidates'][0]['doc_id'], 'H0001')
         self.assertNotIn('text', diag['retrieval_candidates'][0])
+        self.assertEqual(diag['retrieval_candidates'][0]['topic_score'], 0)
 
     @patch('app.call_hcx')
     def test_review_never_calls_hcx(self,mock_call):

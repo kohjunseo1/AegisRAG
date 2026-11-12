@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.eval_chat_mvp import load_cases, metric_report
+from unittest.mock import patch
+from scripts.eval_chat_mvp import load_cases, metric_report, write_example_cases
 
 
 class TestMVPEval(unittest.TestCase):
@@ -28,6 +29,18 @@ class TestMVPEval(unittest.TestCase):
             self.assertEqual(s['labeled_cases'],1)
             self.assertEqual(s['hit5_rate_labeled'],1.0)
             self.assertEqual(s['hcx_decisions']['ANSWER'],1)
+
+    def test_example_generator_writes_valid_git_ignored_jsonl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root/'step2_privacy_rag/local_eval/mvp_natural_questions.jsonl'
+            with patch('scripts.eval_chat_mvp.ROOT', root):
+                write_example_cases(path)
+                examples = load_cases(path)
+                self.assertEqual(len(examples), 15)
+                self.assertIn('경조사', examples[0]['question'])
+                with self.assertRaisesRegex(ValueError, 'MVP_EXAMPLES_ALREADY_EXIST_NO_OVERWRITE'):
+                    write_example_cases(path)
 
     def test_duplicate_ids_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
