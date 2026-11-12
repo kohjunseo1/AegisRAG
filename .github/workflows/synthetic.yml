@@ -34,5 +34,6 @@ jobs:
       - run: python -m py_compile scripts/review_apply_q001.py scripts/q001_human_assisted_e2e.py scripts/run_demo_q001.py
       - run: python scripts/q001_human_assisted_e2e.py --help
       - run: python scripts/run_demo_q001.py --help
+      - run: python -m py_compile scripts/check_demo_q001.py
       - run: python scripts/aegisrag.py smoke
       - run: python scripts/scan_git.py --history
