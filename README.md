@@ -25,8 +25,8 @@ flowchart TD
         A["원본 합성 금융 문서"] --> B["A.X + Veil"]
         B --> C{"Privacy Gate"}
         C -- READY --> D["HMAC / Region 가명처리"]
-        C -- REVIEW --> R["관리자 검토 · 로컬 승인"]
-        R --> D
+        C -- REVIEW --> R["별도 로컬 관리자 검토"]
+        R -. 승인 배치 재검증 후 적재 .-> D
         D --> E["KoE5 Passage Embedding"]
         E --> F[("PostgreSQL · pgvector\nrag.aegis_live_docs")]
     end
