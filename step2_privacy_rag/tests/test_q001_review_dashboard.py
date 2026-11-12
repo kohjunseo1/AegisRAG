@@ -39,6 +39,24 @@ class ReviewRecordContracts(unittest.TestCase):
         self.assertNotIn('id="open"', m.HTML)
         self.assertNotIn('id="ids"', m.HTML)
 
+    def test_review_ui_restores_current_choices_and_ignores_stale_records(self):
+        m.LOCAL.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(dir=m.LOCAL) as directory:
+            journal=Path(directory)/"reviews.jsonl"
+            a=m.review_record({"id":"SYNTH001","candidate":0,
+                               "choice":"UNRESOLVED"},fake_case())
+            m.persist(journal,a)
+            b=m.review_record({"id":"SYNTH001","candidate":0,
+                               "choice":"NON_PERSON_EXPRESSION"},fake_case())
+            m.persist(journal,b)
+            choices=m.saved_review_choices(fake_case(),journal)
+            self.assertEqual(choices[("SYNTH001",0)],"NON_PERSON_EXPRESSION")
+            self.assertNotIn(("SYNTH001",1),choices)
+            stale=dict(b,source_digest="f"*64)
+            m.persist(journal,stale)
+            self.assertEqual(m.saved_review_choices(fake_case(),journal)[("SYNTH001",0)],
+                             "NON_PERSON_EXPRESSION")
+
     def test_wrong_target_action_rejected(self):
         with self.assertRaises(ValueError):
             m.review_record({"id": "SYNTH001", "candidate": 0,
