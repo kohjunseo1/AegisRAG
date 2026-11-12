@@ -18,7 +18,7 @@ class FailureDiagnoser(unittest.TestCase):
         runs["Q001"]=[]
         gold[1]["relevant_doc_ids"]=["D999"]
         runs["Q002"]=["D001"]
-        runs["Q003"]=["D999"]
+        runs["Q003"]=["D001"]  # control query stays a hit
         # An indexable Gold document is in the corpus but not returned.
         runs["Q004"]=[]
         report=breakdown({"documents":docs,"queries":qs,
