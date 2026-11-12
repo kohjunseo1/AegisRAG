@@ -17,6 +17,7 @@ class HTTPContract(unittest.TestCase):
         self.pipeline.root = '.'
         self.pipeline.expected_rows = 1
         self.pipeline.timings = dict(step1_ms=1.0)
+        self.pipeline.index_status.return_value = dict(status='READY',table='rag.synthetic',rows=1,expected_rows=1,key_matches=True)
         self.pipeline.ask_local.return_value = ('READY', PreparedQuery('합성 교육 안내',set(),set()),
             [dict(doc_id='S001',text='합성 교육은 수요일입니다.',dense_rank=1,
                   hmac_matches=0,region_matches=0,verified_region_match=None)])
@@ -34,11 +35,19 @@ class HTTPContract(unittest.TestCase):
         self.thread.join()
 
     def test_health_and_static_assets(self):
-        for path in ['/', '/app.js', '/style.css', '/api/health']:
+        for path in ['/', '/app.js', '/style.css', '/api/health', '/api/index-status']:
             with urllib.request.urlopen(self.base+path) as response:
                 self.assertEqual(response.status,200)
                 self.assertEqual(response.headers['Cache-Control'],'no-store')
                 self.assertTrue(response.read())
+
+    def test_index_status_does_not_expose_private_content(self):
+        with urllib.request.urlopen(self.base+'/api/index-status') as response:
+            data = json.load(response)
+        self.assertEqual(data['rows'], 1)
+        self.assertEqual(data['table'], 'rag.synthetic')
+        self.assertEqual(data['status'], 'READY')
+        self.assertNotIn('secret', str(data).lower())
 
     @patch('app.call_hcx')
     def test_post_answer_and_review(self,hcx):

@@ -124,6 +124,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({'status': 'OK', 'data_scope': 'V6_PRIVATE_LOCAL',
                                'external_hcx_enabled': self.allow_hcx,
                                'db_write': False})
+        if path == '/api/index-status':
+            try:
+                return self._json(self.pipeline.index_status())
+            except PipelineError as exc:
+                return self._json({'error': str(exc)}, 503)
         if path not in ASSETS:
             return self._json({'error': 'NOT_FOUND'}, 404)
         name, mimetype = ASSETS[path]

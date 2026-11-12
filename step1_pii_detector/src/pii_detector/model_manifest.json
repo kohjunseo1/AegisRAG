@@ -1,10 +1,10 @@
 {
   "ax": {
-    "repo": "junseokoh/pii-ax-mixed-v1",
+    "repo": "PII-detect/pii-ax-mixed-v1",
     "revision": "c0f99b1dc113befefeff1a3091087d50bc3ea635"
   },
   "veil": {
-    "repo": "junseokoh/pii-veil-mixed-v1",
+    "repo": "PII-detect/pii-veil-mixed-v1",
     "revision": "e6e7d20fa9baa43a938f5f6cc780d3f2c9650fb9"
   },
   "labels": [

@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -176,8 +178,19 @@ def call_hcx(root: Path, prepared_question: str, evidence: list[dict], has_regio
     try:
         with urllib.request.urlopen(req, timeout=90) as response:
             reply = json.load(response)
-    except Exception as exc:
-        raise OutboundError('HCX_API_REQUEST_FAILED') from exc
+    except urllib.error.HTTPError as exc:
+        # Do not read or print the response body: providers may echo prompts.
+        status = int(exc.code)
+        category = str(status) if status in {400, 401, 403, 404, 408, 413, 422, 429} else ('5XX' if 500 <= status < 600 else 'OTHER')
+        raise OutboundError('HCX_HTTP_' + category) from None
+    except (TimeoutError, socket.timeout):
+        raise OutboundError('HCX_TIMEOUT') from None
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, (TimeoutError, socket.timeout)):
+            raise OutboundError('HCX_TIMEOUT') from None
+        raise OutboundError('HCX_CONNECTION_FAILED') from None
+    except Exception:
+        raise OutboundError('HCX_API_REQUEST_FAILED') from None
     choice = (reply.get('choices') or [None])[0]
     if not isinstance(choice, dict) or choice.get('finish_reason') != 'stop':
         raise OutboundError('HCX_INCOMPLETE')

@@ -54,6 +54,15 @@ function addMessage(role, text, result = null) {
   thread.appendChild(outer);
   scrollBottom();
 }
+function explainError(code) {
+  if (code === "HCX_HTTP_401" || code === "HCX_HTTP_403") return "답변 생성 API 인증 또는 접근 권한을 확인해 주세요.";
+  if (code === "HCX_HTTP_400" || code === "HCX_HTTP_422") return "답변 생성 API가 요청 형식을 거부했습니다. 서버 설정을 확인해 주세요.";
+  if (code === "HCX_HTTP_429") return "답변 생성 API의 호출 한도에 도달했습니다.";
+  if (code === "HCX_HTTP_5XX" || code === "HCX_TIMEOUT" || code === "HCX_CONNECTION_FAILED") return "답변 생성 API 연결이 불안정합니다.";
+  if (code.startsWith("HCX_")) return "문서 검색 이후 답변 생성 단계에서 실패했습니다.";
+  if (code.startsWith("V6_DB_")) return "문서 검색 인덱스 설정을 확인해 주세요.";
+  return "요청을 처리하지 못했습니다.";
+}
 async function ask() {
   const value = question.value.trim();
   if (!value || busy) return;
@@ -73,7 +82,8 @@ async function ask() {
     addMessage("assistant", result.answer, result);
     status.textContent = "완료";
   } catch (err) {
-    addMessage("assistant", "요청을 처리하지 못했습니다. (" + String(err.message) + ")");
+    const code = String(err.message || "REQUEST_FAILED");
+    addMessage("assistant", explainError(code) + " (" + code + ")");
     status.textContent = "요청 실패";
   } finally {
     busy = false; send.disabled = false; $("reset").disabled = false; question.focus(); scrollBottom();
@@ -88,4 +98,15 @@ document.querySelectorAll(".sample").forEach(button => button.addEventListener("
 fetch("/api/health").then(r => r.json()).then(d => {
   modePill.textContent = d.external_hcx_enabled ? "문서 상담" : "서버 설정 확인";
   status.textContent = d.external_hcx_enabled ? "질문을 입력해 주세요" : "HCX 서비스 비활성";
-}).catch(() => { status.textContent = "서버 연결 확인 실패"; });
+  return fetch("/api/index-status").then(async response => {
+    const index = await response.json();
+    if (!response.ok) throw new Error(index.error || "INDEX_STATUS_FAILED");
+    if (index.status === "READY") {
+      modePill.textContent = "문서 상담 · " + index.rows + "건";
+      status.textContent = "검색 인덱스: " + index.table + " (" + index.rows + "/" + index.expected_rows + "건)";
+    } else {
+      modePill.textContent = "DB 설정 확인";
+      status.textContent = "인덱스 불일치: " + index.table + " (" + index.rows + "/" + index.expected_rows + "건, 키 일치=" + index.key_matches + ")";
+    }
+  });
+}).catch(() => { status.textContent = "검색 인덱스 연결 또는 상태 확인 실패"; });

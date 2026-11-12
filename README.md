@@ -66,6 +66,18 @@ AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
 python scripts/aegisrag.py run-chat --device cpu --port 8768
 ```
 
+**187문서 Human-assisted 실험 인덱스로 연결하기:** 관리자 REVIEW 화면의 적재 메시지는 기존 챗봇이 사용하는 테이블을 자동 변경하지 않습니다. 10건의 검토 문서를 포함한 별도 인덱스에 대한 읽기 및 외부 전송 승인이 확인된 경우에만, 실행 환경에서 다음을 명시합니다. 아래 테이블명은 이 로컬 실험의 예시입니다.
+
+```bash
+AEGISRAG_TABLE=rag.aegis_repro_11d26 AEGISRAG_EXPECTED_ROWS=187 \
+AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
+python scripts/aegisrag.py run-chat --device cpu --port 8768
+```
+
+시작 후 http://127.0.0.1:8768/api/index-status 에서 `status=READY`, `rows=187`, `expected_rows=187`, `key_matches=true`, `table=rag.aegis_repro_11d26`인지 확인합니다. 이 엔드포인트는 **읽기 전용 집계 메타데이터**만 반환하며 개인정보나 HMAC 키는 반환하지 않습니다. 187개 실험 테이블은 재현 인덱스이며 기존 177개 인덱스를 덮어쓰지 않습니다.
+
+**HCX 문제 진단:** 챗봇에서 `HCX_HTTP_401/403`은 API 키/권한, `HCX_HTTP_400/422`는 요청 형식, `HCX_HTTP_429`는 호출 한도, `HCX_HTTP_5XX`는 제공자 오류, `HCX_CONNECTION_FAILED` / `HCX_TIMEOUT`은 네트워크/시간 초과를 우선 확인합니다. 민감한 요청/응답 본문은 기록하지 않습니다. 합성 자료로만 외부 HCX 연동을 독립 테스트하려면, 조직 정책과 전송 승인을 확인한 후 `AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES python scripts/aegisrag.py smoke --hcx-live`를 사용합니다.
+
 **L-002 기본 실행:** 서버가 A.X·Veil + KoE5를 로딩·워밍업한 뒤에만 HTTP 요청을 받습니다. 실제 Mac CPU 평가에서 준비 이후 첫 질문의 로컬 처리시간이 약 **0.44초**였고, 서버 시작(모델 준비)에는 **약 38초**가 걸렸습니다. 외부 HCX 답변 생성시간은 별도입니다. 콘솔의 `AEGISRAG_V6_LIVE_CHAT_READY`가 출력된 이후 브라우저에서 접속하세요.
 
 재현·문제 진단을 위한 비활성화 옵션:

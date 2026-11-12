@@ -59,7 +59,8 @@ class LivePipeline:
             raise PipelineError('INVALID_HMAC_SECRET')
         self.tag = key_tag(self.secret)
         setting = settings(env_file)
-        self.table = table_identifier(setting('AEGISRAG_TABLE', TABLE))
+        self.table_name = setting('AEGISRAG_TABLE', TABLE)
+        self.table = table_identifier(self.table_name)
         self.expected_rows = int(setting('AEGISRAG_EXPECTED_ROWS', '177'))
         if self.expected_rows < 1:
             raise PipelineError('INVALID_EXPECTED_ROWS')
@@ -184,6 +185,25 @@ class LivePipeline:
         if arr.shape != (1, 1024) or not np.isfinite(arr).all():
             raise PipelineError('INVALID_EMBEDDING')
         return '[' + ','.join(format(float(x), '.9g') for x in arr[0]) + ']'
+
+    def index_status(self) -> dict[str, Any]:
+        """Read-only index diagnostics; do not return any token or document text."""
+        import psycopg
+        from psycopg import sql
+        try:
+            with psycopg.connect(**self.db) as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SET TRANSACTION READ ONLY')
+                    cur.execute(sql.SQL(
+                        'SELECT COUNT(*), COUNT(DISTINCT key_tag), MIN(key_tag) FROM {}'
+                    ).format(self.table))
+                    actual, distinct_tags, observed_tag = cur.fetchone()
+        except Exception:
+            raise PipelineError('V6_DB_READ_ERROR') from None
+        matching = (actual == self.expected_rows and distinct_tags == 1 and observed_tag == self.tag)
+        return {'status': 'READY' if matching else 'MISMATCH',
+                'table': self.table_name, 'rows': actual,
+                'expected_rows': self.expected_rows, 'key_matches': distinct_tags == 1 and observed_tag == self.tag}
 
     def retrieve(self, prepared: PreparedQuery, top_k: int | None = 5) -> list[dict[str, Any]]:
         import psycopg
