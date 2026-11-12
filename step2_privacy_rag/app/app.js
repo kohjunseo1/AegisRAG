@@ -39,6 +39,7 @@ function addMessage(role, text, result = null) {
       if (result.diagnostics) {
         const d = result.diagnostics;
         const items = ["Gate: " + d.gate_state];
+        if (d.review_scope === "QUERY_PREPARATION") items.push("질문 단계 REVIEW · 문서 검토와 별개");
         if (typeof d.hmac_token_count === "number") items.push("HMAC tokens: " + d.hmac_token_count);
         if (typeof d.region_key_count === "number") items.push("Region keys: " + d.region_key_count);
         if (typeof d.db_index_rows === "number") items.push("현재 인덱스: " + d.db_index_rows + "문서");
