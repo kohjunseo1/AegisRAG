@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 from unittest.mock import patch
 
-from dataset_review_ui import Handler,Context
+from scripts.dataset_review_ui import Handler,Context
 from dataset_workflow import write_private,signed
 from dataset_preparation import key_tag
 
