@@ -18,6 +18,7 @@ import re
 import secrets
 import stat
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL = (ROOT / "step2_privacy_rag/local_eval").resolve()
@@ -361,12 +362,25 @@ def create_handler(cases, token, port, journal, *,
                    experiment_baseline=None, experiment_source=None,
                    experiment_device="cpu", experiment_output=None,
                    experiment_state=None):
-    task={"state":"IDLE","result":None,"error_type":None}
+    task={"state":"IDLE","result":None,"error_type":None,
+          "progress":{"stage":"IDLE","completed":0,"total":0},
+          "started_monotonic":None,"elapsed_seconds":None}
     lock=Lock()
+    stages={"REVALIDATING","EMBEDDING","INDEXING","EVALUATING","COMPLETE"}
+    def update_progress(stage,completed,total):
+        if (stage not in stages or type(completed) is not int
+            or type(total) is not int or total<=0 or not 0<=completed<=total):
+            raise ValueError("INVALID_EXPERIMENT_PROGRESS")
+        with lock:
+            task["progress"]={"stage":stage,"completed":completed,"total":total}
 
     def safe_status():
         with lock:
-            status={"state":task["state"],"error_type":task["error_type"]}
+            status={"state":task["state"],"error_type":task["error_type"],
+                    "progress":dict(task["progress"])}
+            if task["started_monotonic"] is not None:
+                status["elapsed_seconds"]=(round(time.monotonic()-task["started_monotonic"],1)
+                    if task["state"]=="RUNNING" else task["elapsed_seconds"])
             if task["result"] is not None:
                 status.update({
                     "documents":task["result"].get("documents"),
@@ -374,6 +388,26 @@ def create_handler(cases, token, port, journal, *,
                     "all88":task["result"].get("all88"),
                 })
             return status
+    # Persisted summaries do not reveal document source or session secrets.
+    # Older successful runs may contain no score (prior schema); keep that
+    # honest and offer a fresh explicit evaluation.
+    if experiment_state is not None:
+        try:
+            saved=json.loads(private_path(experiment_state).read_text(encoding="utf-8"))
+            if (saved.get("format")=="q001-e2e-index-v1"
+                and saved.get("documents")==187 and
+                re.fullmatch(r"rag\.aegis_repro_[0-9a-f]{20}",str(saved.get("table","")))):
+                metrics=saved.get("all88")
+                if isinstance(metrics,dict) and isinstance(metrics.get("official"),dict):
+                    task.update(state="SUCCEEDED",
+                        result={"documents":187,"table":saved["table"],"all88":metrics},
+                        progress={"stage":"COMPLETE","completed":1,"total":1},
+                        elapsed_seconds=saved.get("elapsed_seconds"))
+                else:
+                    task.update(state="PREVIOUS_RUN",
+                        result={"documents":187,"table":saved["table"],"all88":None})
+        except (OSError,ValueError,TypeError,AttributeError):
+            pass
 
     def job():
         from q001_human_assisted_e2e import run_pipeline
@@ -385,16 +419,23 @@ def create_handler(cases, token, port, journal, *,
                                 journal=journal,
                                 output=experiment_output,
                                 device=experiment_device,
-                                confirm="CREATE_ISOLATED_HUMAN_ASSISTED_INDEX")
+                                confirm="CREATE_ISOLATED_HUMAN_ASSISTED_INDEX",
+                                progress=update_progress)
             if report.get("state")!="EXPERIMENT_INDEXED_AND_EVALUATED":
                 raise ValueError("E2E_UNEXPECTED_OUTCOME")
+            with lock:
+                elapsed=round(time.monotonic()-task["started_monotonic"],1)
+            # Atomic private write; includes only evaluation aggregates.
             private_write(private_path(experiment_state),{
                 "format":"q001-e2e-index-v1",
                 "table":report["table"],"documents":report["documents"],
-                "hcx_called":False,
+                "hcx_called":False,"all88":report["all88"],
+                "elapsed_seconds":elapsed,
             })
             with lock:
-                task.update(state="SUCCEEDED",result=report,error_type=None)
+                task.update(state="SUCCEEDED",result=report,error_type=None,
+                            elapsed_seconds=elapsed,
+                            progress={"stage":"COMPLETE","completed":1,"total":1})
         except Exception as exc:
             # Only our strict alphanumeric review reason is safe to show.
             from review_apply_q001 import ReviewValidationError
@@ -402,7 +443,10 @@ def create_handler(cases, token, port, journal, *,
                          and re.fullmatch(r"[A-Z0-9_]{3,100}",str(exc))
                          else type(exc).__name__)
             with lock:
-                task.update(state="FAILED",result=None,error_type=safe_reason)
+                elapsed=(round(time.monotonic()-task["started_monotonic"],1)
+                         if task["started_monotonic"] is not None else None)
+                task.update(state="FAILED",result=None,error_type=safe_reason,
+                            elapsed_seconds=elapsed)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *unused):
@@ -476,9 +520,12 @@ def create_handler(cases, token, port, journal, *,
                     if not allow_experiment or payload!={"confirm":"CREATE_ISOLATED_HUMAN_ASSISTED_INDEX"}:
                         raise ValueError("EXPERIMENT_DISABLED_OR_UNCONFIRMED")
                     with lock:
-                        if task["state"]!="IDLE":
+                        if task["state"] not in ("IDLE","PREVIOUS_RUN"):
                             self.reply(409,{"error":"EXPERIMENT_ALREADY_STARTED"});return
-                        task.update(state="RUNNING",result=None,error_type=None)
+                        task.update(state="RUNNING",result=None,error_type=None,
+                                    progress={"stage":"REVALIDATING","completed":0,"total":10},
+                                    started_monotonic=time.monotonic(),
+                                    elapsed_seconds=None)
                     Thread(target=job,daemon=True,name="q001-experiment").start()
                     self.reply(202,{"state":"RUNNING"});return
                 with lock:
