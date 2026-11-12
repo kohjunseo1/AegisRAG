@@ -31,6 +31,14 @@ class ReviewRecordContracts(unittest.TestCase):
         self.assertEqual(r["human_classification"], "NON_PERSON_EXPRESSION")
         self.assertEqual(r["kind"], "veil_candidate")
 
+    def test_review_ui_uses_scrollable_clickable_document_queue(self):
+        self.assertIn('id="queue"', m.HTML)
+        self.assertIn('max-height:66vh;overflow:auto', m.HTML)
+        self.assertIn('button.onclick=()=>loadCase(info.id)', m.HTML)
+        self.assertIn('if(entries.length)await loadCase(entries[0].id)', m.HTML)
+        self.assertNotIn('id="open"', m.HTML)
+        self.assertNotIn('id="ids"', m.HTML)
+
     def test_wrong_target_action_rejected(self):
         with self.assertRaises(ValueError):
             m.review_record({"id": "SYNTH001", "candidate": 0,
