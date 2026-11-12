@@ -114,6 +114,9 @@ def ingest(conn, data, vectors, name, confirmation):
 
 def evaluate(data, table, env_file, device='cpu', expected_baseline=False):
     pipeline = LivePipeline(ROOT, device, env_file)
+    # Historical retrieval evaluation is always an immutable exact-row snapshot.
+    # Never inherit the loose >= row count check from live chat configuration.
+    pipeline.index_mode = 'snapshot'
     pipeline.db = db_config(env_file)
     pipeline.secret = fixed_key(env_file)
     pipeline.tag = key_tag(pipeline.secret)
