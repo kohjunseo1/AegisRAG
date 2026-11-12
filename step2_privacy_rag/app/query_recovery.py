@@ -12,11 +12,11 @@ from typing import Any
 
 # Anchored Korean name + an allowlisted, non-PII search-intent phrase.
 _PATTERNS = (
-    (re.compile(r'^([가-힣]{2,4})\\s+(?:정보|관련 정보|고객 정보)(?:\\s+(?:알려줘|찾아줘|보여줘))?$'), '관련 정보 알려줘'),
-    (re.compile(r'^([가-힣]{2,4})\\s+(?:자료|관련 자료|관련 문서|문서)(?:\\s+(?:알려줘|찾아줘|보여줘))?$'), '관련 자료 찾아줘'),
-    (re.compile(r'^([가-힣]{2,4})\\s+(?:이름 있는 자료|이름 있는 문서)(?:\\s+(?:알려줘|찾아줘|보여줘))?$'), '이름이 포함된 자료 찾아줘'),
+    (re.compile(r'^([가-힣]{2,4})\s+(?:정보|관련 정보|고객 정보)(?:\s+(?:알려줘|찾아줘|보여줘))?$'), '관련 정보 알려줘'),
+    (re.compile(r'^([가-힣]{2,4})\s+(?:자료|관련 자료|관련 문서|문서)(?:\s+(?:알려줘|찾아줘|보여줘))?$'), '관련 자료 찾아줘'),
+    (re.compile(r'^([가-힣]{2,4})\s+(?:이름 있는 자료|이름 있는 문서)(?:\s+(?:알려줘|찾아줘|보여줘))?$'), '이름이 포함된 자료 찾아줘'),
 )
-_PERSON_TOKEN = re.compile(r'<PERSON_[0-9a-f]{24}>\\Z')
+_PERSON_TOKEN = re.compile(r'<PERSON_[0-9a-f]{24}>\Z')
 
 
 def recover_simple_name_query(question: str, detector: Any, key: bytes) -> str | None:
