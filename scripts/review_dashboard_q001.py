@@ -143,7 +143,7 @@ def persist(path, entry):
             os.close(fd)
 
 
-HTML = """<!doctype html><html lang="ko"><head><meta charset="utf-8">
+HTML = r"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Q-001 · 로컬 개인정보 검토</title><style>
 :root{font:15px system-ui,-apple-system,sans-serif;color:#182330;background:#f5f7f8}
