@@ -64,6 +64,7 @@ def metric_report(rows: list[dict]) -> dict:
         'total_cases': n, 'labeled_cases': len(labeled),
         'gate_states': dict(states),
         'hcx_decisions': dict(decisions),
+        'query_recovered': sum(r.get('query_recovery') == 'ISOLATED_PERSON_VERIFIED' for r in rows),
         'hit1_labeled': sum(r['hit1'] for r in labeled),
         'hit5_labeled': sum(r['hit5'] for r in labeled),
         'hit1_rate_labeled': round(sum(r['hit1'] for r in labeled)/len(labeled),4) if labeled else None,
@@ -94,11 +95,13 @@ def evaluate(cases: list[dict], *, device='cpu', hcx_live=False) -> dict:
                 candidates = result.get('diagnostics', {}).get('retrieval_candidates', [])
                 ranked = [x['doc_id'] for x in candidates]
                 decision = result.get('decision')
+                recovery = result.get('diagnostics', {}).get('query_recovery')
                 cited = result.get('citations', [])
             else:
                 state, prepared, evidence = pipeline.ask_local(case['question'])
                 ranked = [x['doc_id'] for x in evidence]
                 decision = None
+                recovery = pipeline.last_query_recovery
                 cited = []
             refs = set(case.get('relevant_doc_ids') or [])
             scored = bool(refs)
@@ -106,6 +109,7 @@ def evaluate(cases: list[dict], *, device='cpu', hcx_live=False) -> dict:
                 'case_id':case['case_id'],
                 'category':case.get('category','unspecified'),
                 'gate_state':state,
+                'query_recovery':recovery,
                 'decision':decision,
                 'top5_doc_ids':ranked[:5],
                 'citations':cited,

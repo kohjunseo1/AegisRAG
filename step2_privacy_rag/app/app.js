@@ -48,6 +48,7 @@ function addMessage(role, text, result = null) {
         const d = result.diagnostics;
         const items = ["Gate: " + d.gate_state];
         if (typeof d.hmac_token_count === "number") items.push("HMAC tokens: " + d.hmac_token_count);
+        if (d.query_recovery) items.push("질의 복구: " + d.query_recovery);
         if (typeof d.region_key_count === "number") items.push("Region keys: " + d.region_key_count);
         if (typeof d.hcx_input_tokens === "number") items.push("입력 토큰: " + d.hcx_input_tokens);
         if (d.timings_ms) items.push("지연(ms): " + JSON.stringify(d.timings_ms));
