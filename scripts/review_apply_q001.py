@@ -234,8 +234,15 @@ def prepare_approved_batch(sources:dict[str,str], detector:Any,key:bytes,
                            journal_entries:list[dict]) -> list[ReviewedOutcome]:
     cases=ui.get_cases(sources,detector)
     decisions=validated_choices(cases,journal_entries)
-    return [reviewed_prepare(did,sources[did],detector,key,cases[did],decisions[did])
-            for did in sorted(cases)]
+    results=[]
+    for did in sorted(cases):
+        try:
+            results.append(reviewed_prepare(did,sources[did],detector,key,
+                                             cases[did],decisions[did]))
+        except ReviewValidationError as exc:
+            # Both the document ID and fixed error code are non-sensitive.
+            raise ReviewValidationError(did+"_"+str(exc)) from None
+    return results
 
 
 def load_journal(path:Path) -> list[dict]:
