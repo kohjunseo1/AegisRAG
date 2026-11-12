@@ -12,7 +12,7 @@
 | --- | --- |
 | **PII Detection** | A.X + Veil 이중 모델, Privacy Gate, 보류(REVIEW)/차단(BLOCKED) |
 | **Pseudonymization** | 라벨별 정규화 + HMAC-SHA256 96-bit 토큰, 주소 Region Key |
-| **Retrieval** | KoE5 (1024-dim) + PostgreSQL/pgvector, HMAC/지역 일치 기반 Top-5 재정렬 |
+| **Retrieval** | KoE5 (1024-dim) + PostgreSQL/pgvector, HMAC·지역 우선 순위 + 안전한 문서 유형 어휘 보정 |
 | **Answer Generation** | HyperCLOVA X HCX-007, Structured Outputs, 근거 문서 ID 인용 검증 |
 | **Operations** | 187건 단일 Live Index, 승인된 신규 문서만 증분 적재, 로컬 웹 UI |
 | **Evaluation** | Hit@K, Recall@K, MRR, Confusable@K, 유형별 실패 분석, CPU p50/p95 |
@@ -49,7 +49,9 @@ flowchart TD
 
 ## Evaluation
 
-**2026-11-12 · 합성 Holdout (문서 187건 / 질의 88건) · macOS CPU**
+**동결 V6 기준선 (2026-11-12 · 합성 Holdout 187문서/88질의 · macOS CPU)**
+
+> 아래 수치는 **문서 유형 어휘 보정 및 안전한 단일 인물 질의 복구 기능 추가 이전** 결과입니다. 최신 MVP의 실측 점수는 `AEGISRAG_TOPIC_BOOST=1`, `AEGISRAG_QUERY_RECOVERY=1` 조건에서 **다시 측정해야 합니다**.
 
 | 지표 | 결과 |
 | --- | ---: |
@@ -118,7 +120,22 @@ python scripts/verify_v6_e2e.py --eval-raw
 python scripts/verify_v6_e2e.py --interactive --diagnose-gate
 ```
 
-원본 합성 질의/Gold JSONL은 `step2_privacy_rag/local_eval/`에 별도로 배치해야 합니다. 문서 적재·키 관리·의존성·모델 revision은 [재현 가이드](docs/REPRODUCIBILITY.md)를 참고하세요.
+원본 합성 질의/Gold JSONL은 `step2_privacy_rag/local_eval/`에 별도로 배치해야 합니다.
+
+**실사용 자연어 질의 평가**
+
+```bash
+python scripts/eval_chat_mvp.py --write-example
+python scripts/eval_chat_mvp.py  # 기존 DB만 읽는 신규 질문 예제, HCX 호출 없음
+
+# frozen V6 vs new MVP ablation
+AEGISRAG_TOPIC_BOOST=0 AEGISRAG_QUERY_RECOVERY=0 \
+  python scripts/verify_v6_e2e.py --eval-raw
+AEGISRAG_TOPIC_BOOST=1 AEGISRAG_QUERY_RECOVERY=1 \
+  python scripts/verify_v6_e2e.py --eval-raw
+```
+
+[자연어 질의 평가 가이드](docs/NATURAL_QUERY_EVAL.md). 새로운 문서 자체의 일반화 평가를 하려면 **별도 합성 문서·질의 코퍼스와 격리된 DB**가 필요합니다. 이 예제는 현재 187문서에 대한 새로운 표현의 질의 평가입니다. 문서 적재·키 관리·의존성·모델 revision은 [재현 가이드](docs/REPRODUCIBILITY.md)를 참고하세요.
 
 ## Repository Structure
 
@@ -143,4 +160,4 @@ AegisRAG/
 | [Improvement Log](docs/IMPROVEMENT_LOG.md) | Latency 최적화와 개선 실험 |
 | [Dataset Explorer](dataset_explorer/README.md) | 합성 원본·Gold 로컬 확인 |
 
-**Known limitations:** 세 질의 REVIEW/BLOCKED의 안전한 복구 흐름, 동명이인 Identity Resolution, Q055/Q065 검색 실패, 혼동 문서 억제, 실제 HCX 응답 품질 및 UI E2E 검증은 후속 과제입니다. 개인 로컬 MVP이므로 인증·사용자별 문서 권한·운영 배포는 구현 범위 밖입니다.
+**Known limitations:** 일부 `이름 + 정보/자료` 질의에 한정해 안전한 독립 인물 검증 후 복구를 시도합니다. 나머지 REVIEW/BLOCKED, 동명이인 Identity Resolution, Q055/Q065 검색 실패, 혼동 문서 억제 및 실제 HCX 답변의 사실성 정량 검증은 후속 과제입니다. 개인 로컬 MVP이므로 인증·사용자별 문서 권한·운영 배포는 구현 범위 밖입니다.

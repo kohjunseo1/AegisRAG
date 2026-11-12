@@ -177,7 +177,8 @@ class LivePipeline:
                 result = prepare('Q_LIVE', raw_question, detector, self.secret)
                 recovered = None
                 if (getattr(result, 'state', None) == 'REVIEW'
-                        and getattr(result, 'reason', None) == 'GATE_NOT_READY'):
+                        and getattr(result, 'reason', None) == 'GATE_NOT_READY'
+                        and os.environ.get('AEGISRAG_QUERY_RECOVERY', '1') != '0'):
                     from query_recovery import recover_simple_name_query
                     recovered = recover_simple_name_query(raw_question, detector, self.secret)
             finally:

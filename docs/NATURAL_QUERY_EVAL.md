@@ -47,10 +47,10 @@ python scripts/eval_chat_mvp.py --cases /path/to/new_questions.jsonl --hcx-live
 **Targeted ablation:** The new general document-topic match boosts `경조사` queries toward `부고` records when no identity matching exists. Compare with frozen V6:
 
 ```bash
-AEGISRAG_TOPIC_BOOST=0 python scripts/eval_chat_mvp.py
-AEGISRAG_TOPIC_BOOST=1 python scripts/eval_chat_mvp.py
-AEGISRAG_TOPIC_BOOST=0 python scripts/verify_v6_e2e.py --eval-raw
-AEGISRAG_TOPIC_BOOST=1 python scripts/verify_v6_e2e.py --eval-raw
+AEGISRAG_TOPIC_BOOST=0 AEGISRAG_QUERY_RECOVERY=0 python scripts/eval_chat_mvp.py
+AEGISRAG_TOPIC_BOOST=1 AEGISRAG_QUERY_RECOVERY=1 python scripts/eval_chat_mvp.py
+AEGISRAG_TOPIC_BOOST=0 AEGISRAG_QUERY_RECOVERY=0 python scripts/verify_v6_e2e.py --eval-raw
+AEGISRAG_TOPIC_BOOST=1 AEGISRAG_QUERY_RECOVERY=1 python scripts/verify_v6_e2e.py --eval-raw
 ```
 
 Do **not** reuse old 77/88 or 83/88 numbers as the score after changing ranking.
@@ -62,3 +62,5 @@ For accurate E2E assessment, also manually grade: answer correctness, citation s
 unsupported assertions, appropriate abstention/clarification, privacy leakage, and p95 latency.
 
 **Known-label warning:** The example H0025 labels mark a *known relevant* notice, not every relevant notice. Do not interpret absence of H0025 in Top-5 as proof that no valid family-event document was returned. Expand manual Gold if comparing recall for broad category queries.
+
+**Online Gate fallback:** `AEGISRAG_QUERY_RECOVERY=1` enables only the anchored one-person + safe information/document-intent retry after `GATE_NOT_READY`. Name alone must pass the full original Gate and yield exactly one PERSON HMAC token, otherwise original REVIEW stands. Disable it with `AEGISRAG_QUERY_RECOVERY=0` to reproduce frozen V6. No LLM is used for normalization.
