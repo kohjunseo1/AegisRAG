@@ -42,8 +42,8 @@ def respond(pipeline: LivePipeline, message: dict, allow_hcx: bool = True) -> di
     if prepared is None:
         is_review = 'REVIEW' in state.upper()
         return {'decision': 'REVIEW_REQUIRED' if is_review else 'BLOCKED_OR_DEFERRED',
-                'answer': ('개인정보 보호 검토가 필요하여 답변을 보류했습니다.' if is_review
-                           else '이 요청은 자동으로 처리할 수 없습니다.'),
+                'answer': ('질문의 인물·개체 표현을 안전하게 연결할 수 없어 검색을 보류했습니다. 인물 이름만 입력하거나, 찾으려는 문서 종류를 구체적으로 다시 입력해 주세요.' if is_review
+                           else '현재 질문을 안전하게 처리할 수 없습니다. 표현을 바꿔 다시 질문해 주세요.'),
                 'citations': [], 'sources': [],
                 'diagnostics': {'gate_state': state,
                     'timings_ms': {**getattr(pipeline, 'timings', {}), 'total_ms': round((time.perf_counter()-start)*1000, 2)}

@@ -225,6 +225,20 @@ python scripts/verify_v6_e2e.py \
 
 Hugging Face 저장소를 개인 계정에서 조직으로 이전하면 저장소 ID별로 별도 캐시 엔트리가 생성될 수 있습니다. 현행 `load_backends`는 실행 중에 Veil ONNX 임시 파일을 만들며, 새 코드는 정상 Python 프로세스 종료 시 해당 임시 폴더를 삭제하도록 등록합니다. 동일 모델 재사용에는 기존 `--reuse-step1` 및 `--preload` 옵션을 사용합니다. ONNX 파일이 현재 프로세스에서 사용 중일 수 있으므로 실행 중인 프로세스의 임시 폴더는 삭제하지 않습니다.
 
+### 예시 평가 파일이 존재하지 않을 때
+
+`local_eval/reproduction/prepared.json`은 예시 출력 경로이며 `ingest-live` 실행만으로 생성되지 않습니다. 이미 187문서가 `rag.aegis_live_docs`에 있으므로 **재적재하지 않고** 원본 합성 질의 88건과 Gold로 직접 실시간 Gate·검색을 평가할 수 있습니다.
+
+```bash
+python scripts/verify_v6_e2e.py --eval-raw
+```
+
+기본 입력은 `local_eval/holdout_retrieval_queries.jsonl` 및 `local_eval/holdout_retrieval_queries_gold.jsonl`입니다. 경로가 다르면 `--queries-jsonl <로컬파일>` 및 `--gold-jsonl <로컬파일>`로 지정하세요. 입력 파일이 없으면 안전한 오류 상태만 출력하며 DB에 쓰지 않습니다.
+
+이 결과는 **현 온라인 개인정보 Gate를 포함한 88질의 전체 기준선**입니다. 구 관리자 Q001의 Human-assisted 재검토·질의 승인 결과까지 자동 재현하는 것은 아니어서 이전 77/88 기록과 차이가 날 수 있습니다.
+
+`--interactive --diagnose-gate`는 `GATE_NOT_READY`일 때 Gate의 세부 원인 코드와 Veil 후보 집계까지 출력합니다. 자동 재시도·자동 HMAC 승격은 하지 않습니다. 특히 이름만 입력하면 READY, 이름+부가문구는 REVIEW인 현상은 먼저 원인을 확인한 뒤 동일인 연결을 보호하는 질의 파싱 방식으로 해결해야 합니다. 챗봇은 이 경우 내부 에러 대신 사용자가 다시 검색할 수 있는 안내 문구를 제공합니다.
+
 ## 7. 다음 개선 과제
 
 현재 MVP는 로컬 단일 사용자·단일 턴 서비스입니다. **우선순위**는 근거/인용 정확도 실측, 단계별 지연시간과 매 질문 Step1 모델 재로딩 개선, 동명이인·REVIEW 10건 처리, 새 Blind 데이터 평가, 관리자 REVIEW UI 및 권한별 복원입니다. 서버 배포 시에는 인증·문서 접근 통제·DB 최소 권한·TLS·비밀키 관리가 추가로 필요합니다.

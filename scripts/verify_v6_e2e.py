@@ -26,6 +26,7 @@ from core import LivePipeline, PreparedQuery, PII
 from metrics_retrieval import summarize_score, summarize_latency, failure_cases
 from reproduction import artifact
 from settings import db_config
+from dataset_preparation import load_jsonl
 
 
 def info(name: str, value) -> None:
@@ -162,6 +163,73 @@ def eval_artifact(pipeline, path: Path, max_queries: int):
     print('EVAL_NOTE: preprocessed queries exclude Step1 and HCX latency; use interactive mode for full local query timings.', flush=True)
 
 
+
+def eval_raw_holdout(pipeline, queries_file: Path, gold_file: Path):
+    """Evaluate all 88 queries *live* against the existing DB without re-ingesting.
+
+    This is the online-gate baseline, not the previous manually revalidated
+    Human-assisted evaluation. A review/deferred query receives zero full-set
+    retrieval credit, and its raw text is never logged or sent to an LLM.
+    """
+    from collections import Counter
+    if not queries_file.is_file() or not gold_file.is_file():
+        info('EVAL_INPUT_MISSING', {
+            'queries_jsonl_exists': queries_file.is_file(),
+            'gold_jsonl_exists': gold_file.is_file(),
+            'hint': 'Provide --queries-jsonl and --gold-jsonl, or locate the original files in local_eval'})
+        return False
+    queries = load_jsonl(queries_file)
+    gold = load_jsonl(gold_file)
+    if len(queries) != 88 or len(gold) != 88:
+        raise ValueError('EXPECTED_88_QUERY_AND_GOLD_ROWS')
+    qids = [q.get('qid') for q in queries]
+    gids = [g.get('qid') for g in gold]
+    if (len(set(qids)) != 88 or len(set(gids)) != 88
+            or set(qids) != set(gids)
+            or any(not isinstance(q.get('query'), str) for q in queries)):
+        raise ValueError('INVALID_EVALUATION_QUERY_IDS')
+    ids = index_ids(pipeline)
+    # Warm both backends before timing per-query service processing.
+    warm_started = time.perf_counter()
+    pipeline.preload_models()
+    info('COLD_START_AND_PRELOAD_MS', round((time.perf_counter()-warm_started)*1000,2))
+    prepared_queries, ranked = [], {}
+    per_query_times = []
+    states = Counter()
+    for i, q in enumerate(queries, 1):
+        started = time.perf_counter()
+        result = pipeline.prepare(q['query'])
+        if isinstance(result, PreparedQuery):
+            state = 'READY'
+            prepared_queries.append({'qid': q['qid'], 'text': result.text})
+            docs = pipeline.retrieve(result, top_k=None)
+            ranked[q['qid']] = [d['doc_id'] for d in docs]
+            elapsed_ms = (time.perf_counter()-started)*1000
+            per_query_times.append({
+                'total_ms': elapsed_ms,
+                'step1_ms': pipeline.timings.get('step1_process_ms', 0.0),
+                'embedding_ms': pipeline.timings.get('embedding_ms', 0.0),
+                'db_ms': pipeline.timings.get('db_ms', 0.0),
+                'rerank_ms': pipeline.timings.get('rerank_ms', 0.0),
+            })
+        else:
+            state = str(result)
+            prepared_queries.append({'qid': q['qid'], 'text': None})
+        states[state] += 1
+        if i == 88 or i % 20 == 0:
+            info('RAW_EVAL_PROGRESS', {'completed': i, 'total':88})
+    scores = summarize_score(prepared_queries, gold, ids, ranked)
+    scores['evaluation_scope'] = 'RAW_QUERY_ONLINE_GATE_88'
+    scores['db_document_count'] = len(ids)
+    scores['query_states'] = dict(states)
+    scores['manual_review_overrides_applied'] = False
+    info('RAW_88_RETRIEVAL_METRICS', scores)
+    info('RAW_88_RETRIEVAL_FAILURE_CASES', failure_cases(prepared_queries, gold, ranked, ids))
+    info('RAW_88_CPU_WARM_LATENCY_MS', summarize_latency(per_query_times))
+    print('RAW_EVAL_NOTE: live Gate behavior; differs from prior Human-assisted experiment if it used administrator query overrides.', flush=True)
+    return True
+
+
 def check_http(base: str, table: str):
     base = base.rstrip('/')
     if base not in {'http://127.0.0.1:8768', 'http://localhost:8768'}:
@@ -213,11 +281,28 @@ def interactive(pipeline, transport: str, base: str, *, show_masked_evidence: bo
                         codes = sorted(set(str(i.get('code','')) for i in step1.get('issues',[])
                                            if isinstance(i, dict) and
                                            str(i.get('code','')).replace('_','').isalnum()))
-                        info('LOCAL_GATE_REASON', {
-                            'state':outcome.state,'reason':outcome.reason,
-                            'unlinked_mentions':outcome.unlinked_mentions,
-                            'step1_status':step1.get('status'),
-                            'step1_issue_codes':codes})
+                        detail = {
+                            'state': outcome.state, 'reason': outcome.reason,
+                            'unlinked_mentions': outcome.unlinked_mentions,
+                            'step1_status': step1.get('status'),
+                            'step1_issue_codes': codes,
+                            'step1_entity_labels': sorted(set(
+                                e.get('label','') for e in step1.get('entities',[])
+                                if isinstance(e, dict)))}
+                        if outcome.reason == 'GATE_NOT_READY':
+                            # Reuse frozen Step1 output; no private content or spans
+                            # are logged. This diagnostic cannot authorize a retry.
+                            from name_protection_handoff import _FrozenDetectorView
+                            from privacy_gate import check_privacy_gate
+                            gate = check_privacy_gate(
+                                _FrozenDetectorView(pipeline._detector, step1), question)
+                            detail.update({
+                                'gate_decision': gate.get('decision'),
+                                'gate_reason': gate.get('reason'),
+                                'gate_uncovered_count': gate.get('uncovered_count', 0),
+                                'veil_policy_counts': gate.get('veil_policy_counts', {}),
+                            })
+                        info('LOCAL_GATE_REASON', detail)
                 continue
             info('LOCAL_QUERY', {'state':state, 'top5_doc_ids':[d['doc_id'] for d in docs],
                                  'query_hmac_token_count': len(prepared.tokens),
@@ -256,6 +341,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--device', choices=('cpu','mps'), default='cpu')
     ap.add_argument('--eval-artifact', type=Path)
+    ap.add_argument('--eval-raw', action='store_true', help='evaluate actual 88 raw queries against current live DB, no re-ingest')
+    ap.add_argument('--queries-jsonl', type=Path, default=ROOT/'step2_privacy_rag/local_eval/holdout_retrieval_queries.jsonl')
+    ap.add_argument('--gold-jsonl', type=Path, default=ROOT/'step2_privacy_rag/local_eval/holdout_retrieval_queries_gold.jsonl')
     ap.add_argument('--max-queries', type=int, default=0, help='0=all eligible questions')
     ap.add_argument('--interactive', action='store_true')
     ap.add_argument('--show-masked-evidence', action='store_true',
@@ -270,6 +358,10 @@ def main() -> int:
     args = ap.parse_args()
     if args.max_queries < 0:
         ap.error('--max-queries must be nonnegative')
+    if args.eval_raw and args.eval_artifact:
+        ap.error('--eval-raw and --eval-artifact cannot be combined')
+    if args.eval_raw and args.max_queries:
+        ap.error('--eval-raw always evaluates all 88 queries (do not use --max-queries)')
     if args.transport != 'local' and not args.interactive:
         ap.error('--transport hcx/http requires --interactive')
     if (args.show_masked_evidence or args.diagnose_gate) and (not args.interactive or args.transport != 'local'):
@@ -292,11 +384,18 @@ def main() -> int:
         if args.real_review_probes:
             real_review_probes(pipeline)
         if args.eval_artifact:
+            if not args.eval_artifact.is_file():
+                info('EVAL_ARTIFACT_MISSING', {
+                    'exists': False, 'hint': 'prepared.json was an example path; find an existing artifact or use --eval-raw with original queries and Gold JSONL'})
+                return 2
             eval_artifact(pipeline,args.eval_artifact,args.max_queries)
+        if args.eval_raw:
+            if not eval_raw_holdout(pipeline, args.queries_jsonl, args.gold_jsonl):
+                return 2
         if args.interactive:
             interactive(pipeline,args.transport,args.http_url,show_masked_evidence=args.show_masked_evidence,
                         diagnose_gate=args.diagnose_gate)
-        if not args.eval_artifact and not args.interactive and not args.real_review_probes:
+        if not args.eval_artifact and not args.eval_raw and not args.interactive and not args.real_review_probes:
             print('E2E_PROBE_OK (metadata only; for search use --interactive or --eval-artifact)',flush=True)
         return 0
     except Exception as exc:
