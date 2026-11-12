@@ -13,6 +13,7 @@ class IndexStatus(unittest.TestCase):
         self.pipeline.table = table_identifier(self.pipeline.table_name)
         self.pipeline.tag = 'secret-tag-not-returned'
         self.pipeline.expected_rows = 187
+        self.pipeline.index_mode = 'snapshot'
 
     def check(self, row):
         with patch('psycopg.connect') as connect:
