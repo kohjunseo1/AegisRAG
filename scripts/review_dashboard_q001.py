@@ -175,7 +175,7 @@ mark.suspect{background:#ffd28a;border-radius:2px}mark.masked{background:#bbebcc
 <div class="auth"><label for="secret">관리자 로컬 세션 토큰</label>
 <input type="password" id="secret" autocomplete="off" placeholder="터미널 발급 토큰" size="28">
 <button id="login" class="primary">검토 문서 불러오기</button><span class="notice">토큰은 현 로컬 서버 실행 중에만 유효</span></div>
-<p id="status" role="status"></p>
+<p id="status" role="status">현재 서버의 터미널에 표시된 Q001_REVIEW_SESSION_TOKEN을 붙여 넣고, 검토 문서 불러오기를 누르세요. Enter 키도 사용할 수 있습니다.</p>
 <section id="e2e-controls" hidden>
  <h2>Human-assisted 실험 E2E</h2>
  <p class="sub">10문서 검토 완료 후 클릭 시 실제 Gate/HMAC 교정 → 187문서 별도 실험 테이블 생성 → 88질의 재평가. 기존 177문서 테이블 변경 없음.</p>
@@ -256,6 +256,9 @@ button.onclick=async()=>{
 line.append(select,button);card.appendChild(line);out.appendChild(card);
 });
 }
+elem("secret").addEventListener("keydown",e=>{
+ if(e.key==="Enter"){e.preventDefault();elem("login").click()}
+});
 elem("login").onclick=async()=>{
 try{const data=await api("/api/cases");entries=data.cases;selected=null;renderList();
  elem("e2e-controls").hidden=!data.experimental_enabled;
