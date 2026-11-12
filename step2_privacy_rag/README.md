@@ -111,7 +111,54 @@ python scripts/diagnose_v6_db.py
 
 한글을 조합하는 동안 Enter를 누르면 첫 Enter는 글자 조합만 끝내고, **두 번째 Enter에서 전송**하도록 했습니다. 전송 버튼을 눌러도 조합이 완료된 후 질문을 전송합니다.
 
-## 5. 다음 개선 과제
+## 5. 단일 운영 인덱스 (증분 적재)
+
+기존 `ingest-v6`는 재현 가능한 실험 스냅샷을 생성하는 명령으로 유지합니다. **운영에서는 한 테이블에 누적 적재**합니다. 이미 검증된 187문서 스냅샷은 복사하지 않고 단 한 번 물리적으로 `rag.aegis_live_docs`로 이름을 변경해 승격할 수 있습니다. 실행하기 전에 **8768 챗봇을 종료**하고 `.env`의 기존 팀 설정을 백업하세요. 관리자 REVIEW 서비스는 현재 공개 저장소 코드와 별도이므로, 검토 승인 결과를 새 승인 배치 형식으로 넘기는 작업은 통합이 필요합니다.
+
+```bash
+python scripts/aegisrag.py promote-live \
+  --source rag.aegis_repro_11d26bb4db0f23360bdb \
+  --confirm PROMOTE_TO_rag.aegis_live_docs
+```
+
+이 명령은 **기존 테이블에 대한 ALTER TABLE RENAME 한 번만 수행**합니다. 승인된 기존 187건을 복사하거나 다시 임베딩하지 않고, 기존 177건이 아닌 현재 187건을 검증한 후 실행합니다. 성공 시 `.env`를 다음과 같이 변경합니다.
+
+```text
+AEGISRAG_TABLE=rag.aegis_live_docs
+AEGISRAG_INDEX_MODE=live
+AEGISRAG_LIVE_MIN_ROWS=187
+```
+
+서버 재시작 시 `index_mode=live`는 행 수가 **187개 이상**이고 모든 행의 HMAC 키 버전이 같을 때 조회를 허용합니다. 신규 문서가 추가되어 188, 189개가 되어도 `AEGISRAG_EXPECTED_ROWS=187` 때문에 차단되지 않습니다. 조회는 REPEATABLE READ로 일관된 스냅샷을 사용합니다.
+
+**새 문서 증분 적재:** 원본이 아니라 검토·가명처리·보호 재검증을 마친 승인 문서만 로컬 파일로 전달합니다. 아래 JSONL이 아닌 JSON 형식이며 `hmac_key_tag`는 실제 환경에서 계산한 비밀 아닌 키 버전 식별자여야 합니다. 민감한 원문 또는 비밀번호를 넣지 않습니다.
+
+```json
+{
+  "format": "aegisrag-live-approved-v1",
+  "hmac_key_tag": "<key_tag_from_local_approval_pipeline>",
+  "documents": [
+    {
+      "doc_id": "S001",
+      "text": "합성 교육은 수요일입니다.",
+      "region_keys": [],
+      "approval_state": "AUTO_READY"
+    }
+  ]
+}
+```
+
+```bash
+python scripts/aegisrag.py ingest-live \
+  --input /path/to/locally_approved_documents.json \
+  --confirm rag.aegis_live_docs
+```
+
+`AUTO_READY`와 `HUMAN_APPROVED`는 **신뢰 가능한 로컬 승인 워크플로가 발행한 값이어야 하며, 필드만으로 사람의 실제 승인을 증명하지는 않습니다.** `REVIEW_PENDING`은 적재 불가능합니다. 추가 문서의 `doc_id`가 새 것이면 INSERT, 기존 것이고 텍스트/Region 토큰이 바뀌면 해당 행만 UPDATE+재임베딩합니다. 변경이 없으면 SKIP하므로 모델을 다시 로드할 필요도 없습니다. 정식 관리자 검토 UI와 이 로컬 승인 배치의 연결은 별도로 검증해야 합니다.
+
+테이블 삭제, `DROP SCHEMA`, 원문·Gold 저장, 다른 문서 재임베딩은 하지 않습니다. 기존 개인정보 보호 및 외부 LLM 전송 승인 조건은 그대로 유지됩니다.
+
+## 6. 다음 개선 과제
 
 현재 MVP는 로컬 단일 사용자·단일 턴 서비스입니다. **우선순위**는 근거/인용 정확도 실측, 단계별 지연시간과 매 질문 Step1 모델 재로딩 개선, 동명이인·REVIEW 10건 처리, 새 Blind 데이터 평가, 관리자 REVIEW UI 및 권한별 복원입니다. 서버 배포 시에는 인증·문서 접근 통제·DB 최소 권한·TLS·비밀키 관리가 추가로 필요합니다.
 

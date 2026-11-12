@@ -82,7 +82,13 @@ class LivePipeline:
         setting = settings(env_file)
         self.table_name = setting('AEGISRAG_TABLE', TABLE)
         self.table = table_identifier(self.table_name)
-        self.expected_rows = int(setting('AEGISRAG_EXPECTED_ROWS', '177'))
+        self.index_mode = setting('AEGISRAG_INDEX_MODE', 'snapshot').lower()
+        if self.index_mode not in {'snapshot', 'live'}:
+            raise PipelineError('INVALID_INDEX_MODE')
+        self.expected_rows = int(setting(
+            'AEGISRAG_LIVE_MIN_ROWS' if self.index_mode == 'live' else 'AEGISRAG_EXPECTED_ROWS',
+            '187' if self.index_mode == 'live' else '177'
+        ))
         if self.expected_rows < 1:
             raise PipelineError('INVALID_EXPECTED_ROWS')
         self.db = db_config(env_file)
@@ -221,10 +227,12 @@ class LivePipeline:
                     actual, distinct_tags, observed_tag = cur.fetchone()
         except Exception as exc:
             raise PipelineError(db_failure_code(exc)) from None
-        matching = (actual == self.expected_rows and distinct_tags == 1 and observed_tag == self.tag)
+        count_ok = actual >= self.expected_rows if self.index_mode == 'live' else actual == self.expected_rows
+        matching = (count_ok and distinct_tags == 1 and observed_tag == self.tag)
         return {'status': 'READY' if matching else 'MISMATCH',
-                'table': self.table_name, 'rows': actual,
-                'expected_rows': self.expected_rows, 'key_matches': distinct_tags == 1 and observed_tag == self.tag}
+                'table': self.table_name, 'index_mode': self.index_mode,
+                'rows': actual, 'expected_rows': self.expected_rows,
+                'key_matches': distinct_tags == 1 and observed_tag == self.tag}
 
     def retrieve(self, prepared: PreparedQuery, top_k: int | None = 5) -> list[dict[str, Any]]:
         import psycopg
@@ -236,10 +244,12 @@ class LivePipeline:
         try:
             with psycopg.connect(**self.db) as conn:
                 with conn.cursor() as cur:
-                    cur.execute('SET TRANSACTION READ ONLY')
+                    # Count and query must see the same index snapshot during incremental writes.
+                    cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
                     cur.execute(sql.SQL('SELECT COUNT(*), COUNT(DISTINCT key_tag) FROM {}').format(self.table))
                     num, tag_count = cur.fetchone()
-                    if num != self.expected_rows or tag_count != 1:
+                    count_ok = num >= self.expected_rows if self.index_mode == 'live' else num == self.expected_rows
+                    if not count_ok or tag_count != 1:
                         raise PipelineError('V6_DB_INDEX_INCOMPLETE')
                     cur.execute(sql.SQL('SELECT DISTINCT key_tag FROM {}').format(self.table))
                     if cur.fetchone()[0] != self.tag:
@@ -254,7 +264,7 @@ class LivePipeline:
             raise PipelineError(db_failure_code(exc)) from None
         self.timings['db_ms'] = (time.perf_counter() - start) * 1000
         start = time.perf_counter()
-        if len(raw_rows) != self.expected_rows or len({r[0] for r in raw_rows}) != self.expected_rows:
+        if len(raw_rows) != num or len({r[0] for r in raw_rows}) != num:
             raise PipelineError('V6_DB_RESULT_COUNT_ERROR')
         rows = [dict(doc_id=did, text=masked, tokens=tok or [], region_keys=reg or [],
                      dense_rank=i+1) for i, (did, masked, tok, reg) in enumerate(raw_rows)]
