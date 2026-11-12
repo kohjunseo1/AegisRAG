@@ -66,6 +66,36 @@ class ReviewUIContracts(unittest.TestCase):
         one=json.loads(self._request('/api/document?id=synthetic__A',headers))
         self.assertIn('비공개 합성',one['raw_for_local_review'])
 
+    def test_review_then_commit_contract_without_real_models_db(self):
+        from document_preparation import Outcome
+        from dataset_workflow import read_signed
+        from unittest.mock import MagicMock
+        headers={'X-Aegis-Review-Token':'very-long-test-auth-token',
+                 'Content-Type':'application/json','Origin':self.url}
+        # A model-approved manually revised source is the ONLY route to READY.
+        valid=Outcome('synthetic__A','LOCAL_PREPARED','LOCAL_ONLY_NOT_EXTERNAL_AUTHORIZED',
+                      sanitized_text='가명처리된 합성 자료',tokens=(),region_keys=())
+        with patch('dataset_workflow.prepare',return_value=valid):
+            reviewed=json.loads(self._request('/api/review',headers,
+                data=json.dumps({'doc_id':'synthetic__A',
+                                 'revised_source':'비식별화된 수정 자료',
+                                 'reviewer':'reviewer1'}).encode('utf-8')))
+        self.assertEqual(reviewed['state'],'HUMAN_APPROVED_AFTER_GATE_RECHECK')
+        stage=read_signed(self.stage,KEY)
+        self.assertEqual(stage['documents'][0]['approval_state'],'HUMAN_APPROVED')
+        self.assertIsNone(stage['documents'][0]['raw_for_local_review'])
+        with patch('live_index.fixed_key',return_value=KEY), \
+             patch('settings.db_config',return_value={}), \
+             patch('psycopg.connect') as conn, \
+             patch('live_index.incremental_upsert',
+                   return_value={'inserted':1,'updated':0,'unchanged':0,
+                                 'previous_rows':187,'resulting_rows':188}) as upsert:
+            committed=json.loads(self._request('/api/commit',headers,
+                data=json.dumps({'confirm':'rag.aegis_live_docs'}).encode('utf-8')))
+        self.assertEqual(committed['resulting_rows'],188)
+        upsert.assert_called_once()
+        self.assertEqual(upsert.call_args.args[1][0]['doc_id'],'synthetic__A')
+
     def test_cross_origin_post_fails(self):
         headers={'X-Aegis-Review-Token':'very-long-test-auth-token',
                  'Content-Type':'application/json','Origin':'https://attacker.example'}
