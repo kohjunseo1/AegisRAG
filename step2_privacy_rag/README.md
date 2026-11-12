@@ -158,7 +158,40 @@ python scripts/aegisrag.py ingest-live \
 
 테이블 삭제, `DROP SCHEMA`, 원문·Gold 저장, 다른 문서 재임베딩은 하지 않습니다. 기존 개인정보 보호 및 외부 LLM 전송 승인 조건은 그대로 유지됩니다.
 
-## 6. 다음 개선 과제
+## 6. 로컬 E2E 통합 진단 · 88질의 평가
+
+서버와 실제 DB·API는 사용자의 Mac에서만 실행됩니다. GitHub CI는 개인정보 없는 합성 계약 테스트입니다.
+
+```bash
+# 1) 기존 로컬 DB 메타데이터 점검 (읽기 전용)
+python scripts/verify_v6_e2e.py
+
+# 2) 강제로 REVIEW → (모의 관리자) 승인 계약을 검사. DB 변경 없음
+python scripts/verify_v6_e2e.py --synthetic-review
+
+# 3) 실제 질문의 Step1+HMAC+PGVector Top-5를 로컬에서 확인. HCX 미호출
+python scripts/verify_v6_e2e.py --interactive
+
+# 4) 승인받은 데이터에서만 HCX 직접 호출. 답변·인용 확인
+AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
+  python scripts/verify_v6_e2e.py --interactive --transport hcx
+
+# 5) 이미 실행 중인 실제 웹챗의 /api/chat 경로 전체 테스트
+AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
+  python scripts/verify_v6_e2e.py --interactive --transport http
+
+# 6) 보안이 유지된 로컬 평가 산출물로 검색 지표와 CPU retrieval latency 평가
+python scripts/verify_v6_e2e.py \
+  --eval-artifact step2_privacy_rag/local_eval/reproduction/prepared.json
+```
+
+질문 입력 예: `오가은`, `오가은 이름 있는 자료`, `윤선영 정보`는 `--interactive` 모드에서만 로컬로 입력합니다. GitHub 코드·일반 로그에 비공개 질문/문서 본문을 올리지 마세요. `--transport local`은 문서 ID와 매칭 수, 지연시간만 출력합니다. `--transport hcx/http`는 외부 전송을 명시적으로 승인한 경우에만 실행하세요.
+
+평가에서 **Hit@1/5, Recall@5, MRR**은 기존 평가 방식에 맞춰 neutral 문서를 *채점 시* 제외하고, **Confusable@1/5**는 실제 챗봇에 전달되는 neutral 미제외 Top-5 기준으로 계산합니다. 따라서 Confusable@5는 낮을수록 좋으며, 높은 Hit@5라도 동명이인/혼동 문서가 함께 나올 수 있습니다. `eligible`(정답이 인덱스에 있고 준비된 질문), `deferred`, `no_indexable_gold`를 분리해 분모를 명시합니다. 지연시간은 워밍업 후 로컬 임베딩+DB+리랭크 기준으로 측정하며 Step1과 HCX 시간은 별도입니다.
+
+`--synthetic-review`는 Mock 모델의 `REVIEW_REQUIRED` 동작과 승인을 흉내 낸 데이터 계약을 검증합니다. **8771 관리자 웹 UI의 실제 승인·재검증·삽입 동작까지 검증했다는 뜻은 아닙니다.** 실제 UI는 로컬 전용이므로 해당 코드와 연결하려면 별도 통합 테스트가 필요합니다.
+
+## 7. 다음 개선 과제
 
 현재 MVP는 로컬 단일 사용자·단일 턴 서비스입니다. **우선순위**는 근거/인용 정확도 실측, 단계별 지연시간과 매 질문 Step1 모델 재로딩 개선, 동명이인·REVIEW 10건 처리, 새 Blind 데이터 평가, 관리자 REVIEW UI 및 권한별 복원입니다. 서버 배포 시에는 인증·문서 접근 통제·DB 최소 권한·TLS·비밀키 관리가 추가로 필요합니다.
 
