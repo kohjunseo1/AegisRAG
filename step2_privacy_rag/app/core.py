@@ -280,6 +280,8 @@ class LivePipeline:
         prepared = self.prepare(raw_question)
         self.timings['step1_ms'] = (time.perf_counter() - start) * 1000
         if isinstance(prepared, str):
+            self.timings['total_ms'] = (time.perf_counter() - start) * 1000
             return prepared, None, []
         rows = self.retrieve(prepared)
+        self.timings['total_ms'] = (time.perf_counter() - start) * 1000
         return 'READY', prepared, rows

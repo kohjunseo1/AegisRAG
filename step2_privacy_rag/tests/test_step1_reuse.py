@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'step1_pii_detector' / 'src'))
-from core import LivePipeline, PipelineError
+from core import LivePipeline, PipelineError, PreparedQuery
 
 
 class FakeDetector:
@@ -76,6 +76,17 @@ class Step1ReuseContract(unittest.TestCase):
         self.assertEqual(p.prepare('검토 질의'), 'REVIEW')
         self.assertEqual(create.call_count, 1)
         p.close()
+
+    @patch.object(LivePipeline, 'retrieve', return_value=[])
+    @patch('document_preparation.prepare', return_value=OK)
+    @patch('pii_detector.create_detector')
+    def test_ask_local_records_total_duration(self, create, prepare, retrieve):
+        p = pipeline(True)
+        p._model = None
+        state, ready, rows = p.ask_local('합성 질문')
+        self.assertEqual(state, 'READY')
+        self.assertIsInstance(ready, PreparedQuery)
+        self.assertGreater(p.timings['total_ms'], 0)
 
     @patch('document_preparation.prepare')
     @patch('pii_detector.create_detector')

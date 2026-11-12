@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / 'step2_privacy_rag' / 'app'))
 sys.path.insert(0, str(ROOT / 'step1_pii_detector' / 'src'))
 
 from core import LivePipeline, PreparedQuery, PII
-from metrics_retrieval import summarize_score, summarize_latency
+from metrics_retrieval import summarize_score, summarize_latency, failure_cases
 from reproduction import artifact
 from settings import db_config
 
@@ -130,10 +130,18 @@ def eval_artifact(pipeline, path: Path, max_queries: int):
         if i == len(subset) or i % 20 == 0:
             info('EVAL_PROGRESS', {'completed': i, 'eligible_selected': len(subset)})
     subset_qids = {q['qid'] for q in subset}
-    report = summarize_score(
-        [q for q in data['queries'] if q['qid'] in subset_qids],
-        [g for g in data['gold_for_evaluation_only'] if g['qid'] in subset_qids],
-        ids, runs)
+    # An all-query run includes non-READY and non-indexable Gold questions in
+    # the denominator. Limited runs are explicitly marked "eligible subset".
+    scope_queries = (data['queries'] if not max_queries else
+                     [q for q in data['queries'] if q['qid'] in subset_qids])
+    scope_gold = (data['gold_for_evaluation_only'] if not max_queries else
+                  [g for g in data['gold_for_evaluation_only'] if g['qid'] in subset_qids])
+    report = summarize_score(scope_queries, scope_gold, ids, runs)
+    report['evaluation_scope'] = 'ALL_88_WITH_DEFERRED' if not max_queries else 'ELIGIBLE_SUBSET_ONLY'
+    report['artifact_document_count'] = len(data['documents'])
+    report['db_document_count'] = len(ids)
+    report['artifact_matches_live_index'] = (len(data['documents']) == len(ids) and
+        {d['doc_id'] for d in data['documents']} == ids)
     report['observed_eligible_subset'] = len(subset)
     report['input_total_queries'] = len(data['queries'])
     report['input_deferred'] = sum(q['text'] is None for q in data['queries'])
@@ -142,7 +150,10 @@ def eval_artifact(pipeline, path: Path, max_queries: int):
         not (set(gold_by_id[q['qid']]['relevant_doc_ids']) & ids)
         for q in data['queries'])
     info('RETRIEVAL_METRICS', report)
+    info('RETRIEVAL_FAILURE_CASES', failure_cases(scope_queries, scope_gold, runs, ids))
     info('CPU_RETRIEVAL_LATENCY_MS', summarize_latency(latency))
+    if not report['artifact_matches_live_index']:
+        print('EVAL_WARNING: preprocessing artifact doc_ids differ from live 187-document index; scope/baseline may not be directly comparable.', flush=True)
     print('EVAL_NOTE: preprocessed queries exclude Step1 and HCX latency; use interactive mode for full local query timings.', flush=True)
 
 
@@ -161,7 +172,7 @@ def check_http(base: str, table: str):
     return base
 
 
-def interactive(pipeline, transport: str, base: str):
+def interactive(pipeline, transport: str, base: str, *, show_masked_evidence: bool = False, diagnose_gate: bool = False):
     if transport != 'local' and os.environ.get('AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED') != 'YES':
         raise ValueError('EXTERNAL_TRANSFER_NOT_APPROVED')
     if transport == 'http':
@@ -187,12 +198,34 @@ def interactive(pipeline, transport: str, base: str):
             start = time.perf_counter()
             state, prepared, docs = pipeline.ask_local(question)
             if prepared is None:
-                info('LOCAL_QUERY', {'state': state, 'top5_doc_ids': [], 'hcx_called': False})
+                info('LOCAL_QUERY', {'state': state, 'top5_doc_ids': [], 'hcx_called': False,
+                                     'timings_ms':pipeline.timings})
+                if diagnose_gate and state in {'REVIEW','REVIEW_REQUIRED','BLOCKED'}:
+                    from document_preparation import prepare as prepare_doc
+                    if pipeline._detector is not None:
+                        outcome = prepare_doc('Q_LIVE', question, pipeline._detector, pipeline.secret)
+                        step1 = pipeline._detector.detect(question)
+                        codes = sorted(set(str(i.get('code','')) for i in step1.get('issues',[])
+                                           if isinstance(i, dict) and
+                                           str(i.get('code','')).replace('_','').isalnum()))
+                        info('LOCAL_GATE_REASON', {
+                            'state':outcome.state,'reason':outcome.reason,
+                            'unlinked_mentions':outcome.unlinked_mentions,
+                            'step1_status':step1.get('status'),
+                            'step1_issue_codes':codes})
                 continue
             info('LOCAL_QUERY', {'state':state, 'top5_doc_ids':[d['doc_id'] for d in docs],
                                  'hmac_matches':[d['hmac_matches'] for d in docs],
                                  'region_matches':[d['region_matches'] for d in docs],
                                  'timings_ms':pipeline.timings})
+            if show_masked_evidence:
+                from hcx import redact_residual_pii
+                for doc in docs:
+                    sanitized, counts = redact_residual_pii(doc['text'])
+                    info('LOCAL_EVIDENCE', {'doc_id':doc['doc_id'],
+                                            'masked_excerpt':sanitized[:450],
+                                            'residual_redaction_counts':counts})
+                print('LOCAL_EVIDENCE_NOTE: excerpts are pseudonymized but not guaranteed PII-free. Do not publish them.',flush=True)
             if transport == 'hcx':
                 from hcx import call_hcx
                 reply, usage, redactions = call_hcx(pipeline.root,prepared.text,docs,bool(prepared.regions))
@@ -218,6 +251,10 @@ def main() -> int:
     ap.add_argument('--eval-artifact', type=Path)
     ap.add_argument('--max-queries', type=int, default=0, help='0=all eligible questions')
     ap.add_argument('--interactive', action='store_true')
+    ap.add_argument('--show-masked-evidence', action='store_true',
+                    help='opt in to local-only pseudonymized evidence snippets (may contain residual PII)')
+    ap.add_argument('--diagnose-gate', action='store_true',
+                    help='show safe REVIEW reason codes for local interactive queries')
     ap.add_argument('--transport', choices=('local','hcx','http'), default='local')
     ap.add_argument('--http-url', default='http://127.0.0.1:8768')
     ap.add_argument('--synthetic-review', action='store_true')
@@ -228,6 +265,8 @@ def main() -> int:
         ap.error('--max-queries must be nonnegative')
     if args.transport != 'local' and not args.interactive:
         ap.error('--transport hcx/http requires --interactive')
+    if (args.show_masked_evidence or args.diagnose_gate) and (not args.interactive or args.transport != 'local'):
+        ap.error('--show-masked-evidence/--diagnose-gate require --interactive local transport')
     if args.synthetic_only and not args.synthetic_review:
         ap.error('--synthetic-only requires --synthetic-review')
     if args.synthetic_review:
@@ -248,7 +287,8 @@ def main() -> int:
         if args.eval_artifact:
             eval_artifact(pipeline,args.eval_artifact,args.max_queries)
         if args.interactive:
-            interactive(pipeline,args.transport,args.http_url)
+            interactive(pipeline,args.transport,args.http_url,show_masked_evidence=args.show_masked_evidence,
+                        diagnose_gate=args.diagnose_gate)
         if not args.eval_artifact and not args.interactive and not args.real_review_probes:
             print('E2E_PROBE_OK (metadata only; for search use --interactive or --eval-artifact)',flush=True)
         return 0

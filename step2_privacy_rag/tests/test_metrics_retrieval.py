@@ -1,6 +1,6 @@
 """Zero-private-data tests for retrieval scoring and review-stage smoke."""
 import unittest
-from metrics_retrieval import summarize_score, summarize_latency, percentile
+from metrics_retrieval import summarize_score, summarize_latency, percentile, failure_cases
 
 class MetricContracts(unittest.TestCase):
     def test_neutral_scoring_does_not_hide_real_confusions(self):
@@ -14,6 +14,8 @@ class MetricContracts(unittest.TestCase):
         self.assertEqual(m['confusable_hit5'],1)
         self.assertEqual(m['confusable_at5_rate'],1.0)
         self.assertEqual(m['mrr'],.5)
+        self.assertEqual(m['full_set_hit5_rate'],1.0)
+        self.assertEqual(failure_cases(q,g,{'Q001':['C','B','A']},{'A','B','C'})[0]['first_confusable_rank_raw'],2)
 
     def test_explicit_denominators(self):
         q=[{'qid':'Q001','text':None},{'qid':'Q002','text':'prepared'},
@@ -25,6 +27,8 @@ class MetricContracts(unittest.TestCase):
         self.assertEqual((m['total'],m['deferred'],m['no_indexable_gold'],m['eligible']),
                          (3,1,1,1))
         self.assertEqual(m['hit1_rate'],1.0)
+        self.assertEqual(m['full_set_hit1_rate'],0.3333)
+        self.assertEqual(m['query_coverage_rate'],0.3333)
         self.assertIsNone(m['confusable_at5_given_candidate'])
 
     def test_duplicate_and_unknown_ranking_rejected(self):

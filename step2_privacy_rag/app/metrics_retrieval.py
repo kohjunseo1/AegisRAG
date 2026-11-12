@@ -80,6 +80,12 @@ def summarize_score(queries: list[dict], gold: list[dict],
         **counters,
         'hit1_rate': round(counters['hit1']/n, 4),
         'hit5_rate': round(counters['hit5']/n, 4),
+        # Include deferred/unindexable queries as no-hit for full 88-question
+        # system coverage. Do not compare these with eligible-only metrics.
+        'full_set_hit1_rate': round(counters['hit1']/len(queries), 4),
+        'full_set_hit5_rate': round(counters['hit5']/len(queries), 4),
+        'full_set_mrr': round(sum(mrr)/len(queries), 4),
+        'query_coverage_rate': round(n/len(queries), 4),
         'recall5_indexable': round(sum(recall)/n, 4),
         'recall5_full_gold': round(sum(recall_full)/n, 4),
         'mrr': round(sum(mrr)/n, 4),
@@ -90,7 +96,9 @@ def summarize_score(queries: list[dict], gold: list[dict],
             round(counters['confusable_hit5']/counters['confusable_eligible'], 4)
             if counters['confusable_eligible'] else None),
         'confusable_mrr': round(sum(conf_rr)/n, 4),
-        'by_type': by_type,
+        'by_type': {k: {**v, 'hit1_rate': round(v['hit1']/v['n'],4),
+                                'hit5_rate': round(v['hit5']/v['n'],4)}
+                    for k, v in by_type.items()},
         'note': 'Hit/Recall/MRR exclude neutral IDs only in scoring; confusable metrics use actual unfiltered production rankings.'
     }
 
@@ -109,3 +117,36 @@ def summarize_latency(rows: list[dict[str, float]]) -> dict:
                       'p95': percentile(vals,95),
                       'max': round(max(vals),2)}
     return out
+
+
+def failure_cases(queries: list[dict], gold: list[dict], ranked_by_qid: dict[str, list[str]],
+                  index_ids: set[str]) -> list[dict]:
+    """QID/type/rank summaries only. No source text or HMAC data is serialized."""
+    label = {g['qid']: g for g in gold}
+    output = []
+    for q in queries:
+        g = label[q['qid']]
+        reference = set(g.get('relevant_doc_ids', []))
+        confusable = set(g.get('confusable_doc_ids', []))
+        if q['text'] is None:
+            output.append({'qid':q['qid'], 'type':g.get('type','unknown'), 'reason':'DEFERRED'})
+            continue
+        if not reference.intersection(index_ids):
+            output.append({'qid':q['qid'], 'type':g.get('type','unknown'), 'reason':'NO_INDEXABLE_GOLD'})
+            continue
+        raw = ranked_by_qid[q['qid']]
+        # Keep both ranks before any neutral-doc filtering, as actually seen by UI.
+        gold_rank = next((i for i,d in enumerate(raw,1) if d in reference),None)
+        confuse_rank = next((i for i,d in enumerate(raw,1) if d in confusable),None)
+        scored = [d for d in raw if d not in set(g.get('neutral_doc_ids', []))]
+        hit1 = bool(scored and scored[0] in reference)
+        hit5 = bool(set(scored[:5]) & reference)
+        conf_at5 = bool(set(raw[:5]) & confusable)
+        if hit1 and not conf_at5:
+            continue
+        output.append({'qid':q['qid'], 'type':g.get('type','unknown'),
+                       'reason': 'MISS_TOP5' if not hit5 else
+                                 ('MISS_TOP1' if not hit1 else 'CONFUSABLE_IN_TOP5'),
+                       'hit1':hit1, 'hit5':hit5, 'confusable_at5':conf_at5,
+                       'first_gold_rank_raw':gold_rank, 'first_confusable_rank_raw':confuse_rank})
+    return output

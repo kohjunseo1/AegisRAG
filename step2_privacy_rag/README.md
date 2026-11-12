@@ -206,6 +206,25 @@ python scripts/diagnose_step1.py
 
 `STEP1_MODEL_INIT`에서 실패하면 HF_TOKEN 유무·해당 환경의 의존성·모델 revision 권한부터 확인하고, 초기화가 통과한 다음 백엔드가 실패하면 A.X/Veil 런타임으로 범위를 좁힙니다. `STEP2_LOCAL_PREPARE`만 실패한다면 모델은 동작하며 게이트/가명처리 연동을 확인해야 합니다. 이전에 다른 Conda 환경에서 나온 `PINNED_MODELS_READY`만으로 현재 환경의 성공을 가정하지 마세요.
 
+### 검색 결과 문서 검토와 88질의 전체 지표
+
+```bash
+# 개인 테스트 질문의 Gate 보류 원인 + Top-5 비식별화 문서 미리보기
+python scripts/verify_v6_e2e.py --interactive --diagnose-gate --show-masked-evidence
+
+# 현재 로컬 평가 산출물의 88개 질문을 전부 고려해 검색 지표 출력
+python scripts/verify_v6_e2e.py \
+  --eval-artifact step2_privacy_rag/local_eval/reproduction/prepared.json
+```
+
+`--show-masked-evidence`는 **명시적 로컬 옵션**으로만 본문 일부를 출력합니다. 합성 데이터라도 잔여 개인정보가 있을 수 있어 해당 화면 출력을 공개 저장소에 올리지 마세요. `--diagnose-gate`는 보류 사유 코드(예: `STEP1_NOT_READY`, `V5_ABSTAIN`, `GATE_NOT_READY`)와 Step1 이슈 코드만 출력합니다. 원문은 출력하지 않습니다.
+
+전체 평가 결과의 `full_set_hit1_rate`, `full_set_hit5_rate`, `full_set_mrr`은 **보류된 질의를 0점으로 처리한 전체 질문 분모**이며, `hit1_rate`, `hit5_rate`, `mrr`은 평가 가능 질의만의 분모입니다. `RETRIEVAL_FAILURE_CASES`는 정답 누락·혼동 후보의 QID·유형·순위만 보여줍니다. `artifact_matches_live_index=false`라면 해당 파일이 구형 177문서 산출물일 수 있으므로, 187문서 최종 성능으로 발표하지 마세요.
+
+### Hugging Face 및 ONNX 임시 공간
+
+Hugging Face 저장소를 개인 계정에서 조직으로 이전하면 저장소 ID별로 별도 캐시 엔트리가 생성될 수 있습니다. 현행 `load_backends`는 실행 중에 Veil ONNX 임시 파일을 만들며, 새 코드는 정상 Python 프로세스 종료 시 해당 임시 폴더를 삭제하도록 등록합니다. 동일 모델 재사용에는 기존 `--reuse-step1` 및 `--preload` 옵션을 사용합니다. ONNX 파일이 현재 프로세스에서 사용 중일 수 있으므로 실행 중인 프로세스의 임시 폴더는 삭제하지 않습니다.
+
 ## 7. 다음 개선 과제
 
 현재 MVP는 로컬 단일 사용자·단일 턴 서비스입니다. **우선순위**는 근거/인용 정확도 실측, 단계별 지연시간과 매 질문 Step1 모델 재로딩 개선, 동명이인·REVIEW 10건 처리, 새 Blind 데이터 평가, 관리자 REVIEW UI 및 권한별 복원입니다. 서버 배포 시에는 인증·문서 접근 통제·DB 최소 권한·TLS·비밀키 관리가 추가로 필요합니다.

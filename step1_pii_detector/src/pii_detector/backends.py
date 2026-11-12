@@ -1,5 +1,5 @@
 """06D notebook backend implementation: frozen AX BIO and Veil official FP32 ONNX decoder."""
-import gc, importlib.util, inspect, json, re, shutil, subprocess, sys, tempfile
+import atexit, gc, importlib.util, inspect, json, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
 import numpy as np
 import torch, onnxruntime
@@ -15,6 +15,10 @@ def load_backends(manifest, token=None, cache_dir=None):
     global TMP, DEVICE, LABELS, AX_DIR, VEIL_DIR, AX_REPO, AX_SHA, VEIL_REPO, VEIL_SHA, AutoModelForTokenClassification
     from .detector import LABELS
     TMP=Path(tempfile.mkdtemp(prefix="step1-pii-")); DEVICE=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Veil's generated ONNX is temporary, not an HF cache model. Clean when the
+    # Python process exits, after ThreadPoolExecutor workers have finished.
+    # Do not unlink it during detector.close(): a timed-out worker may still run.
+    atexit.register(shutil.rmtree, str(TMP), ignore_errors=True)
     AX_REPO=manifest["ax"]["repo"]; AX_SHA=manifest["ax"]["revision"]
     VEIL_REPO=manifest["veil"]["repo"]; VEIL_SHA=manifest["veil"]["revision"]
     AX_DIR=load_frozen_repo(AX_REPO,AX_SHA,token,cache_dir); VEIL_DIR=load_frozen_repo(VEIL_REPO,VEIL_SHA,token,cache_dir)
