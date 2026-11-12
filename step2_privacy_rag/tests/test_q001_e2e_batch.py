@@ -62,7 +62,11 @@ class BatchContract(unittest.TestCase):
                 "source_digest":hashlib.sha256(sources[did].encode()).hexdigest(),
                 "human_classification":choice,
                 "state":"NEEDS_INDEPENDENT_REVALIDATION"})
-        result,report=build_in_memory(baseline,sources,detector,KEY,events)
+        progress_events=[]
+        result,report=build_in_memory(baseline,sources,detector,KEY,events,
+                                      progress=lambda completed,total:
+                                      progress_events.append((completed,total)))
+        self.assertEqual(progress_events,[(i,10) for i in range(11)])
         self.assertEqual(len(result["documents"]),187)
         self.assertEqual(report["review_kind_counts"],{"name":9,"veil":1})
         self.assertTrue(report["baseline_documents_unchanged"])
