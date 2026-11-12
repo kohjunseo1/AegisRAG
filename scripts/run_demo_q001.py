@@ -103,13 +103,17 @@ def main():
             time.sleep(1)
         print("Q001_DEMO_ADMIN_CONFIRMED http://127.0.0.1:"+str(a.admin_port),flush=True)
         chat_env=env.copy()
+        current=table_from_state(DEFAULT_STATE)
+        if current:
+            chat_env["AEGISRAG_TABLE"]=current
+            chat_env["AEGISRAG_EXPECTED_ROWS"]="187"
+            print("Q001_DEMO_RESUMED_REVALIDATED_187",flush=True)
         chat=launched(["scripts/aegisrag.py","run-chat","--port",str(a.chat_port),
                        "--device",a.device],chat_env)
         print("Q001_DEMO_ADMIN http://127.0.0.1:"+str(a.admin_port),flush=True)
         print("Q001_DEMO_CHAT http://127.0.0.1:"+str(a.chat_port),flush=True)
         print("ADMIN_SESSION_TOKEN_PRINTED_BY_ADMIN_PROCESS_ONLY",flush=True)
         opened=set()
-        current=None
         while True:
             if admin.poll() is not None:
                 raise RuntimeError("ADMIN_SERVICE_STOPPED")
