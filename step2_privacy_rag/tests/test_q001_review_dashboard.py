@@ -1,5 +1,8 @@
 """Synthetic Q-001 review UI contract: annotations never authorize data release."""
 import json
+import re
+import shutil
+import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from urllib.error import HTTPError
@@ -114,6 +117,25 @@ class ReviewRecordContracts(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=3)
+
+    def test_actual_rendered_admin_javascript_is_valid(self):
+        # Validate Python-evaluated HTML, not merely the source of the
+        # triple-quoted string. A non-raw "\\n" escape previously turned
+        # into a literal newline within a JS quoted string, breaking ALL
+        # UI actions (login, queue and E2E button).
+        match=re.search(r"<script>([\\s\\S]*?)</script>",m.HTML)
+        self.assertIsNotNone(match)
+        js=match.group(1)
+        self.assertIn('lines.join("\\\\n")',js)
+        self.assertNotIn('lines.join("\\n")',js)
+        if shutil.which("node"):
+            result=subprocess.run(["node","--check"],input=js,text=True,
+                                  capture_output=True,check=False,timeout=10)
+            self.assertEqual(result.returncode,0,
+                             "Generated admin JS has invalid syntax: "+
+                             result.stderr[:300])
+        else:
+            self.assertTrue(js.count("{")>0)
 
     def test_review_token_auto_login_and_explicit_admin_action(self):
         self.assertIn('A-Za-z0-9_-', m.HTML)
