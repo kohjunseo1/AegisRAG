@@ -62,6 +62,58 @@ def inspect_environment() -> None:
     })
 
 
+def hf_repo_probe() -> int:
+    """Read-only metadata check for both pinned org repos. No model downloads."""
+    from dotenv import dotenv_values
+    from huggingface_hub import HfApi
+    from huggingface_hub.utils import RepositoryNotFoundError, RevisionNotFoundError, HfHubHTTPError
+
+    cfg = dotenv_values(ROOT / '.env')
+    from_env = bool(os.environ.get('HF_TOKEN'))
+    token = os.environ.get('HF_TOKEN') or cfg.get('HF_TOKEN')
+    if not token:
+        emit('HF_ACCESS', {'auth': 'NO_TOKEN', 'token_source': 'NONE'})
+        return 2
+    token_source = 'PROCESS_ENV' if from_env else 'DOTENV'
+    api = HfApi()
+    try:
+        api.whoami(token=token)
+        auth = 'VALID_TOKEN'
+    except Exception as exc:
+        auth = ('AUTH_FAILED' if isinstance(exc, HfHubHTTPError)
+                else 'AUTH_CHECK_FAILED')
+        emit('HF_ACCESS', {'auth': auth, 'token_source': token_source})
+        return 2
+    emit('HF_ACCESS', {'auth': auth, 'token_source': token_source})
+    manifest = json.loads(
+        (ROOT / 'step1_pii_detector/src/pii_detector/model_manifest.json'
+        ).read_text(encoding='utf-8')
+    )
+    good = True
+    for label in ('ax', 'veil'):
+        item = manifest[label]
+        repo, revision = item['repo'], item['revision']
+        try:
+            result = api.model_info(repo_id=repo, revision=revision, token=token)
+            if result.sha != revision:
+                raise ValueError('REQUIRED_SHA_MISMATCH')
+            state = 'PINNED_REVISION_OK'
+        except RevisionNotFoundError:
+            state = 'REVISION_NOT_FOUND'
+        except RepositoryNotFoundError:
+            state = 'REPOSITORY_NOT_FOUND_OR_ACCESS_DENIED'
+        except HfHubHTTPError:
+            state = 'HUB_HTTP_ERROR'
+        except Exception:
+            state = 'MODEL_INFO_CHECK_FAILED'
+        emit('HF_MODEL', {'model': label.upper(), 'repo': repo, 'state': state,
+                          'revision_prefix': revision[:8]})
+        good = good and state == 'PINNED_REVISION_OK'
+    if good:
+        print('HF_ORG_MODELS_ACCESS_OK', flush=True)
+    return 0 if good else 2
+
+
 def run_probe() -> int:
     from dotenv import load_dotenv
     load_dotenv(ROOT / '.env', override=False)
@@ -126,12 +178,17 @@ def run_probe() -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--environment-only', action='store_true',
-                    help='print nonsecret package/config availability without loading models')
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument('--environment-only', action='store_true',
+                      help='print nonsecret package/config availability without loading models')
+    mode.add_argument('--hf-repos', action='store_true',
+                      help='validate private org repositories and pinned revisions, no model downloads')
     args = ap.parse_args()
     inspect_environment()
     if args.environment_only:
         return 0
+    if args.hf_repos:
+        return hf_repo_probe()
     return run_probe()
 
 
