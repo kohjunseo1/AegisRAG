@@ -57,6 +57,14 @@ class ReviewRecordContracts(unittest.TestCase):
             self.assertEqual(m.saved_review_choices(fake_case(),journal)[("SYNTH001",0)],
                              "NON_PERSON_EXPRESSION")
 
+    def test_review_queue_displays_empty_state_and_reviewed_count(self):
+        self.assertIn("현재 확인할 REVIEW 문서가 없습니다.", m.HTML)
+        self.assertIn("현재 확인할 문서 없음",m.HTML)
+        self.assertIn('id="review-summary"',m.HTML)
+        self.assertIn('entries.filter(x=>x.review_complete).length',m.HTML)
+        self.assertIn("관리자 인증 및 검토 목록 조회 중",m.HTML)
+        self.assertIn("분류 기록은 HMAC·적재 승인이 아닙니다",m.HTML)
+
     def test_wrong_target_action_rejected(self):
         with self.assertRaises(ValueError):
             m.review_record({"id": "SYNTH001", "candidate": 0,
