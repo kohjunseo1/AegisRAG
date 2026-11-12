@@ -4,6 +4,7 @@ const thread = $("thread"), chat = $("chat"), question = $("question");
 const send = $("send");
 const modePill = $("mode-pill"), status = $("status");
 let busy = false;
+let composing = false;
 const el = (tag, cls, text) => {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -60,7 +61,13 @@ function explainError(code) {
   if (code === "HCX_HTTP_429") return "답변 생성 API의 호출 한도에 도달했습니다.";
   if (code === "HCX_HTTP_5XX" || code === "HCX_TIMEOUT" || code === "HCX_CONNECTION_FAILED") return "답변 생성 API 연결이 불안정합니다.";
   if (code.startsWith("HCX_")) return "문서 검색 이후 답변 생성 단계에서 실패했습니다.";
-  if (code.startsWith("V6_DB_")) return "문서 검색 인덱스 설정을 확인해 주세요.";
+  if (code === "V6_DB_TABLE_NOT_FOUND") return "지정한 검색 테이블이 없습니다. AEGISRAG_TABLE 값을 확인해 주세요.";
+  if (code === "V6_DB_ACCESS_DENIED") return "검색 테이블에 대한 DB 사용자 권한이 없습니다.";
+  if (code === "V6_DB_AUTH_FAILED") return "DB 사용자명 또는 비밀번호를 확인해 주세요.";
+  if (code === "V6_DB_CONNECTION_FAILED") return "PostgreSQL 서버 또는 접속 포트를 확인해 주세요.";
+  if (code === "V6_DB_DATABASE_NOT_FOUND") return "설정한 데이터베이스가 없습니다.";
+  if (code === "V6_DB_SCHEMA_MISMATCH") return "검색 테이블 구조 또는 pgvector 확장을 확인해 주세요.";
+  if (code.startsWith("V6_DB_")) return "문서 검색 인덱스의 연결 또는 쿼리 설정을 확인해 주세요.";
   return "요청을 처리하지 못했습니다.";
 }
 async function ask() {
@@ -89,9 +96,24 @@ async function ask() {
     busy = false; send.disabled = false; $("reset").disabled = false; question.focus(); scrollBottom();
   }
 }
-send.addEventListener("click", ask);
+question.addEventListener("compositionstart", () => { composing = true; });
+question.addEventListener("compositionend", () => { composing = false; });
+// Blurring before a click-submit commits an active Korean IME composition.
+send.addEventListener("click", () => {
+  if (composing) {
+    question.blur();
+    Promise.resolve().then(ask);
+  } else {
+    ask();
+  }
+});
 question.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); ask(); }
+  if (event.key === "Enter" && !event.shiftKey) {
+    // The first Enter completes Hangul composition; the next Enter sends.
+    if (event.isComposing || composing || event.keyCode === 229) return;
+    event.preventDefault();
+    ask();
+  }
 });
 $("reset").addEventListener("click", () => { thread.replaceChildren(); $("welcome").style.display = "block"; question.value = ""; status.textContent = "화면을 비웠습니다 · 각 질문은 독립 처리"; });
 document.querySelectorAll(".sample").forEach(button => button.addEventListener("click", () => { question.value = button.textContent; question.focus(); }));

@@ -24,6 +24,27 @@ class PipelineError(Exception):
     """Non-sensitive error identifier, suitable for UI rendering."""
 
 
+def db_failure_code(exc: Exception) -> str:
+    """Expose only a stable PostgreSQL failure category, never exception text."""
+    import psycopg
+    if not isinstance(exc, psycopg.Error):
+        return 'V6_DB_READ_ERROR'
+    state = getattr(exc, 'sqlstate', None) or ''
+    if state == '42P01':
+        return 'V6_DB_TABLE_NOT_FOUND'
+    if state == '42501':
+        return 'V6_DB_ACCESS_DENIED'
+    if state.startswith('28'):
+        return 'V6_DB_AUTH_FAILED'
+    if state == '3D000':
+        return 'V6_DB_DATABASE_NOT_FOUND'
+    if state in {'42703', '42883', '42704'}:
+        return 'V6_DB_SCHEMA_MISMATCH'
+    if state.startswith('08') or (isinstance(exc, psycopg.OperationalError) and not state):
+        return 'V6_DB_CONNECTION_FAILED'
+    return 'V6_DB_QUERY_FAILED'
+
+
 def order_results(rows: list[dict], query_tokens: set[str], region_keys: set[str]) -> list[dict]:
     """C ranking: HMAC count, region count, DB dense rank (original order)."""
     def counts(row):
@@ -198,8 +219,8 @@ class LivePipeline:
                         'SELECT COUNT(*), COUNT(DISTINCT key_tag), MIN(key_tag) FROM {}'
                     ).format(self.table))
                     actual, distinct_tags, observed_tag = cur.fetchone()
-        except Exception:
-            raise PipelineError('V6_DB_READ_ERROR') from None
+        except Exception as exc:
+            raise PipelineError(db_failure_code(exc)) from None
         matching = (actual == self.expected_rows and distinct_tags == 1 and observed_tag == self.tag)
         return {'status': 'READY' if matching else 'MISMATCH',
                 'table': self.table_name, 'rows': actual,
@@ -230,7 +251,7 @@ class LivePipeline:
         except PipelineError:
             raise
         except Exception as exc:
-            raise PipelineError('V6_DB_READ_ERROR') from exc
+            raise PipelineError(db_failure_code(exc)) from None
         self.timings['db_ms'] = (time.perf_counter() - start) * 1000
         start = time.perf_counter()
         if len(raw_rows) != self.expected_rows or len({r[0] for r in raw_rows}) != self.expected_rows:

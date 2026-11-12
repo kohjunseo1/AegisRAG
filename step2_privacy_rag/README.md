@@ -97,6 +97,20 @@ compose.yaml, init/           기존 팀 PostgreSQL/PGVector 초기 구성
 
 공통 실행 CLI는 루트의 `scripts/aegisrag.py`입니다. 문서 적재 시 한 번 임베딩하고, 질문마다 새 질의만 임베딩합니다. DB의 기본 테이블은 `rag.aegis_koe5_v6_exp1`이며, 재현 테이블 사용 시 `AEGISRAG_TABLE`로 선택합니다.
 
+### DB 오류 진단 및 한글 입력
+
+`V6_DB_READ_ERROR`는 DB 접속·권한·테이블·SQL 실행 오류를 뭉뚱그렸던 코드입니다. 이 수정본은 `V6_DB_TABLE_NOT_FOUND`, `V6_DB_ACCESS_DENIED`, `V6_DB_AUTH_FAILED`, `V6_DB_CONNECTION_FAILED`, `V6_DB_DATABASE_NOT_FOUND`, `V6_DB_SCHEMA_MISMATCH`, `V6_DB_QUERY_FAILED`로 구분합니다.
+
+실행 중인 챗봇과 **같은 루트 .env 및 환경변수**에서 아래 명령으로 안전한 읽기 전용 진단을 합니다. DB 컨테이너를 초기화하거나 기존 177문서 테이블을 수정하지 않습니다.
+
+```bash
+python scripts/diagnose_v6_db.py
+```
+
+현재 활성화된 DB 테이블과 행 수만 출력하고 비밀번호, HMAC 토큰, 원문 문서는 출력하지 않습니다. 로컬 서버 재시작 후 `/api/index-status`의 오류 코드를 확인하세요.
+
+한글을 조합하는 동안 Enter를 누르면 첫 Enter는 글자 조합만 끝내고, **두 번째 Enter에서 전송**하도록 했습니다. 전송 버튼을 눌러도 조합이 완료된 후 질문을 전송합니다.
+
 ## 5. 다음 개선 과제
 
 현재 MVP는 로컬 단일 사용자·단일 턴 서비스입니다. **우선순위**는 근거/인용 정확도 실측, 단계별 지연시간과 매 질문 Step1 모델 재로딩 개선, 동명이인·REVIEW 10건 처리, 새 Blind 데이터 평가, 관리자 REVIEW UI 및 권한별 복원입니다. 서버 배포 시에는 인증·문서 접근 통제·DB 최소 권한·TLS·비밀키 관리가 추가로 필요합니다.
