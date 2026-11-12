@@ -145,6 +145,19 @@ class ReviewRecordContracts(unittest.TestCase):
         self.assertIn('loginBusy=true', m.HTML)
         self.assertIn('id="run-e2e"', m.HTML)
 
+    def test_admin_e2e_progress_metrics_and_isolated_layout(self):
+        self.assertIn('id="e2e-bar"',m.HTML)
+        self.assertIn('id="e2e-results"',m.HTML)
+        self.assertIn('id="e2e-hit1"',m.HTML)
+        self.assertIn('id="e2e-hit5"',m.HTML)
+        self.assertIn('id="e2e-mrr"',m.HTML)
+        self.assertIn('id="e2e-recall5"',m.HTML)
+        self.assertIn('stageOrder=["REVALIDATING","EMBEDDING","INDEXING","EVALUATING"]',
+                      m.HTML)
+        self.assertIn('showExperimentStatus',m.HTML)
+        self.assertIn('progressInterval=setInterval(pollExperiment,1500)',m.HTML)
+        self.assertNotIn('챗봇 열기 (로컬 포트',m.HTML)
+
     def test_wrong_target_action_rejected(self):
         with self.assertRaises(ValueError):
             m.review_record({"id": "SYNTH001", "candidate": 0,
