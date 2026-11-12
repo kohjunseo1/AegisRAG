@@ -28,7 +28,7 @@ REVIEW에 걸린 문서는 반드시 검토자가 로컬의 원본을 직접 확
     # status 출력의 review_ids 또는 8781 화면에서 실제 생성 ID 확인
     python scripts/dataset_intake.py review \
       --stage step2_privacy_rag/local_eval/corp2/stage.json \
-      --doc-id <review_ids에서 확인한 ID> \
+      --doc-id 'REVIEW_ID_FROM_STATUS' \
       --revised-source-file /path/to/revised_source.txt \
       --reviewer localreviewer
 
