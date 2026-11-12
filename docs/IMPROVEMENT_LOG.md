@@ -270,6 +270,32 @@ python scripts/compare_88_retrieval.py \
 
 **주의:** 동일한 채점 코드를 사용해도 탐지기·문서 적재 범위·문서 단위 대 청크 단위 검색의 차이는 그대로 존재한다. 기존 PPT의 Hit@5 100%는 해당 팀원의 최신 실행 파일을 받아 재현하기 전에는 확인된 수치가 아님. 특히 Hit@5는 한 개 정답만 포함해도 성공이므로 Recall@5/Confuse@10 및 neutral 제거 전후를 반드시 같이 제시. Holdout 반복 실험은 독립 Blind 검증을 대신하지 않는다.
 
+### 2026-11-12 · Mac Q-001 Audit + RET-001 88질의 기준선 실측
+
+**Q001_REVIEW_AUDIT:** 기록 12개에서 10개 REVIEW 문서 각각 최신 유효 분류 1개, `review_complete=10`, `review_incomplete=0`, `invalid_event_counts={}`. 모든 문서는 여전히 `still_blocked_from_index=true`. **Human 분류 기록 완료 ≠ 독립 개인정보 안전 검증 완료 ≠ 187문서 적재 승인**. 기록 12개는 재선택/갱신을 포함할 수 있으며 문서당 판단 한 번이라는 뜻은 아님.
+
+**RET001_FAIR_EVAL** (기존 177문서, 모델/DB 불변, 읽기 전용, HCX 미호출, Top-20 수집):
+
+| 항목 | 기존 검색 가능한 81건 | 88질의 전체(보류 7건 0점) |
+|---|---:|---:|
+| Hit@1 | 73/81 = 90.12% | 73/88 = 82.95% |
+| Hit@5 | 79/81 = 97.53% | 79/88 = 89.77% |
+| MRR | 0.9339 | 0.8596 |
+| Recall@5(full Gold) | 0.8791 | 0.8091 |
+| Confuse@10 | 0.5345 | 0.5345* |
+
+`*Confuse@10`은 `confusable_doc_ids`가 정의된 질의에서 Top-10에 포함된 혼동 문서의 개수를 Top-10 문서 수로 나눈 평균이며, 미검색/비해당 질의는 분모에 포함하지 않음. 그러므로 전체 88질의의 보안 유출률 또는 동일인 잘못 병합률을 의미하지 않음.
+
+**전체 Hit@5 실패 QID 9개:** Q001, Q007, Q013, Q015, Q033, Q040, Q045, Q055, Q065. 구조적 원인 집계는 보류 질의 3개, READY이지만 Gold 문서 미적재 4개, 평가 가능한 질의의 실제 검색 실패 2개. **개별 QID의 정확한 원인 분류는 아직 공개 집계로 미확인**. 이를 별도 분석하는 `scripts/ret001_failure_breakdown.py` 추가. 이미 저장한 로컬 `ret001_ours_88.jsonl`과 `prepared.json`으로 읽기 전용 실행하며 원문·HMAC·문서 본문을 출력하지 않음:
+
+```bash
+python scripts/ret001_failure_breakdown.py \
+  --prepared step2_privacy_rag/local_eval/reproduction_20261111/prepared.json \
+  --runs step2_privacy_rag/local_eval/ret001_ours_88.jsonl
+```
+
+**해석/통합 논의:** 실전 2 자동 파이프라인(177건, 88질의 전체 성능)과 검수+재검증 Human-assisted 파이프라인(187건 목표)은 별도 결과로 보고해야 함. 전자만으로 실무 운영 안전성을 부정할 수 없지만, 후자도 자동 탐지 성능이라고 주장할 수 없음. 팀원 A의 PPT 88/88 Hit@5, MRR 0.924와 비교할 때 평가기·Gold·neutral 처리·검색 후보, 전체 vs 유효 질의 기준, 실제 Top-5 순위와 재현 입력을 반드시 통일.
+
 **후속 실험:** Human Review로 확정된 10문서를 기존 strict 보호 구간을 축소하지 않고 비연결 마스킹 중심으로 교정하는 **별도 실험 artifact** 생성 → 회귀 확인 → 새 독립 DB 테이블 적재 및 88질의 평가. 실제 검토 분류를 이용한 이 결과는 `Human-assisted`로 명시하며 자동 탐지 성능 향상으로 주장하지 않음. 안전성 검증 없이 검토 판단만으로 Gate를 우회하지 않음.
 
 **다음 정책 시도:** 이름 경계는 추가 보호 자체와 동일 인물 HMAC 연동을 분리하고, 반례를 포함한 합성/Dev 테스트로 보호 범위 누락·과보호·잘못된 연결 여부를 확인. Gate 충돌은 안전한 이유가 확인되기 전 REVIEW를 유지. 문서별 임시 예외 또는 Holdout 특정 사례에만 맞춘 규칙은 채택하지 않음.
