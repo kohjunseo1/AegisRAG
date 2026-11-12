@@ -329,6 +329,13 @@ python scripts/ret001_failure_breakdown.py \
 - 관리자 대시보드 `scripts/review_dashboard_q001.py`: `--enable-experimental-indexing` 옵션을 명시한 경우에만 '검토 반영 · 실험 적재 · 88질의 평가' 버튼 활성화. 토큰 인증·명시적 확인 뒤 실험을 실행하고 진행·성공·안전한 에러 코드를 폴링해서 표시. 원문·개인식별자를 API 작업 로그에 출력하지 않음. 완료 메타데이터는 local_eval에만 저장.
 - `scripts/run_demo_q001.py`: **하나의 실행 명령으로** localhost 챗봇(기존 177문서)과 관리자 REVIEW 화면 실행. 관리자가 187문서 실험을 성공시켰을 때 챗봇을 새로운 187문서 실험 테이블로 재시작. 외부 HCX 전송은 사용자 명시 설정 `AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES`이 있을 때만 실행 가능. 관리자 토큰은 실행 시마다 새로 생성.
 
+### 2026-11-12 · 실제 Mac preview 성공 / 챗봇·관리자 분리 문제 진단
+
+**사용자 실측:** `Q001_HUMAN_ASSISTED_E2E` `state=REVALIDATED_LOCAL`, `documents=187`, `baseline_doc_count=177`, `revalidated_review_count=10` (`name=9,veil=1`), `mask_coverage_non_decreasing=true`, `all88_queries_unchanged=true`, `db_written=false`, `planned_table=rag.aegis_repro_cc02f91c215583fa591a`. **187문서 실제 DB 적재·검색 평가는 아직 하지 않았음.**
+**사용자 챗봇 관찰:** `Gate=READY`, `HMAC tokens=1`, `Region keys=0`, `HCX-007 INSUFFICIENT_EVIDENCE` for generic name question. 이는 질의 가명화·HCX 응답을 확인할 뿐 HMAC이 DB에서 매치됐는지 또는 올바른 문서가 Top-5인지 증명하지 않음. 서버 실행 로그만으로 챗봇이 새 187문서 테이블을 사용했다고 볼 수 없음(기본은 기존 177문서).
+**보완:** `step2_privacy_rag/app/app.py` health에 `expected_index_rows`, `index_kind` 추가; 채팅 진단에 안전한 Top-5 문서 ID/검색 수/HMAC 일치 문서 수 추가. `app.js`에서 이 데이터를 개발자 상세에 표시. `scripts/check_demo_q001.py`는 인증 정보 없이 두 로컬 서버 포트(8768 챗봇, 8771 관리자)를 각각 점검. `scripts/run_demo_q001.py`는 기존 서버의 포트 충돌을 명시적으로 차단하고 관리자 서버 실제 응답을 확인한 뒤 챗봇 모델을 실행. 대시보드는 관리자 세션 토큰 입력+Enter 허용 및 기존 JSONL 리뷰 선택의 복원 기능 추가. 합성 CI 통과 / Mac 재실행 전.
+**정확한 아키텍처:** 지금 실험에서는 원래 177문서가 별도 라이브 챗봇에 즉시 검색 가능, REVIEW 10문서는 **10건 전부 최종 분류 후** 새 187문서 실험 테이블을 원자적으로 생성하는 **배치 검증** 경로. 운영 목표는 READY 문서가 즉시 인덱스에 반영되고 REVIEW는 별도 큐에 남으며 **개별 검토된 문서가 안전성 재검증 후 비동기 트랜잭션으로 추가 적재**되는 증분 경로. 이는 현재 구현 완료 기능으로 주장하지 말 것. API 서버 요청이 DB 임베딩 및 긴 평가 작업을 동기 블로킹하지 않고 별도 worker에서 수행해야 한다.
+
 ### Mac 테스트(기존 main/177문서 테이블 미변경)
 
 ```bash
