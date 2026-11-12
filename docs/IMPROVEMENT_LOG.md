@@ -318,6 +318,51 @@ python scripts/ret001_failure_breakdown.py \
 
 ---
 
+## Q-001 · 2026-11-12 · Human-assisted 로컬 E2E 통합 후보 (CI 통과 / Mac 실측 전)
+
+### 구현 범위
+
+- `scripts/review_apply_q001.py`: 모든 최신 Human Review 선택을 원문 SHA-256, 후보 위치·유형과 대조. 이름 끝 `이`를 `LONG_NAME` 또는 `SHORT_NAME_PLUS_PARTICLE`로 교정해 올바른 PERSON HMAC 입력 구간을 만든다. **길이가 3글자일 가능성이 높다는 통계적 추정만으로 자동 승인하지 않음.**
+- H0091 등 `NON_PERSON_EXPRESSION`: 원래 strict PERSON 중 해당 Veil 추가 후보 내부에 정확히 하나만 있는 경우에 한해, 독립 어휘 규칙이 실제로 경조사 표현을 확인하면 PERSON HMAC 연결을 제거. **기존 strict 보호 마스크는 남겨서 residual redaction 적용**. 원본 A.X/Veil 예측 헤드를 보존한 Privacy Gate V4를 다시 실행해 READY 확인.
+- 처음 Step1이 REVIEW였다면 승인 가능한 이름 경계 관련 issue code만 있어야 하며, 나머지 issue 및 새 불명확 후보는 여전히 차단. 기존 모든 Mask 위치는 보존하거나 확장하고 다른 PII/역할 구간을 임의 해제하지 않음.
+- `scripts/q001_human_assisted_e2e.py`: 기존 준비된 177문서 artifact와 새로 재검증한 10문서를 모아 187문서 artifact 생성. 동일 HMAC 키/기존 88질의 상태 보존, 신규 Content-addressed 독립 `rag.aegis_repro_...` 실험 테이블에만 적재. 88개 전체를 보류=0점으로 재평가, 85개 READY 내 검색과 분리 표기.
+- 관리자 대시보드 `scripts/review_dashboard_q001.py`: `--enable-experimental-indexing` 옵션을 명시한 경우에만 '검토 반영 · 실험 적재 · 88질의 평가' 버튼 활성화. 토큰 인증·명시적 확인 뒤 실험을 실행하고 진행·성공·안전한 에러 코드를 폴링해서 표시. 원문·개인식별자를 API 작업 로그에 출력하지 않음. 완료 메타데이터는 local_eval에만 저장.
+- `scripts/run_demo_q001.py`: **하나의 실행 명령으로** localhost 챗봇(기존 177문서)과 관리자 REVIEW 화면 실행. 관리자가 187문서 실험을 성공시켰을 때 챗봇을 새로운 187문서 실험 테이블로 재시작. 외부 HCX 전송은 사용자 명시 설정 `AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES`이 있을 때만 실행 가능. 관리자 토큰은 실행 시마다 새로 생성.
+
+### Mac 테스트(기존 main/177문서 테이블 미변경)
+
+```bash
+git pull --ff-only origin exp/q001-review-triage
+conda activate aegisrag-retrieval
+
+# 1. 보호 교정·HMAC 동등성 사전 점검, DB 쓰기 전혀 없음:
+python scripts/q001_human_assisted_e2e.py --mode preview
+
+# 2. 챗봇 + 관리자 UI 실행(별도 두 창에 자동 열기, 브라우저 허용 시):
+AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES python scripts/run_demo_q001.py
+
+# 3. 127.0.0.1:8771 관리자 UI의 터미널 세션 토큰 입력 → 10건 분류 확인
+# 4. '검토 반영 · 실험 적재 · 88질의 평가' 승인 버튼 클릭
+# 5. 187문서 신규 독립 DB 생성 / 88질의 결과 표시 / 챗봇 187문서로 재연결
+```
+
+실험 용도 CLI 단독 실행도 가능:
+```bash
+python scripts/q001_human_assisted_e2e.py --mode run \
+  --confirm CREATE_ISOLATED_HUMAN_ASSISTED_INDEX --device cpu
+```
+
+### 검증·채택 제한
+
+- GitHub 합성 회귀는 이름 마지막 `이`를 3글자 이름+조사/실제 4글자 이름으로 교정했을 때 HMAC이 다른지, 원래 MASK 보존, H0091 부고 오탐 HMAC 제거, 다른 전화번호 보호, 177→187 corpus 합성 생성, 88질의 동일 설정 유지 등을 검사. 실제 Mac 모델/실제 local_eval/pgvector/HCX E2E는 **아직 미실행**.
+- 실행 후 `Q001_HUMAN_ASSISTED_E2E` 및 관리자 지표로 실제 187문서 처리 여부, 남은 보류 질의 3개, Hit@1/5·MRR·Recall@5 및 실패 QID를 재확인해야 함. **보류 질의 3개는 이 실험에서 개선하지 않았음**.
+- 현재는 *기존 187문서가 고정된 교육용 데이터 배치의 Human-assisted 검증 경로*. 신규 무제한 문서 적재, 사람별 계정/권한, Vault 역변환, 장시간 배포, 사용자별 ACL, 자동 모델 재학습은 아직 지원하지 않음.
+- 모델이 모든 개인 식별자를 탐지했다는 보증도 아님. 합성/Dev/새 Blind에서 Mask Recall·False Merge·회귀성 평가를 계속해야 함. 기존 Holdout 10문서에서 검토한 답을 자동 탐지기 일반화 성능으로 주장하지 않음.
+- 원본 177문서 `rag.aegis_koe5_v6_exp1`은 재작성/삭제하지 않음. 새로운 실험 테이블은 콘텐츠 버전으로 분리.
+- 이름 조사 자동화는 별도 규칙 실험에서 **명시적 이름 필드, 다른 문장 확인, Kiwi J 계열의 일치, 충돌 신호**를 각각 평가. 성씨 + 2/3자 이름 길이만으로 READY 승격 금지.
+
+---
+
 ## 후속 개선 백로그 (착수 전)
 
 | 순서 | 영역 | 핵심 검증 |
