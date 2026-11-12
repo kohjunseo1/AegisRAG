@@ -29,5 +29,7 @@ jobs:
       - run: python -m py_compile scripts/q001_review_audit.py scripts/compare_88_retrieval.py
       - run: python scripts/q001_review_audit.py --help
       - run: python scripts/compare_88_retrieval.py --help
+      - run: python -m py_compile scripts/ret001_failure_breakdown.py
+      - run: python scripts/ret001_failure_breakdown.py --help
       - run: python scripts/aegisrag.py smoke
       - run: python scripts/scan_git.py --history
