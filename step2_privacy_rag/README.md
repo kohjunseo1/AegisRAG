@@ -169,6 +169,9 @@ python scripts/verify_v6_e2e.py
 # 2) 강제로 REVIEW → (모의 관리자) 승인 계약을 검사. DB 변경 없음
 python scripts/verify_v6_e2e.py --synthetic-review
 
+# 추가: 실제 A.X/Veil/Privacy Gate에 가상의 REVIEW 후보 문서를 입력해 로컬 상태만 검증
+python scripts/verify_v6_e2e.py --real-review-probes
+
 # 3) 실제 질문의 Step1+HMAC+PGVector Top-5를 로컬에서 확인. HCX 미호출
 python scripts/verify_v6_e2e.py --interactive
 

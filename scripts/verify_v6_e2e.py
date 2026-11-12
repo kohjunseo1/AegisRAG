@@ -67,6 +67,29 @@ def synthetic_review() -> None:
         'db_written': False, 'admin_8771_tested': False})
 
 
+def real_review_probes(pipeline):
+    """Probe real Step1+Gate decisions for fabricated inputs; no DB writes."""
+    cases = (
+        '합성 직원 이슬이 부서 업무 보고서입니다.',
+        '가상 담당자 김 과장님에게 상담 서류를 전달합니다.',
+        '주소 후보는 서울특별시 강남구 가상로 123, 101동 1203호입니다.',
+        '일반 안전교육 일정 공지입니다.',
+    )
+    results = []
+    for number, content in enumerate(cases, 1):
+        try:
+            state = pipeline.prepare(content)
+            outcome = 'LOCAL_PREPARED' if isinstance(state, PreparedQuery) else state
+        except Exception as exc:
+            from core import PipelineError
+            outcome = str(exc) if isinstance(exc, PipelineError) else 'ERROR'
+        results.append({'case': number, 'state': outcome})
+    info('REAL_MODEL_REVIEW_PROBES', {
+        'cases': results,
+        'review_observed': any('REVIEW' in r['state'].upper() for r in results),
+        'admin_8771_tested': False, 'db_written': False})
+
+
 def index_ids(pipeline):
     from psycopg import connect, sql
     with connect(**pipeline.db) as conn:
@@ -189,6 +212,7 @@ def main() -> int:
     ap.add_argument('--transport', choices=('local','hcx','http'), default='local')
     ap.add_argument('--http-url', default='http://127.0.0.1:8768')
     ap.add_argument('--synthetic-review', action='store_true')
+    ap.add_argument('--real-review-probes', action='store_true', help='try fabricated REVIEW candidates with the actual Step1 model; no DB writes')
     ap.add_argument('--synthetic-only', action='store_true', help='simulate review with no DB access')
     args = ap.parse_args()
     if args.max_queries < 0:
@@ -210,11 +234,13 @@ def main() -> int:
         if state['status'] != 'READY':
             print('E2E_STOP: DB index must be READY before further tests',flush=True)
             return 2
+        if args.real_review_probes:
+            real_review_probes(pipeline)
         if args.eval_artifact:
             eval_artifact(pipeline,args.eval_artifact,args.max_queries)
         if args.interactive:
             interactive(pipeline,args.transport,args.http_url)
-        if not args.eval_artifact and not args.interactive:
+        if not args.eval_artifact and not args.interactive and not args.real_review_probes:
             print('E2E_PROBE_OK (metadata only; for search use --interactive or --eval-artifact)',flush=True)
         return 0
     except Exception as exc:
