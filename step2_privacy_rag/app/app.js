@@ -25,6 +25,13 @@ function addMessage(role, text, result = null) {
       badges.appendChild(el("span", "status-badge", result.decision));
       badges.appendChild(el("span", "status-badge", result.mode === "hcx" ? "HCX-007" : "로컬 검색"));
       box.appendChild(badges);
+      const citedIds = Array.isArray(result.citations) ? result.citations : [];
+      if (citedIds.length) {
+        const refs = el("div", "citation-line");
+        refs.appendChild(el("span", "citation-label", "근거 문서"));
+        for (const id of citedIds) refs.appendChild(el("span", "citation-chip", id));
+        box.appendChild(refs);
+      }
       const sources = (result.sources || []).filter(d => (result.citations || []).includes(d.doc_id));
       if (sources.length) {
         const details = el("details", "sources");

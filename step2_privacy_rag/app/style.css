@@ -11,3 +11,8 @@
 .composer button{background:#164d82;border-radius:4px}
 .usage summary{cursor:pointer;margin-top:12px}
 @media(max-width:820px){.layout{grid-template-columns:1fr}.welcome{margin-top:50px}}
+
+/* Evidence markers remain visible even when source excerpts are collapsed. */
+.citation-line{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:11px}
+.citation-label{font-size:12px;font-weight:600;color:#61708b;margin-right:4px}
+.citation-chip{font-size:11px;font-weight:650;color:#275b95;background:#edf4ff;border:1px solid #d5e3f9;padding:4px 8px;border-radius:6px}

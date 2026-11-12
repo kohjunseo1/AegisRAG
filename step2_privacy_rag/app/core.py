@@ -10,6 +10,7 @@ import re
 import sys
 import time
 from settings import settings, db_config, table_identifier, load_embedding_model
+from retrieval_intents import topic_score
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,15 +46,22 @@ def db_failure_code(exc: Exception) -> str:
     return 'V6_DB_QUERY_FAILED'
 
 
-def order_results(rows: list[dict], query_tokens: set[str], region_keys: set[str]) -> list[dict]:
-    """C ranking: HMAC count, region count, DB dense rank (original order)."""
+def order_results(rows: list[dict], query_tokens: set[str], region_keys: set[str],
+                  *, query_text: str = '', use_topic_boost: bool = True) -> list[dict]:
+    """Rank by exact identity, verified region, then domain-topic and dense evidence.
+
+    Topic synonym boost is strictly lower priority than pseudonym matching.
+    Pass use_topic_boost=False to reproduce the frozen V6 ranking.
+    """
     def counts(row):
         return (len(query_tokens & set(row['tokens'])),
                 len(region_keys & set(row['region_keys'])))
     for row in rows:
         row['hmac_matches'], row['region_matches'] = counts(row)
         row['verified_region_match'] = (row['region_matches'] > 0) if region_keys else None
-    return sorted(rows, key=lambda r: (-r['hmac_matches'], -r['region_matches'], r['dense_rank']))
+        row['topic_score'] = topic_score(query_text, row.get('text', '')) if use_topic_boost else 0
+    return sorted(rows, key=lambda r: (-r['hmac_matches'], -r['region_matches'],
+                                       -r['topic_score'], r['dense_rank']))
 
 
 @dataclass
@@ -268,7 +276,10 @@ class LivePipeline:
             raise PipelineError('V6_DB_RESULT_COUNT_ERROR')
         rows = [dict(doc_id=did, text=masked, tokens=tok or [], region_keys=reg or [],
                      dense_rank=i+1) for i, (did, masked, tok, reg) in enumerate(raw_rows)]
-        ranked = order_results(rows, prepared.tokens, prepared.regions)
+        # Disable with AEGISRAG_TOPIC_BOOST=0 for a strict old-V6 ablation.
+        use_topic_boost = os.environ.get('AEGISRAG_TOPIC_BOOST', '1') != '0'
+        ranked = order_results(rows, prepared.tokens, prepared.regions,
+                               query_text=prepared.text, use_topic_boost=use_topic_boost)
         self.timings['rerank_ms'] = (time.perf_counter() - start) * 1000
         return ranked[:top_k]
 
