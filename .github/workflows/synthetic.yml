@@ -26,5 +26,8 @@ jobs:
       - run: python scripts/diagnose_review_q001.py --help
       - run: python -m py_compile scripts/review_dashboard_q001.py
       - run: python scripts/review_dashboard_q001.py --help
+      - run: python -m py_compile scripts/q001_review_audit.py scripts/compare_88_retrieval.py
+      - run: python scripts/q001_review_audit.py --help
+      - run: python scripts/compare_88_retrieval.py --help
       - run: python scripts/aegisrag.py smoke
       - run: python scripts/scan_git.py --history
