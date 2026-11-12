@@ -69,8 +69,17 @@ def respond(pipeline: LivePipeline, message: dict, allow_hcx: bool = True) -> di
         sources.append({'doc_id': d['doc_id'], 'masked_text': display_text[:2000],
                         'dense_rank': d['dense_rank'], 'hmac_matches': d['hmac_matches'],
                         'region_matches': d['region_matches']})
+    # Keep only non-sensitive retrieval metadata for troubleshooting. These
+    # candidates are NOT citations or proof that the answer was supported.
+    retrieval_candidates = [
+        {'doc_id': d['doc_id'], 'dense_rank': d['dense_rank'],
+         'hmac_matches': d['hmac_matches'], 'region_matches': d['region_matches']}
+        for d in evidence
+    ]
     diagnostics = {
         'gate_state': state,
+        'retrieval_candidates': retrieval_candidates,
+        'retrieved_count': len(retrieval_candidates),
         'hmac_token_count': len(prepared.tokens),
         'region_key_count': len(prepared.regions),
         'db_index_rows': getattr(pipeline, 'expected_rows', 177),

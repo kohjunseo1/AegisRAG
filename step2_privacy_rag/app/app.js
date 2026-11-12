@@ -47,6 +47,21 @@ function addMessage(role, text, result = null) {
         const debug = el("details", "usage");
         debug.appendChild(el("summary", "", "개발자 상세"));
         debug.appendChild(el("p", "", items.join(" · ")));
+        const candidates = Array.isArray(d.retrieval_candidates) ? d.retrieval_candidates : [];
+        if (candidates.length) {
+          debug.appendChild(el("strong", "", "검색 후보 Top-" + candidates.length + " (HCX 인용/정답 보장 아님)"));
+          for (const c of candidates) {
+            debug.appendChild(el("p", "",
+              c.doc_id + " · HMAC 일치 " + c.hmac_matches +
+              " · 지역 일치 " + c.region_matches +
+              " · Dense 순위 " + c.dense_rank));
+          }
+          if (result.decision === "INSUFFICIENT_EVIDENCE") {
+            debug.appendChild(el("p", "", "검색 후보는 존재하지만 HCX가 답변 근거로 채택하지 않았습니다. 정답 문서가 Top-5에 있는지는 별도 검증해야 합니다."));
+          }
+        } else if (result.decision === "INSUFFICIENT_EVIDENCE") {
+          debug.appendChild(el("p", "", "검색 후보 요약 정보가 없습니다. 서버 버전 및 검색 진단을 확인하세요."));
+        }
         box.appendChild(debug);
       }
     }

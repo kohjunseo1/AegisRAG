@@ -81,6 +81,26 @@ class TestE2EContract(unittest.TestCase):
         mock_call.assert_called_once()
 
     @patch('app.call_hcx')
+    def test_nonanswer_exposes_candidate_ids_not_document_text(self, mock_call):
+        pl = MagicMock()
+        pl.root = '.'
+        pl.ask_local.return_value = ('READY', PreparedQuery('안전교육', set(), set()), self.docs)
+        mock_call.return_value = (
+            {'decision': 'INSUFFICIENT_EVIDENCE',
+             'answer': '확인 가능한 문서에서 질문에 답할 충분한 근거를 찾지 못했습니다.',
+             'citations': []},
+            {'prompt_tokens': 100, 'completion_tokens': 20},
+            {'email': 0, 'phone': 0, 'id_number': 0, 'clipped_documents': 0},
+        )
+        out = respond(pl, {'question': '안전교육'})
+        self.assertEqual(out['decision'], 'INSUFFICIENT_EVIDENCE')
+        self.assertEqual(out['sources'], [])
+        diag = out['diagnostics']
+        self.assertEqual(diag['retrieved_count'], 5)
+        self.assertEqual(diag['retrieval_candidates'][0]['doc_id'], 'H0001')
+        self.assertNotIn('text', diag['retrieval_candidates'][0])
+
+    @patch('app.call_hcx')
     def test_review_never_calls_hcx(self,mock_call):
         pl=MagicMock()
         pl.ask_local.return_value=('REVIEW_REQUIRED',None,[])
