@@ -159,8 +159,13 @@ def main():
         print("Q001_HUMAN_ASSISTED_E2E "+json.dumps(out,ensure_ascii=False,sort_keys=True))
         return 0
     except Exception as e:
-        # Never print original PII or DSNs from library exceptions.
-        print("Q001_HUMAN_ASSISTED_FAILED "+type(e).__name__,file=sys.stderr)
+        # Only our whitelisted fixed validation codes are safe to print.
+        from review_apply_q001 import ReviewValidationError
+        import re
+        code=(str(e) if isinstance(e,ReviewValidationError)
+              and re.fullmatch(r"[A-Z0-9_]{3,100}",str(e))
+              else type(e).__name__)
+        print("Q001_HUMAN_ASSISTED_FAILED "+code,file=sys.stderr)
         return 2
 
 
