@@ -79,6 +79,7 @@ def respond(pipeline: LivePipeline, message: dict, allow_hcx: bool = True) -> di
     ]
     diagnostics = {
         'gate_state': state,
+        'query_recovery': getattr(pipeline, 'last_query_recovery', None),
         'retrieval_candidates': retrieval_candidates,
         'retrieved_count': len(retrieval_candidates),
         'hmac_token_count': len(prepared.tokens),

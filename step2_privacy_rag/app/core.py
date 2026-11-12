@@ -101,6 +101,7 @@ class LivePipeline:
             raise PipelineError('INVALID_EXPECTED_ROWS')
         self.db = db_config(env_file)
         self.timings = {}
+        self.last_query_recovery = None
         self._model = None
         # Opt-in only until the real Mac memory/latency regression is verified.
         self.reuse_step1 = bool(reuse_step1)
@@ -174,6 +175,11 @@ class LivePipeline:
             started = time.perf_counter()
             try:
                 result = prepare('Q_LIVE', raw_question, detector, self.secret)
+                recovered = None
+                if (getattr(result, 'state', None) == 'REVIEW'
+                        and getattr(result, 'reason', None) == 'GATE_NOT_READY'):
+                    from query_recovery import recover_simple_name_query
+                    recovered = recover_simple_name_query(raw_question, detector, self.secret)
             finally:
                 self.timings['step1_process_ms'] = (time.perf_counter() - started) * 1000
                 if not self.reuse_step1 and detector is not None:
@@ -187,6 +193,9 @@ class LivePipeline:
                 self._detector_failed = True
                 self.close()
             raise PipelineError('STEP1_GATE_FAILED') from exc
+        if recovered is not None:
+            self.last_query_recovery = 'ISOLATED_PERSON_VERIFIED'
+            return PreparedQuery(text=recovered, tokens=set(PII.findall(recovered)), regions=set())
         if getattr(result, 'state', None) != 'LOCAL_PREPARED' or getattr(result, 'unlinked_mentions', ()):
             state = str(getattr(result, 'state', 'REVIEW_REQUIRED'))
             return state if state not in {'LOCAL_PREPARED', 'READY'} else 'REVIEW_REQUIRED'
@@ -286,6 +295,7 @@ class LivePipeline:
     def ask_local(self, raw_question: str) -> tuple[str, PreparedQuery | None, list[dict]]:
         if not isinstance(raw_question, str) or not raw_question.strip() or len(raw_question) > 1000:
             raise PipelineError('INVALID_QUESTION')
+        self.last_query_recovery = None
         self.timings = dict.fromkeys(('step1_ms', 'step1_init_ms', 'step1_process_ms', 'step1_close_ms', 'embedding_ms', 'db_ms', 'rerank_ms', 'hcx_ms', 'total_ms'), 0.0)
         start = time.perf_counter()
         prepared = self.prepare(raw_question)
