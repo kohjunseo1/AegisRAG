@@ -86,15 +86,19 @@ def read_signed(path: Path, key: bytes) -> dict:
     return obj
 
 
-def doc_id(dataset: str, src: str) -> str:
+def doc_id(dataset: str, src: str, key: bytes) -> str:
+    """Opaque stable ID; never expose an untrusted original document ID to DB/chat.
+
+    Domain-separated HMAC avoids raw names/phone numbers hidden inside source IDs
+    leaking via document citations, logs or SQL IDs.
+    """
     if not isinstance(dataset, str) or not DATASET.fullmatch(dataset):
         raise ValueError('INVALID_DATASET_NAMESPACE')
-    if not isinstance(src, str) or not src.strip():
-        raise ValueError('INVALID_SOURCE_ID')
-    candidate = dataset + '__' + src
-    if len(candidate) <= 60 and DOC_ID.fullmatch(candidate):
-        return candidate
-    return dataset + '__' + _hash(src)[:20]
+    if not isinstance(src, str) or not src.strip() or not isinstance(key, bytes) or len(key)<32:
+        raise ValueError('INVALID_SOURCE_ID_OR_KEY')
+    digest=hmac.new(key, b'aegisrag:document-id:v1\0'+
+                   (dataset+'\0'+src).encode('utf-8'), hashlib.sha256).hexdigest()
+    return dataset + '__' + digest[:24]
 
 
 def input_rows(path: Path, *, id_field='id', text_field='text',
@@ -173,7 +177,7 @@ def stage_dataset(rows: list[tuple[str,str]], dataset: str, detector, key: bytes
         raise ValueError('INVALID_DATASET_OR_BATCH_SIZE')
     result, ids=[],set()
     for src,raw in rows:
-        did=doc_id(dataset,src)
+        did=doc_id(dataset,src,key)
         if did in ids:
             raise ValueError('COLLIDING_DOCUMENT_IDS')
         ids.add(did)

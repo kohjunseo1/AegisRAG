@@ -22,9 +22,12 @@ def detector_result(did,text,model,key):
 
 class DatasetWorkflowTests(unittest.TestCase):
     def test_namespaced_ids(self):
-        self.assertEqual(doc_id('newset','X1'),'newset__X1')
-        self.assertNotEqual(doc_id('newset','X1'),doc_id('other','X1'))
-        self.assertLessEqual(len(doc_id('newset','한글/개별문서')),60)
+        self.assertTrue(doc_id('newset','X1',KEY).startswith('newset__'))
+        self.assertNotIn('X1',doc_id('newset','X1',KEY))
+        self.assertEqual(doc_id('newset','X1',KEY),doc_id('newset','X1',KEY))
+        self.assertNotEqual(doc_id('newset','X1',KEY),doc_id('other','X1',KEY))
+        self.assertNotEqual(doc_id('newset','X1',KEY),doc_id('newset','X1',b'P'*32))
+        self.assertLessEqual(len(doc_id('newset','한글/개별문서',KEY)),60)
 
     def test_dataset_adapter(self):
         with tempfile.TemporaryDirectory() as d:
@@ -44,7 +47,7 @@ class DatasetWorkflowTests(unittest.TestCase):
         self.assertEqual(summary(stage)['review_pending'],1)
         self.assertEqual(summary(stage)['blocked'],1)
         self.assertEqual(len(export_approved(stage)['documents']),1)
-        did=doc_id('newset','B')
+        did=doc_id('newset','B',KEY)
         with self.assertRaisesRegex(ValueError,'REVISED_TEXT_NOT_GATE_READY'):
             review_corrected(stage,did,'여전히 모호 문서','reviewer1',object(),KEY)
         self.assertEqual(summary(stage)['review_pending'],1)

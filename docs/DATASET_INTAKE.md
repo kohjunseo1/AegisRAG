@@ -17,7 +17,7 @@
     python scripts/dataset_intake.py status \
       --stage step2_privacy_rag/local_eval/corp2/stage.json
 
-DATASET namespace와 원본 ID를 사용하므로 기존 H0025 등과 충돌하지 않습니다.
+DATASET namespace와 원본 ID를 고정 키의 도메인 분리 HMAC으로 변환하므로 기존 H0025 등과 충돌하지 않고, 원본 ID가 답변의 인용에 노출되지 않습니다.
 출력에는 개인정보 없이 READY / REVIEW_PENDING / BLOCKED 수와 검토 대상 문서 ID가 나옵니다.
 원본 및 보호된 문서는 GitHub에 업로드하지 않습니다.
 
@@ -25,9 +25,10 @@ DATASET namespace와 원본 ID를 사용하므로 기존 H0025 등과 충돌하�
 
 REVIEW에 걸린 문서는 반드시 검토자가 로컬의 원본을 직접 확인하고 미보호 PII를 수정한 원문 파일을 작성해야 합니다. 단순 상태값을 HUMAN_APPROVED로 바꾸는 조작은 허용하지 않습니다.
 
+    # status 출력의 review_ids 또는 8781 화면에서 실제 생성 ID 확인
     python scripts/dataset_intake.py review \
       --stage step2_privacy_rag/local_eval/corp2/stage.json \
-      --doc-id corp2__001 \
+      --doc-id <review_ids에서 확인한 ID> \
       --revised-source-file /path/to/revised_source.txt \
       --reviewer localreviewer
 
