@@ -171,7 +171,7 @@ mark.suspect{background:#ffd28a;border-radius:2px}mark.masked{background:#bbebcc
 @media(max-width:700px){main{padding:16px}.layout{grid-template-columns:1fr}#queue{max-height:210px}}
 </style></head><body><main>
 <header><h1>Q-001 · 로컬 개인정보 검토</h1><p class="sub">문서 목록 → 후보 확인 → 판단 기록 · REVIEW 승격/적재는 별도 검증 후</p></header>
-<p class="warning">로컬 실험 전용. 검토 판단을 기록하더라도 자동 승인·HMAC 교정·DB 적재·외부 전송되지 않습니다.</p>
+<p class="warning">로컬 실험 전용. 문서 분류 기록은 HMAC·적재 승인이 아닙니다. 별도 「실험 적재·평가」를 실행하고 Gate 재검증을 통과해야 새 DB 테이블이 생성됩니다.</p>
 <div class="auth"><label for="secret">관리자 로컬 세션 토큰</label>
 <input type="password" id="secret" autocomplete="off" placeholder="터미널 발급 토큰" size="28">
 <button id="login" class="primary">검토 문서 불러오기</button><span class="notice">토큰은 현 로컬 서버 실행 중에만 유효</span></div>
@@ -185,8 +185,8 @@ mark.suspect{background:#ffd28a;border-radius:2px}mark.masked{background:#bbebcc
 </section>
 <div class="layout">
 <section class="panel" aria-label="검토 문서 목록">
-<h2>REVIEW 목록 <span id="count" class="sub"></span></h2>
-<p class="sub">문서를 클릭하면 바로 원문·후보를 표시합니다.</p><div id="queue"></div>
+<h2>REVIEW 문서 <span id="count" class="sub"></span></h2>
+<p class="sub" id="review-summary">인증 후 문서 목록을 불러옵니다.</p><div id="queue"></div>
 </section>
 <section class="panel" aria-label="선택한 문서">
 <h2 id="heading">왼쪽에서 검토 문서를 선택하세요</h2>
@@ -211,6 +211,11 @@ async function loadCase(id){
 }
 function renderList(){
 const box=elem("queue");box.replaceChildren();elem("count").textContent="("+entries.length+"개)";
+const completed=entries.filter(x=>x.review_complete).length;
+elem("review-summary").textContent=entries.length===0
+  ?"현재 확인할 REVIEW 문서가 없습니다."
+  :"판단 기록: "+completed+"/"+entries.length+"건 · 미분류: "+(entries.length-completed)+"건. 기록 완료 문서도 재검증·적재 전에는 이 목록에 남습니다.";
+if(entries.length===0){box.appendChild(node("p","현재 확인할 문서 없음 · REVIEW 대기열 0건"));return;}
 for(const info of entries){
 const button=node("button","");button.type="button";
 button.className="queue-item"+(selected===info.id?" active":"");
@@ -259,13 +264,19 @@ button.onclick=async()=>{
 line.append(select,button);card.appendChild(line);out.appendChild(card);
 });
 }
+elem("secret").addEventListener("input",()=>{
+ if(!entries.length)elem("status").textContent="토큰 입력됨 · 「검토 문서 불러오기」를 누르거나 Enter를 입력하세요.";
+});
 elem("secret").addEventListener("keydown",e=>{
  if(e.key==="Enter"){e.preventDefault();elem("login").click()}
 });
 elem("login").onclick=async()=>{
+elem("status").textContent="관리자 인증 및 검토 목록 조회 중…";
 try{const data=await api("/api/cases");entries=data.cases;selected=null;renderList();
  elem("e2e-controls").hidden=!data.experimental_enabled;
-elem("status").textContent="검토 문서 "+entries.length+"건 로드 완료 · 클릭해 확인하세요";
+elem("status").textContent=entries.length
+  ?"검토 문서 "+entries.length+"건 로드 완료 · 왼쪽 목록에서 선택하세요"
+  :"인증 완료 · 현재 확인할 REVIEW 문서가 없습니다.";
 if(entries.length)await loadCase(entries[0].id);
 if(data.experimental_enabled)startProgressPolling();
 }catch(e){elem("status").textContent="인증/조회 실패: "+e.message}
