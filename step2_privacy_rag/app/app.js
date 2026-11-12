@@ -22,7 +22,7 @@ function addMessage(role, text, result = null) {
     if (result) {
       const badges = el("div", "badges");
       badges.appendChild(el("span", "status-badge", result.decision));
-      badges.appendChild(el("span", "status-badge", result.mode === "hcx" ? "HCX-007" : "로컬 검색"));
+      badges.appendChild(el("span", "status-badge", result.mode === "hcx" ? "HCX-007" : result.mode === "gate" ? "Privacy Gate · 검색 전 보류" : "로컬 검색"));
       box.appendChild(badges);
       const sources = (result.sources || []).filter(d => (result.citations || []).includes(d.doc_id));
       if (sources.length) {
