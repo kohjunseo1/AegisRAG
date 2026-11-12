@@ -156,8 +156,35 @@ input,select,button{font:inherit;border-radius:7px;padding:9px 12px}
 input,select{border:1px solid #b4c1cd;background:white}button{border:1px solid #b4c1cd;background:#fff;cursor:pointer}
 button:hover{background:#eff6f4}button:focus-visible{outline:3px solid #13846a;outline-offset:2px}
 button.primary{background:#116b57;color:#fff;border-color:#116b57}
-#e2e-controls{margin:14px 0;border:1px solid #7dbba5;background:#edf8f3;padding:15px;border-radius:10px}
-#e2e-controls[hidden]{display:none}#e2e-report{white-space:pre-wrap;line-height:1.6}
+#e2e-controls{margin:16px 0;border:1px solid #bbdace;background:#fff;padding:22px 24px;border-radius:14px}
+#e2e-controls[hidden],#e2e-results[hidden],#e2e-error[hidden]{display:none}
+.e2e-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.e2e-head h2{margin:0}.e2e-tag{font-size:12px;font-weight:700;border-radius:100px;padding:6px 12px;background:#f0f3f8;color:#485b6e}
+.e2e-tag[data-state="RUNNING"]{background:#e9f3ff;color:#225abb}
+.e2e-tag[data-state="SUCCEEDED"]{background:#ddf5e9;color:#0c6951}
+.e2e-tag[data-state="FAILED"]{background:#fff0ec;color:#ad4430}
+.e2e-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0}
+.e2e-progress{border:1px solid #dce6eb;border-radius:11px;background:#f8fbfc;padding:16px;margin-top:14px}
+.e2e-progress-top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.e2e-progress-top strong{font-size:14px}
+.e2e-progress progress{appearance:none;-webkit-appearance:none;width:100%;height:12px;border:0;border-radius:20px;overflow:hidden;background:#e3ebf0}
+.e2e-progress progress::-webkit-progress-bar{background:#e3ebf0;border-radius:20px}
+.e2e-progress progress::-webkit-progress-value{background:#168065;border-radius:20px;transition:width .25s ease}
+.e2e-progress progress::-moz-progress-bar{background:#168065;border-radius:20px}
+.e2e-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:0;margin:12px 0 4px;list-style:none}
+.e2e-steps li{font-size:12px;color:#8091a0;padding:8px 3px;text-align:center;border-top:3px solid #dce6eb}
+.e2e-steps li.done{color:#0d7057;border-color:#168065;font-weight:700}
+.e2e-steps li.active{color:#254b7e;border-color:#4379c4;font-weight:700}
+.e2e-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:15px 0}
+.metric-tile{border:1px solid #dce5e9;border-radius:11px;padding:16px;background:#fff}
+.metric-tile .metric-label{font-size:13px;color:#697c8d}
+.metric-tile .metric-value{font-size:27px;font-weight:800;letter-spacing:-.04em;color:#0a6f57;margin:7px 0}
+.metric-tile .metric-base{font-size:12px;color:#728294}
+#e2e-results h3{margin:22px 0 4px;font-size:17px}
+#e2e-table{overflow-wrap:anywhere;font-size:12px;color:#758596}
+#e2e-error{border:1px solid #f1c7bf;background:#fff5f2;padding:12px;border-radius:8px;color:#a23b2b}
+@media(max-width:850px){.e2e-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.e2e-metrics{grid-template-columns:1fr 1fr}.metric-tile{padding:10px}.metric-tile .metric-value{font-size:22px}.e2e-steps li{font-size:10px}}
 #status{min-height:24px;color:#116b57;font-weight:600}
 .layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:18px;align-items:start}
 .panel{background:#fff;border:1px solid #d8e0e7;border-radius:12px;padding:16px;min-width:0}
@@ -178,11 +205,29 @@ mark.suspect{background:#ffd28a;border-radius:2px}mark.masked{background:#bbebcc
 <button id="login" class="primary">검토 문서 불러오기</button><span class="notice">토큰 붙여넣기 시 자동 조회 · 현 로컬 서버 실행 중에만 유효</span></div>
 <p id="status" role="status">관리자 토큰을 붙여 넣으면 자동으로 검토 목록을 조회합니다. 필요하면 검토 문서 불러오기를 눌러주세요.</p>
 <section id="e2e-controls" hidden>
- <h2>Human-assisted 실험 E2E</h2>
- <p class="sub">10문서 검토 완료 후 클릭 시 실제 Gate/HMAC 교정 → 187문서 별도 실험 테이블 생성 → 88질의 재평가. 기존 177문서 테이블 변경 없음.</p>
- <button class="primary" id="run-e2e">검토 반영 · 실험 적재 · 88질의 평가</button>
- <p id="e2e-report" role="status"></p>
- <p><a href="http://127.0.0.1:8768/" target="_blank" rel="noopener noreferrer">챗봇 열기 (로컬 포트 8768 · 별도 실행 필요)</a></p>
+ <div class="e2e-head"><h2>Human-assisted · E2E 검증</h2><span id="e2e-state" class="e2e-tag" data-state="IDLE">실행 전</span></div>
+ <p class="sub">검토 10문서 재검증 → 가명처리 → 별도 187문서 DB 적재 → 88질의 검색 평가 · 기존 177문서 DB 유지</p>
+ <div class="e2e-actions"><button class="primary" id="run-e2e">검토 반영 · 실험 적재 · 88질의 평가</button><span id="e2e-elapsed" class="sub"></span></div>
+ <div class="e2e-progress" aria-label="실험 처리 단계">
+   <div class="e2e-progress-top"><strong id="e2e-stage">실행 대기</strong><span id="e2e-counter" class="sub">—</span></div>
+   <progress id="e2e-bar" max="100" value="0" aria-label="실제 작업 단계 진행률"></progress>
+   <ol class="e2e-steps" id="e2e-steps">
+     <li>① REVIEW 재검증</li><li>② 문서 임베딩</li><li>③ 실험 DB 적재</li><li>④ 88질의 평가</li>
+   </ol>
+   <p class="notice">실제 완료 단계와 처리 건수 기준 · 진행바는 남은 시간 추정치가 아닙니다.</p>
+ </div>
+ <div id="e2e-results" hidden>
+   <h3>88질의 검색 평가 결과</h3>
+   <p class="sub">전체 88질의 분모 · 보류 질의는 실패로 집계 · Human-assisted</p>
+   <div class="e2e-metrics">
+      <div class="metric-tile"><div class="metric-label">Hit@1</div><div id="e2e-hit1" class="metric-value">—</div><div id="e2e-base1" class="metric-base">—</div></div>
+      <div class="metric-tile"><div class="metric-label">Hit@5</div><div id="e2e-hit5" class="metric-value">—</div><div id="e2e-base5" class="metric-base">—</div></div>
+      <div class="metric-tile"><div class="metric-label">MRR</div><div id="e2e-mrr" class="metric-value">—</div><div id="e2e-basem" class="metric-base">—</div></div>
+      <div class="metric-tile"><div class="metric-label">Recall@5</div><div id="e2e-recall5" class="metric-value">—</div><div class="metric-base">88질의 전체 정답 기준</div></div>
+   </div>
+   <p id="e2e-table"></p>
+ </div>
+ <p id="e2e-error" hidden role="alert"></p>
 </section>
 <div class="layout">
 <section class="panel" aria-label="검토 문서 목록">
@@ -295,34 +340,74 @@ elem("login").onclick=async()=>{
  finally{loginBusy=false;elem("login").disabled=false}
 };
 let progressInterval=null;
+const stageOrder=["REVALIDATING","EMBEDDING","INDEXING","EVALUATING"];
+const stageLabels={
+  REVALIDATING:"REVIEW 교정·Gate/HMAC 검증",EMBEDDING:"187문서 임베딩 계산",
+  INDEXING:"별도 실험 DB에 안전하게 적재",EVALUATING:"전체 88질의 검색 평가",
+  COMPLETE:"전체 실험 완료",IDLE:"실행 대기"
+};
+function showExperimentStatus(result){
+ const state=result.state||"IDLE";
+ const tag=elem("e2e-state");tag.dataset.state=state;
+ tag.textContent=({IDLE:"실행 전",PREVIOUS_RUN:"이전 결과 있음",RUNNING:"진행 중",
+                   SUCCEEDED:"완료",FAILED:"실패"})[state]||state;
+ const p=result.progress||{stage:"IDLE",completed:0,total:0};
+ const index=stageOrder.indexOf(p.stage);
+ const fraction=Number.isInteger(p.completed)&&Number.isInteger(p.total)&&p.total>0
+   ? Math.min(1,Math.max(0,p.completed/p.total)):0;
+ const pct=state==="SUCCEEDED"?100:index<0?0:
+   Math.min(99,Math.round((index+fraction)/stageOrder.length*100));
+ elem("e2e-bar").value=pct;
+ elem("e2e-stage").textContent=stageLabels[p.stage]||"실험 상태 확인 중";
+ elem("e2e-counter").textContent=state==="RUNNING" && p.total
+   ?p.completed+" / "+p.total+"건 완료":(state==="SUCCEEDED"?"4단계 완료":pct+"% · 단계 기준");
+ const steps=elem("e2e-steps").children;
+ for(let i=0;i<steps.length;i++){
+   steps[i].className=(state==="SUCCEEDED"||index>i)?"done":index===i?"active":"";
+ }
+ const elapsed=result.elapsed_seconds;
+ elem("e2e-elapsed").textContent=typeof elapsed==="number"?"실제 경과: "+elapsed.toFixed(1)+"초":"";
+ elem("run-e2e").disabled=state==="RUNNING"||state==="SUCCEEDED";
+ const error=elem("e2e-error");
+ error.hidden=state!=="FAILED"&&state!=="PREVIOUS_RUN";
+ error.textContent=state==="FAILED"?"실험 중단 · "+(result.error_type||"UNKNOWN_ERROR"):
+   state==="PREVIOUS_RUN"?"이전 실행에서 187문서 적재는 완료됐습니다. 구버전 결과에는 지표가 저장되지 않아 재평가 시 표시할 수 있습니다.":"";
+ const out=elem("e2e-results");
+ const official=result.all88?.official;
+ out.hidden=!official;
+ if(official){
+   const n=official.n||88;
+   elem("e2e-hit1").textContent=official.hit1+"/"+n;
+   elem("e2e-hit5").textContent=official.hit5+"/"+n;
+   elem("e2e-mrr").textContent=Number(official.mrr).toFixed(4);
+   elem("e2e-recall5").textContent=(100*Number(official.recall5)).toFixed(1)+"%";
+   // Fixed 177-doc V6 baseline on the same 88-query set, measured 2026-11-12.
+   const diff1=official.hit1-73,diff5=official.hit5-79,diffm=Number(official.mrr)-0.8596;
+   elem("e2e-base1").textContent="177문서 기준 73/88 · 변화 "+(diff1>=0?"+":"")+diff1+"건";
+   elem("e2e-base5").textContent="177문서 기준 79/88 · 변화 "+(diff5>=0?"+":"")+diff5+"건";
+   elem("e2e-basem").textContent="177문서 기준 0.8596 · 변화 "+(diffm>=0?"+":"")+diffm.toFixed(4);
+   elem("e2e-table").textContent="실험 DB: "+(result.table||"미확인");
+ }
+}
+async function pollExperiment(){
+ try{showExperimentStatus(await api("/api/e2e-status"))}
+ catch(e){
+   elem("e2e-stage").textContent="진행 상태를 불러오지 못했습니다";
+   elem("e2e-counter").textContent="연결을 확인하세요";
+ }
+}
 function startProgressPolling(){
  if(progressInterval!==null)return;
- async function poll(){
-   try{
-    const result=await api("/api/e2e-status");
-    const state=result.state;
-    const output=elem("e2e-report");
-    const lines=["실험 상태: "+state];
-    if(result.documents)lines.push("문서: "+result.documents);
-    if(result.table)lines.push("실험 테이블: "+result.table);
-    if(result.all88 && result.all88.official){
-      const o=result.all88.official;
-      lines.push("88질의 Hit@1: "+o.hit1+"/88 · Hit@5: "+o.hit5+"/88 · MRR: "+o.mrr);
-    }
-    if(result.error_type)lines.push("실패 유형: "+result.error_type);
-    output.textContent=lines.join("\n");
-    elem("run-e2e").disabled=state==="RUNNING"||state==="SUCCEEDED";
-   }catch(e){elem("e2e-report").textContent="실험 상태 조회 실패";}
- }
- poll();progressInterval=setInterval(poll,3500);
+ pollExperiment();
+ progressInterval=setInterval(pollExperiment,1500);
 }
 elem("run-e2e").onclick=async()=>{
- if(!confirm("검토 완료된 10건을 새 독립 실험 DB 테이블에 적재하고 88질의를 재평가합니다. 운영 DB는 변경하지 않습니다. 실행할까요?"))return;
+ if(!confirm("검토 완료된 10건을 별도 실험 DB에 적재하고 88질의를 재평가합니다. 기존 테이블은 변경되지 않습니다. 실행할까요?"))return;
  try{
-  const v=await api("/api/e2e-run",{confirm:"CREATE_ISOLATED_HUMAN_ASSISTED_INDEX"});
-  elem("e2e-report").textContent="실험 시작: "+v.state;
-  startProgressPolling();
- }catch(e){elem("e2e-report").textContent="실험 시작 실패: "+e.message}
+   const result=await api("/api/e2e-run",{confirm:"CREATE_ISOLATED_HUMAN_ASSISTED_INDEX"});
+   showExperimentStatus({state:result.state,progress:{stage:"REVALIDATING",completed:0,total:10}});
+   startProgressPolling();
+ }catch(e){elem("e2e-error").hidden=false;elem("e2e-error").textContent="시작 실패 · "+e.message}
 };
 </script></body></html>"""
 
