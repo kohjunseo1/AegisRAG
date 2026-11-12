@@ -48,7 +48,7 @@ def respond(pipeline: LivePipeline, message: dict, allow_hcx: bool = True) -> di
                 'diagnostics': {'gate_state': state,
                     'review_scope': 'QUERY_PREPARATION' if is_review else 'QUERY_BLOCKED',
                     'timings_ms': {**getattr(pipeline, 'timings', {}), 'total_ms': round((time.perf_counter()-start)*1000, 2)}
-                    if isinstance(getattr(pipeline, 'timings', None), dict) else {}}, 'mode': 'hcx'}
+                    if isinstance(getattr(pipeline, 'timings', None), dict) else {}}, 'mode': 'gate'}
 
     # All downstream calls use only masked query and DB V6 already-prepared docs.
     try:
