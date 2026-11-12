@@ -337,9 +337,13 @@ def create_handler(cases, token, port, journal, *,
             with lock:
                 task.update(state="SUCCEEDED",result=report,error_type=None)
         except Exception as exc:
-            # Generic type only: model/DB exceptions can contain raw source.
+            # Only our strict alphanumeric review reason is safe to show.
+            from review_apply_q001 import ReviewValidationError
+            safe_reason=(str(exc) if isinstance(exc,ReviewValidationError)
+                         and re.fullmatch(r"[A-Z0-9_]{3,100}",str(exc))
+                         else type(exc).__name__)
             with lock:
-                task.update(state="FAILED",result=None,error_type=type(exc).__name__)
+                task.update(state="FAILED",result=None,error_type=safe_reason)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *unused):
