@@ -173,9 +173,9 @@ mark.suspect{background:#ffd28a;border-radius:2px}mark.masked{background:#bbebcc
 <header><h1>Q-001 · 로컬 개인정보 검토</h1><p class="sub">문서 목록 → 후보 확인 → 판단 기록 · REVIEW 승격/적재는 별도 검증 후</p></header>
 <p class="warning">로컬 실험 전용. 문서 분류 기록은 HMAC·적재 승인이 아닙니다. 별도 「실험 적재·평가」를 실행하고 Gate 재검증을 통과해야 새 DB 테이블이 생성됩니다.</p>
 <div class="auth"><label for="secret">관리자 로컬 세션 토큰</label>
-<input type="password" id="secret" autocomplete="off" placeholder="터미널 발급 토큰" size="28">
-<button id="login" class="primary">검토 문서 불러오기</button><span class="notice">토큰은 현 로컬 서버 실행 중에만 유효</span></div>
-<p id="status" role="status">현재 서버의 터미널에 표시된 Q001_REVIEW_SESSION_TOKEN을 붙여 넣고, 검토 문서 불러오기를 누르세요. Enter 키도 사용할 수 있습니다.</p>
+<input type="password" id="secret" autocomplete="off" placeholder="터미널 발급 토큰 붙여넣기 · 자동 확인" size="28">
+<button id="login" class="primary">검토 문서 불러오기</button><span class="notice">토큰 붙여넣기 시 자동 조회 · 현 로컬 서버 실행 중에만 유효</span></div>
+<p id="status" role="status">관리자 토큰을 붙여 넣으면 자동으로 검토 목록을 조회합니다. 필요하면 검토 문서 불러오기를 눌러주세요.</p>
 <section id="e2e-controls" hidden>
  <h2>Human-assisted 실험 E2E</h2>
  <p class="sub">10문서 검토 완료 후 클릭 시 실제 Gate/HMAC 교정 → 187문서 별도 실험 테이블 생성 → 88질의 재평가. 기존 177문서 테이블 변경 없음.</p>
@@ -264,22 +264,34 @@ button.onclick=async()=>{
 line.append(select,button);card.appendChild(line);out.appendChild(card);
 });
 }
+let loginBusy=false;
 elem("secret").addEventListener("input",()=>{
- if(!entries.length)elem("status").textContent="토큰 입력됨 · 「검토 문서 불러오기」를 누르거나 Enter를 입력하세요.";
+ const value=elem("secret").value.trim();
+ if(!entries.length)elem("status").textContent="토큰 입력 중 · 붙여넣기가 완료되면 자동으로 목록을 불러옵니다.";
+ // Local server issues token_urlsafe(32): exactly 43 URL-safe characters.
+ // Auto-login only when a complete token has been pasted/entered.
+ if(!loginBusy && /^[A-Za-z0-9_-]{43}$/.test(value))elem("login").click();
 });
 elem("secret").addEventListener("keydown",e=>{
  if(e.key==="Enter"){e.preventDefault();elem("login").click()}
 });
 elem("login").onclick=async()=>{
-elem("status").textContent="관리자 인증 및 검토 목록 조회 중…";
-try{const data=await api("/api/cases");entries=data.cases;selected=null;renderList();
- elem("e2e-controls").hidden=!data.experimental_enabled;
-elem("status").textContent=entries.length
-  ?"검토 문서 "+entries.length+"건 로드 완료 · 왼쪽 목록에서 선택하세요"
-  :"인증 완료 · 현재 확인할 REVIEW 문서가 없습니다.";
-if(entries.length)await loadCase(entries[0].id);
-if(data.experimental_enabled)startProgressPolling();
-}catch(e){elem("status").textContent="인증/조회 실패: "+e.message}
+ if(loginBusy)return;
+ loginBusy=true;
+ elem("login").disabled=true;
+ elem("status").textContent="관리자 인증 및 검토 목록 조회 중…";
+ try{
+  const data=await api("/api/cases");
+  if(!Array.isArray(data.cases))throw Error("INVALID_CASES_RESPONSE");
+  entries=data.cases;selected=null;renderList();
+  elem("e2e-controls").hidden=!data.experimental_enabled;
+  elem("status").textContent=entries.length
+    ?"인증 완료 · 문서 "+entries.length+"건 로드 · 왼쪽 목록에서 선택하세요"
+    :"인증 완료 · 현재 확인할 REVIEW 문서가 없습니다.";
+  if(entries.length)await loadCase(entries[0].id);
+  if(data.experimental_enabled)startProgressPolling();
+ }catch(e){elem("status").textContent="인증/조회 실패: "+e.message}
+ finally{loginBusy=false;elem("login").disabled=false}
 };
 let progressInterval=null;
 function startProgressPolling(){
