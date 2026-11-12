@@ -245,6 +245,33 @@ Q-001의 이름 끝 '이' 9건 및 H0091 Veil vs strict PERSON 충돌을 사람�
 
 **검증 상태:** 신규 synthetic CI, 실제 Mac의 10문서 로딩/로컬 화면/판단 기록은 후속 확인 필요. main에 미반영.
 
+### 2026-11-12 · Q-001 REVIEW 판정 수집 및 RET-001 공정 비교 준비
+
+**의사결정 목표:** 오늘 팀 통합 논의 전, ① Human Review 10건의 분류 기록 완결성, ② 기존 V6의 전체 88질의 분모 결과, ③ 팀원 최신 run의 동일 Gold/neutral 계산 결과를 확보. 아직 새 탐지 정책 자동 승격이나 187건 적재를 수행하지 않음.
+
+**신규 로컬 검사:** `scripts/q001_review_audit.py` — 실제 Step1/Veil로 동일 문서 후보를 재생성하여 로컬 JSONL 검토 기록의 ID/원문 SHA-256/구간/선택지를 검사. 문서별 최종 유효 판정 누락 수와 stale 기록 오류 수만 반환. 검토가 전부 끝나더라도 자동 READY/DB/HMAC/HCX 미수행.
+
+**공통 88질의 측정:** `scripts/compare_88_retrieval.py` — 이미 준비된 V6 로컬 가명 문서·질의와 DB를 읽기 전용으로 사용. 질의 88건 **전체**를 분모로 계산(보류 질의는 실패로 기록). 기존 자동 평가 가능 81건 결과도 별도로 출력. 팀원 `ranked_doc_ids` JSONL을 입력받으면 **동일한 Gold와 동일 neutral_doc_ids 제외 규칙**으로 재평가. 평가기에서 neutral을 제거하지 않은 실제 상위 5건 지표도 함께 제공해 편향 여부를 확인. Gold는 검색 호출에 사용하지 않음.
+
+```bash
+git pull --ff-only origin exp/q001-review-triage
+python scripts/q001_review_audit.py
+python scripts/compare_88_retrieval.py \
+  --prepared step2_privacy_rag/local_eval/reproduction_20261111/prepared.json \
+  --table rag.aegis_koe5_v6_exp1 \
+  --ours-out step2_privacy_rag/local_eval/ret001_ours_88.jsonl
+
+# 팀원의 최신 88질의 ranked_doc_ids 결과 파일을 확보한 뒤:
+python scripts/compare_88_retrieval.py \
+  --prepared step2_privacy_rag/local_eval/reproduction_20261111/prepared.json \
+  --table rag.aegis_koe5_v6_exp1 \
+  --team-run step2_privacy_rag/local_eval/ret001_team_88.jsonl
+```
+
+**주의:** 동일한 채점 코드를 사용해도 탐지기·문서 적재 범위·문서 단위 대 청크 단위 검색의 차이는 그대로 존재한다. 기존 PPT의 Hit@5 100%는 해당 팀원의 최신 실행 파일을 받아 재현하기 전에는 확인된 수치가 아님. 특히 Hit@5는 한 개 정답만 포함해도 성공이므로 Recall@5/Confuse@10 및 neutral 제거 전후를 반드시 같이 제시. Holdout 반복 실험은 독립 Blind 검증을 대신하지 않는다.
+
+**후속 실험:** Human Review로 확정된 10문서를 기존 strict 보호 구간을 축소하지 않고 비연결 마스킹 중심으로 교정하는 **별도 실험 artifact** 생성 → 회귀 확인 → 새 독립 DB 테이블 적재 및 88질의 평가. 실제 검토 분류를 이용한 이 결과는 `Human-assisted`로 명시하며 자동 탐지 성능 향상으로 주장하지 않음. 안전성 검증 없이 검토 판단만으로 Gate를 우회하지 않음.
+
 **다음 정책 시도:** 이름 경계는 추가 보호 자체와 동일 인물 HMAC 연동을 분리하고, 반례를 포함한 합성/Dev 테스트로 보호 범위 누락·과보호·잘못된 연결 여부를 확인. Gate 충돌은 안전한 이유가 확인되기 전 REVIEW를 유지. 문서별 임시 예외 또는 Holdout 특정 사례에만 맞춘 규칙은 채택하지 않음.
 
 **상태:** 원인 분류 및 추가 충돌 진단 구현 완료 / 모델 정책 미변경·실제 처리율 개선 미검증.
