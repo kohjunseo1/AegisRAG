@@ -32,7 +32,7 @@ OUTPUT=ROOT/"step2_privacy_rag/local_eval/q001_human_assisted_187.json"
 
 
 def build_in_memory(baseline:dict,sources:dict[str,str],detector:Any,
-                    key:bytes,journal_entries:list[dict]) -> tuple[dict,dict]:
+                    key:bytes,journal_entries:list[dict],progress=None) -> tuple[dict,dict]:
     from dataset_preparation import key_tag
     if (baseline.get("format")!="aegisrag-local-embedding-eval-v1"
         or baseline.get("hmac_key_tag")!=key_tag(key)
@@ -44,7 +44,8 @@ def build_in_memory(baseline:dict,sources:dict[str,str],detector:Any,
     existing={d["doc_id"] for d in baseline["documents"]}
     if len(existing)!=177 or existing&set(sources):
         raise ValueError("REVIEW_DOCUMENT_ALREADY_INDEXED")
-    approved=prepare_approved_batch(sources,detector,key,journal_entries)
+    approved=prepare_approved_batch(sources,detector,key,journal_entries,
+                                    progress=progress)
     if len(approved)!=len(sources):
         raise ValueError("NOT_ALL_REVIEWS_REVALIDATED")
     new=deepcopy(baseline)
@@ -86,16 +87,23 @@ def build_in_memory(baseline:dict,sources:dict[str,str],detector:Any,
 
 def run_pipeline(*,mode:str="preview",env:Path=ROOT/".env",
                  baseline:Path=BASELINE,source:Path=SOURCE,journal:Path=JOURNAL,
-                 output:Path=OUTPUT,device:str="cpu",confirm:str|None=None) -> dict:
+                 output:Path=OUTPUT,device:str="cpu",confirm:str|None=None,
+                 progress=None) -> dict:
     from dataset_preparation import fixed_key,private_write
     from reproduction import artifact, encode_docs, target, ingest, evaluate
+    def emit(stage,completed,total):
+        if progress is not None:
+            progress(stage,completed,total)
+    emit("REVALIDATING",0,10)
     key=fixed_key(env)
     original=artifact(safe_path(baseline),env)
     docs=read_sources(source,list(IDS))
     events=load_journal(journal)
     from pii_detector import create_detector
     with create_detector() as detector:
-        new,safe=build_in_memory(original,docs,detector,key,events)
+        new,safe=build_in_memory(original,docs,detector,key,events,
+                                 progress=lambda completed,total: emit(
+                                     "REVALIDATING",completed,total))
     table=target(new)
     report={
         "state":"REVALIDATED_LOCAL",
@@ -119,17 +127,25 @@ def run_pipeline(*,mode:str="preview",env:Path=ROOT/".env",
         private_write(dest,new)
     import psycopg
     from settings import db_config
+    emit("EMBEDDING",0,1)
     vectors=encode_docs(new,device)
+    emit("EMBEDDING",1,1)
+    emit("INDEXING",0,1)
     with psycopg.connect(**db_config(env)) as conn:
         status=ingest(conn,new,vectors,table,table)
+    emit("INDEXING",1,1)
     # These rankings exclude unresolved query text, which remains deferred.
-    available,ranked=evaluate(new,table,env,device,expected_baseline=False)
+    emit("EVALUATING",0,88)
+    available,ranked=evaluate(
+        new,table,env,device,expected_baseline=False,
+        progress=lambda completed,total: emit("EVALUATING",completed,total))
     gold=new["gold_for_evaluation_only"]
     all_ids={g["qid"] for g in gold}
     score,missed=aggregate(gold,{q:[x["doc_id"] for x in ranked.get(q,[])][:20]
                                 if ranked.get(q) and isinstance(ranked[q][0],dict)
                                 else ranked.get(q,[])[:20]
                                 for q in all_ids},all_ids)
+    emit("COMPLETE",1,1)
     report.update({
         "state":"EXPERIMENT_INDEXED_AND_EVALUATED",
         "table_status":status,"table":table,
