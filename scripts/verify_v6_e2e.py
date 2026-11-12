@@ -189,13 +189,19 @@ def main() -> int:
     ap.add_argument('--transport', choices=('local','hcx','http'), default='local')
     ap.add_argument('--http-url', default='http://127.0.0.1:8768')
     ap.add_argument('--synthetic-review', action='store_true')
+    ap.add_argument('--synthetic-only', action='store_true', help='simulate review with no DB access')
     args = ap.parse_args()
     if args.max_queries < 0:
         ap.error('--max-queries must be nonnegative')
     if args.transport != 'local' and not args.interactive:
         ap.error('--transport hcx/http requires --interactive')
+    if args.synthetic_only and not args.synthetic_review:
+        ap.error('--synthetic-only requires --synthetic-review')
     if args.synthetic_review:
         synthetic_review()
+    if args.synthetic_only:
+        print('SYNTHETIC_REVIEW_ONLY_OK (real local admin web UI not tested)', flush=True)
+        return 0
     pipeline = None
     try:
         pipeline = LivePipeline(ROOT,args.device,reuse_step1=True)
