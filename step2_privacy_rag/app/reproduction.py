@@ -112,7 +112,7 @@ def ingest(conn, data, vectors, name, confirmation):
     return 'VERIFIED_EXISTING' if exists else 'CREATED'
 
 
-def evaluate(data, table, env_file, device='cpu', expected_baseline=False):
+def evaluate(data, table, env_file, device='cpu', expected_baseline=False, progress=None):
     pipeline = LivePipeline(ROOT, device, env_file)
     pipeline.db = db_config(env_file)
     pipeline.secret = fixed_key(env_file)
@@ -128,9 +128,11 @@ def evaluate(data, table, env_file, device='cpu', expected_baseline=False):
     neutral = {g['qid']: set(g.get('neutral_doc_ids', [])) for g in gold_rows}
     hits1 = hits5 = 0
     recalls = []; full_gold_recalls = []; reciprocal = []; runs = {}
-    for q in qs:
+    for completed, q in enumerate(qs, 1):
         relevant = gold[q['qid']]
         if q['text'] is None or not relevant.intersection(ids):
+            if progress is not None:
+                progress(completed, len(qs))
             continue
         rows = pipeline.retrieve(PreparedQuery(q['text'], set(PII.findall(q['text'])), set(q['region_keys'])), top_k=None)
         ranked = [r['doc_id'] for r in rows]
@@ -144,6 +146,8 @@ def evaluate(data, table, env_file, device='cpu', expected_baseline=False):
         recalls.append(found / len(relevant.intersection(ids)))
         full_gold_recalls.append(found / len(relevant))
         reciprocal.append(next((1/i for i, d in enumerate(ranked, 1) if d in relevant), 0))
+        if progress is not None:
+            progress(completed, len(qs))
     n = len(recalls)
     if n == 0:
         raise ValueError('NO_EVALUABLE_QUERIES')
