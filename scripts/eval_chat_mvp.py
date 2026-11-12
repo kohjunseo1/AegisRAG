@@ -162,7 +162,7 @@ def write_example_cases(path: Path) -> None:
     # Open with exclusive creation and owner-only permissions.
     fd = os.open(resolved,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
     with os.fdopen(fd,'w',encoding='utf-8') as handle:
-        handle.write('\\n'.join(data)+'\\n')
+        handle.write('\n'.join(data)+'\n')
     print('MVP_EXAMPLES_WRITTEN',str(resolved),'cases',len(data),flush=True)
 
 
