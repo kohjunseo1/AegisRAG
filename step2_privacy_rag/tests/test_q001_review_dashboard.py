@@ -126,7 +126,8 @@ class ReviewRecordContracts(unittest.TestCase):
         match=re.search(r"<script>(.*?)</script>",m.HTML,re.DOTALL)
         self.assertIsNotNone(match)
         js=match.group(1)
-        self.assertIn('lines.join("\\n")',js)
+        self.assertIn('elem("e2e-bar").value=pct;',js)
+        self.assertIn('showExperimentStatus',js)
         self.assertNotIn('lines.join("\n")',js)
         if shutil.which("node"):
             result=subprocess.run(["node","--check"],input=js,text=True,
