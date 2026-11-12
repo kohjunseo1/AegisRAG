@@ -116,7 +116,13 @@ class ReviewRecordContracts(unittest.TestCase):
                 thread.join(timeout=3)
 
     def test_review_token_auto_login_and_explicit_admin_action(self):
-        self.assertIn('^[A-Za-z0-9_-]{43}
+        self.assertIn('A-Za-z0-9_-', m.HTML)
+        self.assertIn('elem("login").click()', m.HTML)
+        self.assertIn('if(!Array.isArray(data.cases))', m.HTML)
+        self.assertIn('loginBusy=true', m.HTML)
+        self.assertIn('id="run-e2e"', m.HTML)
+
+    def test_wrong_target_action_rejected(self):
         with self.assertRaises(ValueError):
             m.review_record({"id": "SYNTH001", "candidate": 0,
                              "choice": "SHORT_NAME_PLUS_PARTICLE"}, fake_case())
