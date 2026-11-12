@@ -19,7 +19,7 @@
 
 ## Architecture
 
-\`\`\`mermaid
+```mermaid
 flowchart TD
     subgraph Offline["Offline · Document Ingestion"]
         A["원본 합성 금융 문서"] --> B["A.X + Veil"]
@@ -41,7 +41,7 @@ flowchart TD
         K --> L["HCX-007 · 구조화 답변"]
         L --> M["인용/출력 검사 → 로컬 UI"]
     end
-\`\`\`
+```
 
 - 원문/Gold를 GitHub에 포함하지 않습니다. 문서 임베딩은 적재 시 한 번 계산하고, 온라인에서는 **질의만** 임베딩합니다.
 - 보류된 질의를 강제로 가명처리하거나 LLM에 보내지 않습니다. 로컬 관리자 REVIEW 도구는 별도 관리하며 이 저장소의 공개 기능으로 주장하지 않습니다.
@@ -68,13 +68,13 @@ flowchart TD
 
 ## Tech Stack
 
-\`Python 3.11\` · \`PyTorch\` · \`ONNX Runtime\` · \`Transformers\` · \`KoE5\` · \`PostgreSQL 16\` · \`pgvector\` · \`Docker\` · \`HCX-007\` · \`HTML/CSS/JavaScript\`
+`Python 3.11` · `PyTorch` · `ONNX Runtime` · `Transformers` · `KoE5` · `PostgreSQL 16` · `pgvector` · `Docker` · `HCX-007` · `HTML/CSS/JavaScript`
 
 ## Quick Start
 
-> 실제 모델은 [PII-detect Hugging Face 조직](https://huggingface.co/PII-detect)의 Private 저장소입니다. 적절한 읽기 권한의 \`HF_TOKEN\`, 로컬 \`.env\`, PostgreSQL 환경과 **별도로 제공된 합성 평가 파일/인덱스**가 필요합니다. 새 clone만으로 187문서가 자동 적재되지는 않습니다.
+> 실제 모델은 [PII-detect Hugging Face 조직](https://huggingface.co/PII-detect)의 Private 저장소입니다. 적절한 읽기 권한의 `HF_TOKEN`, 로컬 `.env`, PostgreSQL 환경과 **별도로 제공된 합성 평가 파일/인덱스**가 필요합니다. 새 clone만으로 187문서가 자동 적재되지는 않습니다.
 
-\`\`\`bash
+```bash
 git clone https://github.com/kohjunseo1/AegisRAG.git
 cd AegisRAG
 # PR #7을 병합하기 전에는 해당 feature 브랜치 사용:
@@ -90,39 +90,39 @@ chmod 600 .env
 docker compose --env-file .env -f step2_privacy_rag/compose.yaml up -d db
 python scripts/aegisrag.py models --device cpu
 python scripts/verify_v6_e2e.py
-\`\`\`
+```
 
 **187문서 Live Index를 사용하는 로컬 챗봇**
 
-\`\`\`dotenv
+```dotenv
 AEGISRAG_TABLE=rag.aegis_live_docs
 AEGISRAG_INDEX_MODE=live
 AEGISRAG_LIVE_MIN_ROWS=187
-\`\`\`
+```
 
-\`\`\`bash
+```bash
 AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
 python scripts/aegisrag.py run-chat --device cpu --port 8768
 # 브라우저: http://127.0.0.1:8768
-\`\`\`
+```
 
 위 환경변수는 운영자가 **외부 HCX API로 가명처리된 데이터가 전송되는 동작을 명시적으로 허용**하는 설정입니다. 실제 고객 데이터 처리 승인이나 PII 안전성 인증을 의미하지 않습니다.
 
 **88개 질의 검색 재현 (기존 DB 읽기 전용, HCX 호출 없음)**
 
-\`\`\`bash
+```bash
 TOKENIZERS_PARALLELISM=false \
 python scripts/verify_v6_e2e.py --eval-raw
 
 # 실시간 질의 Gate 원인·근거 문서 로컬 점검
 python scripts/verify_v6_e2e.py --interactive --diagnose-gate
-\`\`\`
+```
 
-원본 합성 질의/Gold JSONL은 \`step2_privacy_rag/local_eval/\`에 별도로 배치해야 합니다. 문서 적재·키 관리·의존성·모델 revision은 [재현 가이드](docs/REPRODUCIBILITY.md)를 참고하세요.
+원본 합성 질의/Gold JSONL은 `step2_privacy_rag/local_eval/`에 별도로 배치해야 합니다. 문서 적재·키 관리·의존성·모델 revision은 [재현 가이드](docs/REPRODUCIBILITY.md)를 참고하세요.
 
 ## Repository Structure
 
-\`\`\`text
+```text
 AegisRAG/
 ├── step1_pii_detector/     # A.X / Veil 개인정보 탐지
 ├── step2_privacy_rag/      # Gate · 가명처리 · pgvector · HCX · Web UI
@@ -130,7 +130,7 @@ AegisRAG/
 ├── dataset_explorer/       # 원본/Gold 로컬 탐색 UI (127.0.0.1:8770)
 ├── config/                 # 모델·평가 설정 (비밀 제외)
 └── docs/                   # 재현 절차 · 실험 기록 · 개선 이력
-\`\`\`
+```
 
 ## Documentation & Scope
 
