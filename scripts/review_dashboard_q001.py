@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Q-001 LOCAL-ONLY, annotation-only human review prototype.
+"""Q-001 LOCAL-ONLY human review with opt-in experimental ingestion.
 
-No DB, HCX, HMAC, automatic promotion, or outbound calls. Raw source is served
-ONLY to a token-authenticated browser on 127.0.0.1 and never written by this tool.
-The annotation journal is local, chmod 0600, and never authorizes release.
-Use a trusted local browser. Not a production or multi-user review service.
+Default mode records local review annotations only. With explicit
+--enable-experimental-indexing, administrator confirmation triggers independent
+Gate/HMAC revalidation, a NEW 187-document experiment table, and read-only
+88-query retrieval evaluation. Original 177-document table is untouched.
+This tool does not call HCX or authorize external source transfer. Raw source
+is served only to an authenticated browser on 127.0.0.1. The annotation
+journal is local (0600). Not a production or multi-user review service.
 """
 import argparse
 from datetime import datetime, timezone
