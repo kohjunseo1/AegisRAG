@@ -231,10 +231,12 @@ def reviewed_prepare(doc_id:str, source:str, detector:Any, key:bytes,
 
 
 def prepare_approved_batch(sources:dict[str,str], detector:Any,key:bytes,
-                           journal_entries:list[dict]) -> list[ReviewedOutcome]:
+                           journal_entries:list[dict],progress=None) -> list[ReviewedOutcome]:
     cases=ui.get_cases(sources,detector)
     decisions=validated_choices(cases,journal_entries)
     results=[]
+    if progress is not None:
+        progress(0,len(cases))
     for did in sorted(cases):
         try:
             results.append(reviewed_prepare(did,sources[did],detector,key,
@@ -242,6 +244,8 @@ def prepare_approved_batch(sources:dict[str,str], detector:Any,key:bytes,
         except ReviewValidationError as exc:
             # Both the document ID and fixed error code are non-sensitive.
             raise ReviewValidationError(did+"_"+str(exc)) from None
+        if progress is not None:
+            progress(len(results),len(cases))
     return results
 
 
