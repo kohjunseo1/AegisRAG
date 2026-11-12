@@ -359,6 +359,16 @@ python scripts/ret001_failure_breakdown.py \
 
 **다음 실행:** 실행 서버 종료(Ctrl+C) → `git pull --ff-only origin exp/q001-review-triage` → `AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES python scripts/run_demo_q001.py` → 관리자 포트 8771에 새 토큰 붙여넣기 → 10/10 확인 → E2E 실행 승인 → `SUCCEEDED` 및 챗봇 187문서 전환 확인. 토큰을 대화에 공유했을 경우 새로 서버를 시작해 토큰 회전할 것.
 
+### 2026-11-12 · 관리자 UI 버튼 무반응 실제 원인 수정 (Python→JS 렌더링)
+
+**증상:** 관리자 포트 정상, 세션 토큰 사용자가 입력하고 `검토 문서 불러오기` 클릭했으나 문서 목록/상태/실험 버튼 모두 변화 없음. 이전까지 인증/포트 문제가 있다고 추정했으나 실제 원인은 임베디드 JS 구문 오류.
+
+**근본 원인:** `review_dashboard_q001.py`의 `HTML = """..."""` 안에 JS `lines.join("\\n")`이 있음. Python이 일반 triple-quoted 리터럴을 평가할 때 `\\n`을 **실제 줄바꿈 문자**로 변환하여 브라우저로 보내는 JS에 문자열 안의 개행이 생김. 이로 인해 전체 `<script>` 구문 분석 실패, 로그인 버튼 이벤트 리스너도 등록되지 않음. 코드 원문의 JS만 파싱하면 유효하여 오류가 숨겨짐.
+
+**해결:** `HTML = r"""..."""` raw literal로 변경하여 JS 백슬래시 이스케이프 유지. GitHub 테스트에 **Python이 평가한 HTML의 실제 스크립트 문자열** 추출, literal newline regression 및 Node `--check` 구문 검증 추가. 실제 로컬 HTTP 인증/10문서 검토 큐 계약 테스트도 유지. 최신 CI PASS. 브라우저 실측은 재실행 필요.
+
+**실행:** 서버 `Ctrl+C` → `git pull --ff-only origin exp/q001-review-triage` → `AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES python scripts/run_demo_q001.py` → 새 세션 토큰을 대시보드 8771에 붙여넣기 → 판단 기록 10/10 및 실험 버튼 확인. 챗봇은 적재 버튼 실행 전에는 정상적으로 177문서 표시.
+
 ### Mac 테스트(기존 main/177문서 테이블 미변경)
 
 ```bash
