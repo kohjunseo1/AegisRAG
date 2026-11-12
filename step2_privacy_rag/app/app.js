@@ -22,7 +22,7 @@ function addMessage(role, text, result = null) {
     if (result) {
       const badges = el("div", "badges");
       badges.appendChild(el("span", "status-badge", result.decision));
-      badges.appendChild(el("span", "status-badge", result.mode === "hcx" ? "HCX-007" : "로컬 검색"));
+      badges.appendChild(el("span", "status-badge", result.mode === "hcx" ? "HCX-007" : result.mode === "gate" ? "Privacy Gate · 검색 전 보류" : "로컬 검색"));
       box.appendChild(badges);
       const sources = (result.sources || []).filter(d => (result.citations || []).includes(d.doc_id));
       if (sources.length) {
@@ -39,8 +39,13 @@ function addMessage(role, text, result = null) {
       if (result.diagnostics) {
         const d = result.diagnostics;
         const items = ["Gate: " + d.gate_state];
+        if (d.review_scope === "QUERY_PREPARATION") items.push("질문 단계 REVIEW · 문서 검토와 별개");
         if (typeof d.hmac_token_count === "number") items.push("HMAC tokens: " + d.hmac_token_count);
         if (typeof d.region_key_count === "number") items.push("Region keys: " + d.region_key_count);
+        if (typeof d.db_index_rows === "number") items.push("현재 인덱스: " + d.db_index_rows + "문서");
+        if (typeof d.retrieved_count === "number") items.push("검색 Top-5 문서: " + d.retrieved_count + "건");
+        if (typeof d.retrieved_with_hmac_match === "number") items.push("Top-5 중 HMAC 일치: " + d.retrieved_with_hmac_match + "건");
+        if (Array.isArray(d.retrieved_doc_ids)) items.push("검색 문서 ID: " + d.retrieved_doc_ids.join(", "));
         if (typeof d.hcx_input_tokens === "number") items.push("입력 토큰: " + d.hcx_input_tokens);
         if (d.timings_ms) items.push("지연(ms): " + JSON.stringify(d.timings_ms));
         const debug = el("details", "usage");
@@ -86,6 +91,7 @@ question.addEventListener("keydown", (event) => {
 $("reset").addEventListener("click", () => { thread.replaceChildren(); $("welcome").style.display = "block"; question.value = ""; status.textContent = "화면을 비웠습니다 · 각 질문은 독립 처리"; });
 document.querySelectorAll(".sample").forEach(button => button.addEventListener("click", () => { question.value = button.textContent; question.focus(); }));
 fetch("/api/health").then(r => r.json()).then(d => {
-  modePill.textContent = d.external_hcx_enabled ? "문서 상담" : "서버 설정 확인";
-  status.textContent = d.external_hcx_enabled ? "질문을 입력해 주세요" : "HCX 서비스 비활성";
+  const index = typeof d.expected_index_rows === "number" ? " · " + d.expected_index_rows + "문서 인덱스" : "";
+  modePill.textContent = d.external_hcx_enabled ? "문서 상담" + index : "서버 설정 확인";
+  status.textContent = d.external_hcx_enabled ? "질문을 입력해 주세요" + index : "HCX 서비스 비활성";
 }).catch(() => { status.textContent = "서버 연결 확인 실패"; });

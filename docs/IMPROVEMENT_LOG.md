@@ -199,6 +199,226 @@ python scripts/check_step1_reuse_parity.py --compare \
 
 ---
 
+## Q-001 · 2026-11-11 · 문서 REVIEW 안전 처리율 개선 (진단 단계)
+
+**현재 결과:** 전체 187문서 중 177 자동 처리, REVIEW 10문서. 실제 모델의 비공개 문서 진단에서 이름 끝 `이` 경계 문제 `possible_uncovered_name_suffix` **7건**, `review_only` **2건**; Gate의 `unresolved_veil_person` **1건**. 문제의 대부분이 **경계 모호성과 정확한 인물 연결 구분**에 집중됨.
+
+**목표:** 개인정보 보호를 줄이지 않고 REVIEW를 안전하게 줄일 수 있는 일반 규칙을 찾는 것. 문서 ID·이름 문자열에 특화한 규칙을 만들거나 모델 REVIEW를 무조건 READY로 승격하지 않음. 문서 적재 관리자 REVIEW와 온라인 사용자 쿼리 거절/재질문 정책은 별도 작업으로 관리.
+
+**첫 단계 — 원인 상세 진단:** `scripts/diagnose_review_q001.py`는 기존 정책 `propose`, `decide`, Gate 판정을 **읽기 전용**으로 호출하고 사유 코드·추가 보호 제안 문자 수·증거 유형·Veil 정책 분류만 표준 출력. 원문·실제 이름·HMAC·개인정보 구간은 출력/저장하지 않음. 데이터베이스 쓰기·HCX 호출 없음. 시험 입력은 로컬에서만 접근.
+
+```bash
+python scripts/diagnose_review_q001.py --ids \
+  H0002 H0057 H0072 H0091 H0103 H0105 H0116 H0117 H0119 H0135
+```
+
+**후속 설계:** 진단 결과를 바탕으로 Dev/합성 데이터에 '이'가 (a) 실제 이름의 마지막 글자인 사례, (b) 주격 조사인 사례, (c) 역할/직책 연결, (d) 정보 상충, (e) 문서 내 복수 동일 표기 인물 등을 포함하고, 보호 구간 recall·오보호 길이·잘못된 동일인 연결·자동 승인율을 동시에 검증. **Holdout을 임계값 선택/규칙 튜닝용으로 사용하지 않음.** 기존 V6 인덱스 및 HMAC 규격은 계속 고정.
+
+**1차 실제 진단(10문서, 민감 원문 제외):** 7문서 `possible_uncovered_name_suffix`는 각각 마스킹 후보 **1글자 추가**를 제안했으나, 모두 `AMBIGUOUS_PROTECT_ONLY`로 확실한 인물 경계 증거가 없음. 2문서 `review_only`는 신규 보호 글자 **0개**이지만 이름의 마지막 `이` 경계가 여전히 모호함. 9건 전체 자동 처리 승격은 **0건(미구현)**, 정책 성능 개선 수치 미측정.
+
+- H0091은 Step1 READY이나 Gate `unresolved_veil_person`으로 보류. 별도 분류에서는 `kinship_bereavement_word` 사유가 확인됐지만 Gate 정책 카운터는 `ambiguous:1`. `IGNORE_EXTRA_CANDIDATE` 분류는 기존 strict PII 또는 A.X 주소 후보와 충돌할 경우 무효화되므로 충돌의 원인을 재진단해야 함.
+- 진단 스크립트에 후보의 `strict_entity_overlap`, `ax_address_overlap`, `ignore_candidate_vetoed` **개수만** 기록하도록 추가(민감 텍스트·오프셋 출력 없음).
+- H0091만 재진단:
+  `python scripts/diagnose_review_q001.py --ids H0091`
+
+**2차 H0091 진단 (2026-11-11):** 기존 Veil 후보에 `kinship_bereavement_word: 1`이 있으나, `strict_entity_overlap: 1`, `ignore_candidate_vetoed: 1`로 인한 Gate 차단이 확정됨. A.X 주소 겹침은 출력되지 않음(관측된 양수 카운트 없음). Step1 strict PII 개체가 있는 상태에서 Veil의 사전 기반 IGNORE 후보를 바로 무시하면 기존 개인정보를 잘못 해제할 수 있음. **상태 REVIEW 유지.**
+
+**보완 진단:** strict 개인정보의 **라벨 종류**, 후보와 strict 구간의 **포함/부분 겹침 관계**, 후보의 **기존 보호 범위 밖 글자 수**만 추가 집계. 원문·개체 문자열·오프셋·토큰은 출력하지 않음. 부고 친족어와 기존 strict 개체가 일부 겹치는 합성 반례를 추가해, 사전상의 IGNORE가 Step1 strict 보호를 무효화할 수 없음을 회귀 검증.
+
+```bash
+python scripts/diagnose_review_q001.py --ids H0091
+```
+
+### Q-001 · 로컬 Human Review 대시보드 MVP (Mac 실측 전)
+
+Q-001의 이름 끝 '이' 9건 및 H0091 Veil vs strict PERSON 충돌을 사람에게 확인받기 위한 **로컬 전용 검토 도구**를 실험 브랜치에 추가함. 관리자용 프로덕션 기능이 아님.
+
+- 입력: 지정한 문서 ID만 Git에 없는 local_eval/holdout_labeled.jsonl에서 읽고 실제 Step1/Gate/Veil 탐지 결과를 준비.
+- 표시: 오직 127.0.0.1:8771 로컬 브라우저에서 인증 토큰 확인 후 원문/마스킹 범위/문제 후보를 표시. 외부 스크립트/서비스 없음.
+- 검토 분류: 이름 경계 LONG_NAME / SHORT_NAME_PLUS_PARTICLE / UNRESOLVED, Veil 후보 PERSON_PII / NON_PERSON_EXPRESSION / UNRESOLVED.
+- 로컬 기록: Git 무시 경로 local_eval/q001_review_decisions.jsonl에 문서 ID/후보 구간/원문 SHA256/판단 코드/UTC 시간만 기록. 원문·HMAC 토큰은 저장하지 않음. 파일 권한 0600.
+- 의도적 미구현: 이 UI의 분류 결과는 **자동 승인/Step1 REVIEW 해제/HMAC 생성/DB 적재/HCX 호출 권한이 전혀 없음**. 모두 NEEDS_INDEPENDENT_REVALIDATION 상태로만 기록하며, 적용하기 전에 별도의 안전한 검증·교정 파이프라인이 필요함.
+- 보안 한계: 개인 Mac의 신뢰된 브라우저 1명 전용. 브라우저 확장/공유 기기/OS 사용자/스크린샷 위협은 방어하지 않으므로 운영 배포 금지. 토큰·원문·화면 캡처는 GitHub/채팅에 공유하지 않음.
+- 평가: Holdout 문구/문서 번호를 자동 정책 예외에 사용하지 않음. 수동 진단 근거를 확보한 뒤 일반 규칙은 독립 합성/Dev 사례로 검증.
+
+실행 순서: 현재 Q-001 브랜치 동기화 → conda activate aegisrag-retrieval → python scripts/review_dashboard_q001.py --ids H0002 H0057 H0072 H0091 H0103 H0105 H0116 H0117 H0119 H0135 → 터미널의 로컬 URL 접속/세션 토큰 입력 → 항목 검토 → Ctrl+C 종료.
+
+**검증 상태:** 신규 synthetic CI, 실제 Mac의 10문서 로딩/로컬 화면/판단 기록은 후속 확인 필요. main에 미반영.
+
+### 2026-11-12 · Q-001 REVIEW 판정 수집 및 RET-001 공정 비교 준비
+
+**의사결정 목표:** 오늘 팀 통합 논의 전, ① Human Review 10건의 분류 기록 완결성, ② 기존 V6의 전체 88질의 분모 결과, ③ 팀원 최신 run의 동일 Gold/neutral 계산 결과를 확보. 아직 새 탐지 정책 자동 승격이나 187건 적재를 수행하지 않음.
+
+**신규 로컬 검사:** `scripts/q001_review_audit.py` — 실제 Step1/Veil로 동일 문서 후보를 재생성하여 로컬 JSONL 검토 기록의 ID/원문 SHA-256/구간/선택지를 검사. 문서별 최종 유효 판정 누락 수와 stale 기록 오류 수만 반환. 검토가 전부 끝나더라도 자동 READY/DB/HMAC/HCX 미수행.
+
+**공통 88질의 측정:** `scripts/compare_88_retrieval.py` — 이미 준비된 V6 로컬 가명 문서·질의와 DB를 읽기 전용으로 사용. 질의 88건 **전체**를 분모로 계산(보류 질의는 실패로 기록). 기존 자동 평가 가능 81건 결과도 별도로 출력. 팀원 `ranked_doc_ids` JSONL을 입력받으면 **동일한 Gold와 동일 neutral_doc_ids 제외 규칙**으로 재평가. 평가기에서 neutral을 제거하지 않은 실제 상위 5건 지표도 함께 제공해 편향 여부를 확인. Gold는 검색 호출에 사용하지 않음.
+
+```bash
+git pull --ff-only origin exp/q001-review-triage
+python scripts/q001_review_audit.py
+python scripts/compare_88_retrieval.py \
+  --prepared step2_privacy_rag/local_eval/reproduction_20261111/prepared.json \
+  --table rag.aegis_koe5_v6_exp1 \
+  --ours-out step2_privacy_rag/local_eval/ret001_ours_88.jsonl
+
+# 팀원의 최신 88질의 ranked_doc_ids 결과 파일을 확보한 뒤:
+python scripts/compare_88_retrieval.py \
+  --prepared step2_privacy_rag/local_eval/reproduction_20261111/prepared.json \
+  --table rag.aegis_koe5_v6_exp1 \
+  --team-run step2_privacy_rag/local_eval/ret001_team_88.jsonl
+```
+
+**주의:** 동일한 채점 코드를 사용해도 탐지기·문서 적재 범위·문서 단위 대 청크 단위 검색의 차이는 그대로 존재한다. 기존 PPT의 Hit@5 100%는 해당 팀원의 최신 실행 파일을 받아 재현하기 전에는 확인된 수치가 아님. 특히 Hit@5는 한 개 정답만 포함해도 성공이므로 Recall@5/Confuse@10 및 neutral 제거 전후를 반드시 같이 제시. Holdout 반복 실험은 독립 Blind 검증을 대신하지 않는다.
+
+### 2026-11-12 · Mac Q-001 Audit + RET-001 88질의 기준선 실측
+
+**Q001_REVIEW_AUDIT:** 기록 12개에서 10개 REVIEW 문서 각각 최신 유효 분류 1개, `review_complete=10`, `review_incomplete=0`, `invalid_event_counts={}`. 모든 문서는 여전히 `still_blocked_from_index=true`. **Human 분류 기록 완료 ≠ 독립 개인정보 안전 검증 완료 ≠ 187문서 적재 승인**. 기록 12개는 재선택/갱신을 포함할 수 있으며 문서당 판단 한 번이라는 뜻은 아님.
+
+**RET001_FAIR_EVAL** (기존 177문서, 모델/DB 불변, 읽기 전용, HCX 미호출, Top-20 수집):
+
+| 항목 | 기존 검색 가능한 81건 | 88질의 전체(보류 7건 0점) |
+|---|---:|---:|
+| Hit@1 | 73/81 = 90.12% | 73/88 = 82.95% |
+| Hit@5 | 79/81 = 97.53% | 79/88 = 89.77% |
+| MRR | 0.9339 | 0.8596 |
+| Recall@5(full Gold) | 0.8791 | 0.8091 |
+| Confuse@10 | 0.5345 | 0.5345* |
+
+`*Confuse@10`은 `confusable_doc_ids`가 정의된 질의에서 Top-10에 포함된 혼동 문서의 개수를 Top-10 문서 수로 나눈 평균이며, 미검색/비해당 질의는 분모에 포함하지 않음. 그러므로 전체 88질의의 보안 유출률 또는 동일인 잘못 병합률을 의미하지 않음.
+
+**전체 Hit@5 실패 QID 9개:** Q001, Q007, Q013, Q015, Q033, Q040, Q045, Q055, Q065. 구조적 원인 집계는 보류 질의 3개, READY이지만 Gold 문서 미적재 4개, 평가 가능한 질의의 실제 검색 실패 2개. **개별 QID의 정확한 원인 분류는 아직 공개 집계로 미확인**. 이를 별도 분석하는 `scripts/ret001_failure_breakdown.py` 추가. 이미 저장한 로컬 `ret001_ours_88.jsonl`과 `prepared.json`으로 읽기 전용 실행하며 원문·HMAC·문서 본문을 출력하지 않음:
+
+```bash
+python scripts/ret001_failure_breakdown.py \
+  --prepared step2_privacy_rag/local_eval/reproduction_20261111/prepared.json \
+  --runs step2_privacy_rag/local_eval/ret001_ours_88.jsonl
+```
+
+**해석/통합 논의:** 실전 2 자동 파이프라인(177건, 88질의 전체 성능)과 검수+재검증 Human-assisted 파이프라인(187건 목표)은 별도 결과로 보고해야 함. 전자만으로 실무 운영 안전성을 부정할 수 없지만, 후자도 자동 탐지 성능이라고 주장할 수 없음. 팀원 A의 PPT 88/88 Hit@5, MRR 0.924와 비교할 때 평가기·Gold·neutral 처리·검색 후보, 전체 vs 유효 질의 기준, 실제 Top-5 순위와 재현 입력을 반드시 통일.
+
+### 2026-11-12 · RET-001 QID 원인 확정 및 검토 UI 개선
+
+**실측 진단 결과:** 전체 88질의 Hit@5 실패는 9건으로 다음처럼 구분.
+- `DEFERRED_QUERY` 3: Q001(name_topic), Q015(role_agent), Q033(value_exact). 각 정답 Gold 1건은 기존 DB에 있음. 문서 REVIEW만 처리해도 질문 처리 보류는 별도 해결 필요.
+- `READY_NO_INDEXABLE_GOLD` 4: Q007(name_topic), Q013(name_variant), Q040(address_exact), Q045(address_format_variant). Gold 각 1건, 기존 177문서에 없음. Human-assisted 재적재의 가장 직접적인 효과 측정 대상.
+- `RANKING_MISS` 2: Q055(semantic_no_pii, 9 Gold 중 8개가 이미 인덱스에 있지만 저장 Top-20에서 정답 없음), Q065(hybrid_person_content, Gold 5/5 인덱스 존재, 첫 Gold 순위 7위). 두 사례는 문서 적재와 별도로 검색·랭킹 개선이 필요.
+- 이번 **QID 9건**과 PERSON 이름/조사 경계 **문서 9건**은 다른 집합.
+
+**팀원 detect 코드의 경계 접근(정적 분석):** `pii_pipeline._strip_josa`는 모델이 탐지한 PERSON 끝에 조사 후보가 있으면 일정 길이 이상에서 잘라내며, `detect_boost.py`는 Kiwi J* 및 호칭·반복 문맥으로 2글자 이름+조사 분할을 제안. 추론 자동화가 가능하지만, 진짜 이름 끝이 '이'인 경계 반례의 HMAC 잘못된 분리 위험도 함께 시험 필요. 현 Q-001 자료에 맞는 고유 이름 별도 예외·Gold 규칙을 배포하지 않음.
+
+**검토 대시보드 개선:** `scripts/review_dashboard_q001.py`의 인증 후 문서 선택을 드롭다운+별도 조회 버튼에서 **스크롤 가능한 10건 목록 및 항목 클릭 시 즉시 원문/후보 표시**로 변경(첫 문서 자동 열기, 모바일 너비 지원). 리뷰 로컬 토큰·판단 기록 포맷·Gate 차단과 DB 미적재 동작은 그대로. 합성 UI 계약 테스트 및 CI 통과, Mac 브라우저 실제 재시연 전. 문서별 판단 결과를 서버가 대시보드 목록에 지속 표시하는 기능은 별도 개선 예정.
+
+**원클릭 서비스 방향(설계, 아직 구현 전):** 최종 서비스는 Chat UI와 관리자 REVIEW 큐를 하나의 백엔드에서 제공하고, 신규 문서 배치를 자동 Step1→Gate→REVIEW/READY로 라우팅. `READY`만 검색 인덱스 반영; `REVIEW`는 검토 큐와 관리자용 링크로 안내하며 일반 사용자 Chat UI에는 원문 및 관리자 경로 미노출. 관리자 검토는 정답 구간/토큰 관계 교정 → 독립 검증 → 신규 데이터 버전 생성 → 승인된 문서만 적재. 실전2 비교 실험은 자동 처리/인간 개입 처리 별도 지표로 보고. 사용자 권한별 복원/ACL·동명이인 Resolver는 종합 과제 기능으로 이후 통합.
+
+**후속 실험:** Human Review로 확정된 10문서를 기존 strict 보호 구간을 축소하지 않고 비연결 마스킹 중심으로 교정하는 **별도 실험 artifact** 생성 → 회귀 확인 → 새 독립 DB 테이블 적재 및 88질의 평가. 실제 검토 분류를 이용한 이 결과는 `Human-assisted`로 명시하며 자동 탐지 성능 향상으로 주장하지 않음. 안전성 검증 없이 검토 판단만으로 Gate를 우회하지 않음.
+
+**다음 정책 시도:** 이름 경계는 추가 보호 자체와 동일 인물 HMAC 연동을 분리하고, 반례를 포함한 합성/Dev 테스트로 보호 범위 누락·과보호·잘못된 연결 여부를 확인. Gate 충돌은 안전한 이유가 확인되기 전 REVIEW를 유지. 문서별 임시 예외 또는 Holdout 특정 사례에만 맞춘 규칙은 채택하지 않음.
+
+**상태:** 원인 분류 및 추가 충돌 진단 구현 완료 / 모델 정책 미변경·실제 처리율 개선 미검증.
+
+---
+
+## Q-001 · 2026-11-12 · Human-assisted 로컬 E2E 통합 후보 (CI 통과 / Mac 실측 전)
+
+### 구현 범위
+
+- `scripts/review_apply_q001.py`: 모든 최신 Human Review 선택을 원문 SHA-256, 후보 위치·유형과 대조. 이름 끝 `이`를 `LONG_NAME` 또는 `SHORT_NAME_PLUS_PARTICLE`로 교정해 올바른 PERSON HMAC 입력 구간을 만든다. **길이가 3글자일 가능성이 높다는 통계적 추정만으로 자동 승인하지 않음.**
+- H0091 등 `NON_PERSON_EXPRESSION`: 원래 strict PERSON 중 해당 Veil 추가 후보 내부에 정확히 하나만 있는 경우에 한해, 독립 어휘 규칙이 실제로 경조사 표현을 확인하면 PERSON HMAC 연결을 제거. **기존 strict 보호 마스크는 남겨서 residual redaction 적용**. 원본 A.X/Veil 예측 헤드를 보존한 Privacy Gate V4를 다시 실행해 READY 확인.
+- 처음 Step1이 REVIEW였다면 승인 가능한 이름 경계 관련 issue code만 있어야 하며, 나머지 issue 및 새 불명확 후보는 여전히 차단. 기존 모든 Mask 위치는 보존하거나 확장하고 다른 PII/역할 구간을 임의 해제하지 않음.
+- `scripts/q001_human_assisted_e2e.py`: 기존 준비된 177문서 artifact와 새로 재검증한 10문서를 모아 187문서 artifact 생성. 동일 HMAC 키/기존 88질의 상태 보존, 신규 Content-addressed 독립 `rag.aegis_repro_...` 실험 테이블에만 적재. 88개 전체를 보류=0점으로 재평가, 85개 READY 내 검색과 분리 표기.
+- 관리자 대시보드 `scripts/review_dashboard_q001.py`: `--enable-experimental-indexing` 옵션을 명시한 경우에만 '검토 반영 · 실험 적재 · 88질의 평가' 버튼 활성화. 토큰 인증·명시적 확인 뒤 실험을 실행하고 진행·성공·안전한 에러 코드를 폴링해서 표시. 원문·개인식별자를 API 작업 로그에 출력하지 않음. 완료 메타데이터는 local_eval에만 저장.
+- `scripts/run_demo_q001.py`: **하나의 실행 명령으로** localhost 챗봇(기존 177문서)과 관리자 REVIEW 화면 실행. 관리자가 187문서 실험을 성공시켰을 때 챗봇을 새로운 187문서 실험 테이블로 재시작. 외부 HCX 전송은 사용자 명시 설정 `AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES`이 있을 때만 실행 가능. 관리자 토큰은 실행 시마다 새로 생성.
+
+### 2026-11-12 · 실제 Mac preview 성공 / 챗봇·관리자 분리 문제 진단
+
+**사용자 실측:** `Q001_HUMAN_ASSISTED_E2E` `state=REVALIDATED_LOCAL`, `documents=187`, `baseline_doc_count=177`, `revalidated_review_count=10` (`name=9,veil=1`), `mask_coverage_non_decreasing=true`, `all88_queries_unchanged=true`, `db_written=false`, `planned_table=rag.aegis_repro_cc02f91c215583fa591a`. **187문서 실제 DB 적재·검색 평가는 아직 하지 않았음.**
+**사용자 챗봇 관찰:** `Gate=READY`, `HMAC tokens=1`, `Region keys=0`, `HCX-007 INSUFFICIENT_EVIDENCE` for generic name question. 이는 질의 가명화·HCX 응답을 확인할 뿐 HMAC이 DB에서 매치됐는지 또는 올바른 문서가 Top-5인지 증명하지 않음. 서버 실행 로그만으로 챗봇이 새 187문서 테이블을 사용했다고 볼 수 없음(기본은 기존 177문서).
+**보완:** `step2_privacy_rag/app/app.py` health에 `expected_index_rows`, `index_kind` 추가; 채팅 진단에 안전한 Top-5 문서 ID/검색 수/HMAC 일치 문서 수 추가. `app.js`에서 이 데이터를 개발자 상세에 표시. `scripts/check_demo_q001.py`는 인증 정보 없이 두 로컬 서버 포트(8768 챗봇, 8771 관리자)를 각각 점검. `scripts/run_demo_q001.py`는 기존 서버의 포트 충돌을 명시적으로 차단하고 관리자 서버 실제 응답을 확인한 뒤 챗봇 모델을 실행. 대시보드는 관리자 세션 토큰 입력+Enter 허용 및 기존 JSONL 리뷰 선택의 복원 기능 추가. 합성 CI 통과 / Mac 재실행 전.
+**정확한 아키텍처:** 지금 실험에서는 원래 177문서가 별도 라이브 챗봇에 즉시 검색 가능, REVIEW 10문서는 **10건 전부 최종 분류 후** 새 187문서 실험 테이블을 원자적으로 생성하는 **배치 검증** 경로. 운영 목표는 READY 문서가 즉시 인덱스에 반영되고 REVIEW는 별도 큐에 남으며 **개별 검토된 문서가 안전성 재검증 후 비동기 트랜잭션으로 추가 적재**되는 증분 경로. 이는 현재 구현 완료 기능으로 주장하지 말 것. API 서버 요청이 DB 임베딩 및 긴 평가 작업을 동기 블로킹하지 않고 별도 worker에서 수행해야 한다.
+
+### 2026-11-12 · UI 로그인 공백 및 질문 측 REVIEW 오인 수정
+
+사용자 제공 관찰: 관리자 토큰 입력된 화면에서 REVIEW 목록·원문이 비어 있고 최초 인증 안내가 그대로 표시됨. 이 상태는 **REVIEW 문서 0건을 의미하지 않음**. Q-001 서버는 지정된 10건을 계속 보유하고, 인증된 `/api/cases` 조회 및 `/api/case/{id}` 호출 후 목록이 표시되어야 함. 입력 후 별도 '검토 문서 불러오기' 클릭 또는 Enter 필요. 목록 불러오기 전인 상태, 응답 실패, 조회 결과 0건을 분리하여 메시지 표시하도록 수정.
+
+추가 반영:
+- UI에 '판단 기록 n/10, 미분류 m건', 실제 목록 0건이면 '현재 확인할 문서 없음' 표시. 10건이 모두 판단 기록돼도 **독립 재검증·적재 전 문서는 목록에 계속 남음**.
+- 상단 문구는 '분류 기록만으로 HMAC/적재 승인이 되는 것이 아니며 별도 실험 승인 실행 시에만 Gate 재검증→신규 DB 적재'로 수정.
+- `app.py`에서 질문 전처리 Gate REVIEW는 `review_scope=QUERY_PREPARATION`, `mode=gate`로 분리. 질문이 Gate에서 보류되면 HCX 호출도 Retrieval도 발생하지 않으므로 이전의 'HCX-007' 배지는 오해를 초래함. `app.js`는 `Privacy Gate · 검색 전 보류`로 표시.
+- 사용자의 `오가은이 있는 문서 찾아줘`는 **질문 측 이름/조사 경계 REVIEW** 가능성이 있으며 문서 10건 Human Review의 결과로 자동 해제되지 않음. 반대로 `윤선영 정보`에 대한 ANSWER는 기존 챗봇 경로와 HCX 호출이 동작함을 보여줌.
+- 사용자가 채팅에 로컬 세션 토큰을 공유한 경우 서버 재시작으로 새 토큰 발급 권장.
+
+**남은 검증:** 관리자 UI에서 최신 런타임 토큰 로그인 후 `판단 기록 10/10` 표시 확인, 실험 버튼을 눌러 DB 새 테이블 생성 시 `EXPERIMENT_INDEXED_AND_EVALUATED` 완료/88질의 실측 확인, 챗봇이 177→187 문서 전환됐는지 `/api/health` 확인. CI는 합성 계약 검사만 수행하므로 실제 Mac E2E 성공을 주장하지 않음.
+
+### 2026-11-12 · 관리 UI 토큰 자동 로그인 + 실제 API 응답 테스트
+
+실제 Mac 공유 로그에서 관리자 `127.0.0.1:8771`와 챗봇 `127.0.0.1:8768` 기동, 챗봇은 **177문서 인덱스** 표시를 확인. 로그에는 E2E `SUCCEEDED`/`EXPERIMENT_INDEXED_AND_EVALUATED` 또는 187문서 검색 전환 기록이 **없음**. 이전 187문서 `REVALIDATED_LOCAL`은 DB 미적재 프리뷰임. 관리자 UI에 토큰 입력만 하고 별도 **검토 문서 불러오기** 클릭 없이 목록이 표시되지 않는 UX 문제를 확인. 저장된 검토 판단 10/10은 서버 상태에서 사라지지 않으나 인증 API 호출 전 브라우저에는 보이지 않음.
+
+**해결:** 관리 UI가 로컬 `token_urlsafe(32)`의 완전한 43자 토큰 입력/붙여넣기를 감지하면 별도 버튼 없이 `/api/cases`를 자동 호출하고 명시적 로딩/오류 메시지 표시. 버튼·Enter 수동 조회도 유지. `loginBusy`로 중복 요청 방지. 인증 후 개별 문서 10건, 판정 완료 n/10, 그리고 실험 E2E 실행 버튼을 표시. 토큰 없는 페이지에서 원문/검토 기록을 반환하지 않음.
+
+**검증:** 테스트 `test_admin_http_login_returns_all_reviewed_documents`는 실제 localhost HTTPServer에 합성 10건을 바인딩해 토큰 누락 시 403, 토큰 일치 시 10개 조회, 첫 후보만 검토할 때 0/10, 두 번째 후보까지 검토할 때 10/10임을 확인. GitHub CI 통과. 실제 사용자 브라우저·로컬 DB 실험 적재는 아직 재검증 필요.
+
+**다음 실행:** 실행 서버 종료(Ctrl+C) → `git pull --ff-only origin exp/q001-review-triage` → `AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES python scripts/run_demo_q001.py` → 관리자 포트 8771에 새 토큰 붙여넣기 → 10/10 확인 → E2E 실행 승인 → `SUCCEEDED` 및 챗봇 187문서 전환 확인. 토큰을 대화에 공유했을 경우 새로 서버를 시작해 토큰 회전할 것.
+
+### 2026-11-12 · 관리자 UI 버튼 무반응 실제 원인 수정 (Python→JS 렌더링)
+
+**증상:** 관리자 포트 정상, 세션 토큰 사용자가 입력하고 `검토 문서 불러오기` 클릭했으나 문서 목록/상태/실험 버튼 모두 변화 없음. 이전까지 인증/포트 문제가 있다고 추정했으나 실제 원인은 임베디드 JS 구문 오류.
+
+**근본 원인:** `review_dashboard_q001.py`의 `HTML = """..."""` 안에 JS `lines.join("\\n")`이 있음. Python이 일반 triple-quoted 리터럴을 평가할 때 `\\n`을 **실제 줄바꿈 문자**로 변환하여 브라우저로 보내는 JS에 문자열 안의 개행이 생김. 이로 인해 전체 `<script>` 구문 분석 실패, 로그인 버튼 이벤트 리스너도 등록되지 않음. 코드 원문의 JS만 파싱하면 유효하여 오류가 숨겨짐.
+
+**해결:** `HTML = r"""..."""` raw literal로 변경하여 JS 백슬래시 이스케이프 유지. GitHub 테스트에 **Python이 평가한 HTML의 실제 스크립트 문자열** 추출, literal newline regression 및 Node `--check` 구문 검증 추가. 실제 로컬 HTTP 인증/10문서 검토 큐 계약 테스트도 유지. 최신 CI PASS. 브라우저 실측은 재실행 필요.
+
+**실행:** 서버 `Ctrl+C` → `git pull --ff-only origin exp/q001-review-triage` → `AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES python scripts/run_demo_q001.py` → 새 세션 토큰을 대시보드 8771에 붙여넣기 → 판단 기록 10/10 및 실험 버튼 확인. 챗봇은 적재 버튼 실행 전에는 정상적으로 177문서 표시.
+
+### 2026-11-12 · Q-001 Human-assisted 187문서 실측 성공 + 실험 UI 시각화
+
+**실제 Mac 결과(관리자 버튼 실행, HCX 비호출):**
+- `state=SUCCEEDED`, `documents=187`, 신규 별도 테이블 `rag.aegis_repro_11d26bb4db0f23360bdb`. 기존 177문서 테이블은 변경하지 않도록 구현되어 있으며 실험 중 확인된 상태.
+- 88질의 전체 평가: **Hit@1 77/88 (87.50%), Hit@5 83/88 (94.32%), MRR 0.9048**.
+- 동일 88질의 분모의 177문서 자동 처리 기준: **Hit@1 73/88 (82.95%), Hit@5 79/88 (89.77%), MRR 0.8596**. Human-assisted 검토·적재 이후 Hit@1 +4건, Hit@5 +4건, MRR +0.0452.
+- 이 비교는 **사람이 검토한 10건이 추가된 검색 인덱스의 운영 효과**이지, 탐지기 자동 판단 성능의 직접 향상을 나타내지 않음. 질의 준비 상태 85/88은 이 실험에서 그대로 유지. Hit@5 실패 5질의의 QID 분석은 후속 진단 필요.
+
+**관리자 UX 변경:**
+- E2E 완료 전 텍스트 `IDLE / RUNNING / SUCCEEDED`만 보여주던 UI를 **4단계 실제 진행 표시**로 교체. `REVALIDATING`에서 실제 10개 검토 문서 수, `EMBEDDING` 시작/완료, `INDEXING` DB 생성/검증 시작/완료, `EVALUATING`에서 실제 88개 질의 루프 수행 수를 백엔드 콜백으로 보고. 전체 진행바는 이 4단계를 균등 구분한 **단계 진척도**이며 경과 시간 비례 또는 남은 시간 예측이 아님. 경과 시간은 서버에서 monotonic 실제 측정값만 표시.
+- 완료 시 Hit@1 / Hit@5 / MRR / Recall@5를 별도 카드에 표시, 기존 177문서 88질의 기준선과 개선량도 함께 표시. 관리자 화면의 '챗봇 열기' 링크는 제거하여 관리자 REVIEW 업무만 표시.
+- 완료 후 메트릭과 테이블 ID를 `local_eval/q001_e2e_state.json`에 원문 없이 로컬 지속 저장하는 기능 추가; 시연 서버 재시작 시 저장된 187문서 테이블로 챗봇을 다시 연결하도록 런처 수정. **이번 기존 실행에서 만들어진 구버전 상태 파일에는 집계 지표가 저장되어 있지 않음**. 새 버전은 이 경우 상태 `PREVIOUS_RUN`과 '이전 실행 지표 미저장'을 보여주며 임의로 점수를 채우지 않는다. 새 실행 완료부터 결과 저장이 적용된다.
+- 합성 회귀로 10개 REVIEW 후보 진행 콜백의 0/10→10/10, 관리자 UI 스크립트 실제 파싱, 지표 패널/링크 제거 확인. 실제 브라우저에서 새 진척도 UI 동작 확인은 후속 시연 테스트.
+
+**이번 UI 배포 절차:** 서버 종료 후 최신 `exp/q001-review-triage`를 pull, 기존 로컬 시연 명령으로 재실행. 187문서 사용 여부는 챗봇 인덱스 표시 확인. 현재 성공 결과는 이미 보고됐으므로 원본 187문서 적재를 다시 수행할 필요는 없으며, 기존 상태 파일에 지표가 없다는 이유만으로 자동으로 재실행하지 않도록 한다.
+
+### Mac 테스트(기존 main/177문서 테이블 미변경)
+
+```bash
+git pull --ff-only origin exp/q001-review-triage
+conda activate aegisrag-retrieval
+
+# 1. 보호 교정·HMAC 동등성 사전 점검, DB 쓰기 전혀 없음:
+python scripts/q001_human_assisted_e2e.py --mode preview
+
+# 2. 챗봇 + 관리자 UI 실행(별도 두 창에 자동 열기, 브라우저 허용 시):
+AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES python scripts/run_demo_q001.py
+
+# 3. 127.0.0.1:8771 관리자 UI의 터미널 세션 토큰 입력 → 10건 분류 확인
+# 4. '검토 반영 · 실험 적재 · 88질의 평가' 승인 버튼 클릭
+# 5. 187문서 신규 독립 DB 생성 / 88질의 결과 표시 / 챗봇 187문서로 재연결
+```
+
+실험 용도 CLI 단독 실행도 가능:
+```bash
+python scripts/q001_human_assisted_e2e.py --mode run \
+  --confirm CREATE_ISOLATED_HUMAN_ASSISTED_INDEX --device cpu
+```
+
+### 검증·채택 제한
+
+- GitHub 합성 회귀는 이름 마지막 `이`를 3글자 이름+조사/실제 4글자 이름으로 교정했을 때 HMAC이 다른지, 원래 MASK 보존, H0091 부고 오탐 HMAC 제거, 다른 전화번호 보호, 177→187 corpus 합성 생성, 88질의 동일 설정 유지 등을 검사. 실제 Mac 모델/실제 local_eval/pgvector/HCX E2E는 **아직 미실행**.
+- 실행 후 `Q001_HUMAN_ASSISTED_E2E` 및 관리자 지표로 실제 187문서 처리 여부, 남은 보류 질의 3개, Hit@1/5·MRR·Recall@5 및 실패 QID를 재확인해야 함. **보류 질의 3개는 이 실험에서 개선하지 않았음**.
+- 현재는 *기존 187문서가 고정된 교육용 데이터 배치의 Human-assisted 검증 경로*. 신규 무제한 문서 적재, 사람별 계정/권한, Vault 역변환, 장시간 배포, 사용자별 ACL, 자동 모델 재학습은 아직 지원하지 않음.
+- 모델이 모든 개인 식별자를 탐지했다는 보증도 아님. 합성/Dev/새 Blind에서 Mask Recall·False Merge·회귀성 평가를 계속해야 함. 기존 Holdout 10문서에서 검토한 답을 자동 탐지기 일반화 성능으로 주장하지 않음.
+- 원본 177문서 `rag.aegis_koe5_v6_exp1`은 재작성/삭제하지 않음. 새로운 실험 테이블은 콘텐츠 버전으로 분리.
+- 이름 조사 자동화는 별도 규칙 실험에서 **명시적 이름 필드, 다른 문장 확인, Kiwi J 계열의 일치, 충돌 신호**를 각각 평가. 성씨 + 2/3자 이름 길이만으로 READY 승격 금지.
+
+---
+
 ## 후속 개선 백로그 (착수 전)
 
 | 순서 | 영역 | 핵심 검증 |
