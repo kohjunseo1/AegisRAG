@@ -74,6 +74,9 @@ def respond(pipeline: LivePipeline, message: dict, allow_hcx: bool = True) -> di
         'hmac_token_count': len(prepared.tokens),
         'region_key_count': len(prepared.regions),
         'db_index_rows': getattr(pipeline, 'expected_rows', 177),
+        'retrieved_count': len(evidence),
+        'retrieved_with_hmac_match': sum(bool(r.get('hmac_matches')) for r in evidence),
+        'retrieved_doc_ids': [r['doc_id'] for r in evidence],
         'hcx_input_tokens': usage.get('prompt_tokens'),
         'hcx_output_tokens': usage.get('completion_tokens'),
         'outbound_redaction_counts': redactions,
@@ -121,7 +124,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({'error': 'INVALID_HOST'}, 403)
         path = urlparse(self.path).path
         if path == '/api/health':
+            name = str(getattr(self.pipeline, 'table', ''))
+            expected = getattr(self.pipeline, 'expected_rows', None)
+            # A public health endpoint exposes only coarse read-only index
+            # provenance, not identifiers, filenames, SQL or secrets.
+            kind = ('V6_BASELINE_177' if expected == 177
+                    else 'HUMAN_ASSISTED_EXPERIMENT' if expected == 187
+                    else 'OTHER_LOCAL_INDEX')
             return self._json({'status': 'OK', 'data_scope': 'V6_PRIVATE_LOCAL',
+                               'expected_index_rows': expected,'index_kind': kind,
                                'external_hcx_enabled': self.allow_hcx,
                                'db_write': False})
         if path not in ASSETS:
