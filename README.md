@@ -1,166 +1,146 @@
 # AegisRAG
 
-**Privacy-Preserving Retrieval-Augmented Generation for Financial Documents**
+> **Privacy-Preserving RAG for Korean Financial Documents**
+>
+> 개인정보를 감추면서도 같은 개체를 검색할 수 있도록, **실제 PII 탐지 → 안전성 검증 → HMAC 가명처리 → 근거 검색 → 인용 기반 답변**을 연결한 로컬 RAG 프로젝트입니다.
 
-AegisRAG는 금융·상담 문서의 개인정보를 탐지·가명처리한 후, 가명 토큰과 의미 검색을 결합해 관련 문서를 찾고 근거 기반 답변을 생성하는 RAG 시스템입니다. 현재 저장소는 **Step1 탐지기 + Step2 V6 로컬 챗봇의 재현 가능한 기준 구현**입니다.
+**현재 상태:** 실전 1 문서 187건 적재 및 실전 2 검색 평가 완료 · 질의 88건 중 85건 자동 처리 · 실제 HCX 응답·인용의 온라인 E2E 검증은 진행 중
 
-## 전체 처리 흐름
+## Key Features
 
-```text
-[문서 적재: 최초/데이터 변경 시]
-원문 문서 → Step1 A.X·Veil → Privacy Gate → HMAC·Region 가명처리
-         → KoE5 문서 임베딩 → PostgreSQL/PGVector 저장
+| 영역 | 구현 |
+| --- | --- |
+| **PII Detection** | A.X + Veil 이중 모델, Privacy Gate, 보류(REVIEW)/차단(BLOCKED) |
+| **Pseudonymization** | 라벨별 정규화 + HMAC-SHA256 96-bit 토큰, 주소 Region Key |
+| **Retrieval** | KoE5 (1024-dim) + PostgreSQL/pgvector, HMAC/지역 일치 기반 Top-5 재정렬 |
+| **Answer Generation** | HyperCLOVA X HCX-007, Structured Outputs, 근거 문서 ID 인용 검증 |
+| **Operations** | 187건 단일 Live Index, 승인된 신규 문서만 증분 적재, 로컬 웹 UI |
+| **Evaluation** | Hit@K, Recall@K, MRR, Confusable@K, 유형별 실패 분석, CPU p50/p95 |
 
-[챗봇: 질문마다]
-질문 → Step1·Gate → 동일 HMAC·Region 처리 → KoE5 질의 임베딩
-     → 기존 PGVector 검색 → HMAC·Region·Dense 재정렬(Top-5)
-     → HCX-007 근거 선택/답변 → 인용 검증 → 웹 UI
-```
+## Architecture
 
-REVIEW/BLOCKED 요청은 검색·LLM으로 진행하지 않습니다. 문서 임베딩은 **적재 시** 계산하고, 온라인에서는 **새 질문만** 임베딩합니다. 별도 Cross-Encoder 재랭커와 권한별 원문 복원은 현재 MVP 범위에 포함되지 않습니다.
+\`\`\`mermaid
+flowchart TD
+    subgraph Offline["Offline · Document Ingestion"]
+        A["원본 합성 금융 문서"] --> B["A.X + Veil"]
+        B --> C{"Privacy Gate"}
+        C -- READY --> D["HMAC / Region 가명처리"]
+        C -- REVIEW --> R["관리자 검토 · 로컬 승인"]
+        R --> D
+        D --> E["KoE5 Passage Embedding"]
+        E --> F[("PostgreSQL · pgvector\nrag.aegis_live_docs")]
+    end
+    subgraph Online["Online · Private Retrieval QA"]
+        Q["사용자 질문"] --> G["A.X + Veil / Gate"]
+        G -- READY --> H["HMAC / Region 질의 처리"]
+        G -- REVIEW / BLOCKED --> W["검색 보류 · 재질문 안내"]
+        H --> I["KoE5 Query Embedding"]
+        I --> J["Dense + HMAC/Region 재정렬"]
+        F --> J
+        J --> K["Top-5 근거"]
+        K --> L["HCX-007 · 구조화 답변"]
+        L --> M["인용/출력 검사 → 로컬 UI"]
+    end
+\`\`\`
 
-| 구성 | 현재 기준 구현 |
-|---|---|
-| 개인정보 탐지 | A.X(6개 유형) + Veil(주소) |
-| 가명처리 | Gate V4, HMAC V2, Region Key V1 |
-| 검색 | KoE5 1024차원 + PostgreSQL/PGVector + 규칙 기반 재정렬 |
-| 답변 | HCX-007, Structured Outputs, ANSWER/CLARIFY/INSUFFICIENT_EVIDENCE |
-| 웹 UI | 로컬 단일 턴 챗봇 (`http://127.0.0.1:8768`) |
+- 원문/Gold를 GitHub에 포함하지 않습니다. 문서 임베딩은 적재 시 한 번 계산하고, 온라인에서는 **질의만** 임베딩합니다.
+- 보류된 질의를 강제로 가명처리하거나 LLM에 보내지 않습니다. 로컬 관리자 REVIEW 도구는 별도 관리하며 이 저장소의 공개 기능으로 주장하지 않습니다.
+- 현재 검색은 **Dense + 결정적 토큰/지역 일치 기반 순위 보정**입니다. BM25나 Cross-Encoder를 적용한 실험 결과는 아직 없습니다.
 
-구현 상세: [Step1 탐지](step1_pii_detector/README.md) · [Step2 RAG](step2_privacy_rag/README.md).
+## Evaluation
 
-## 빠른 실행
+**2026-11-12 · 합성 Holdout (문서 187건 / 질의 88건) · macOS CPU**
 
-검증 기준은 **Python 3.11.13 / macOS x86_64 / CPU / Docker Desktop**입니다. 다른 OS·아키텍처도 실행할 수 있으나 동일 성능·속도는 별도 검증이 필요합니다. 비공개 저장소 Clone 권한, A.X·Veil Hugging Face 모델 읽기 권한과 개인 `HF_TOKEN`이 필요합니다.
+| 지표 | 결과 |
+| --- | ---: |
+| 문서 처리·인덱싱 | **187 / 187** (자동 처리 177 + 검토 후 적재 10) |
+| 온라인 질의 상태 | **READY 85 · REVIEW 2 · BLOCKED 1** |
+| 전체 질의 Hit@1 / Hit@5 | **77/88 (87.50%) / 83/88 (94.32%)** |
+| 전체 질의 MRR | **0.9051** |
+| 검색 가능 85질의 Hit@1 / Hit@5 | **90.59% / 97.65%** |
+| 검색 가능 85질의 Recall@5 / MRR | **0.8848 / 0.9371** |
+| 검색 가능 85질의 Confusable@5 | **27/85 (31.76%, 낮을수록 좋음)** |
+| 로컬 CPU 검색 p50 / p95 | **717ms / 1,637ms** (모델 워밍업 후, HCX 제외) |
 
-```bash
+**평가 범위:** 88질의 전체 성능은 REVIEW/BLOCKED 3건을 실패로 계산합니다. Recall@5와 Confusable@5는 검색 가능한 85질의 기준이며, 기존 Hit/MRR은 Gold의 neutral 문서를 *채점할 때만* 제외합니다. 전체 답변 정확도·새로운 비공개 데이터 일반화·PII 누락 제로를 증명하는 수치는 아닙니다.
+
+**현재 오류 분석:** Q001/Q015/Q033 질의 보류 · Q055/Q065 정답 Top-5 미포함 · 동일 이름 및 혼동 근거 노출 개선 필요. 상세 결과와 개선 이력은 [실험 로그](docs/IMPROVEMENT_LOG.md)에 분리합니다.
+
+## Tech Stack
+
+\`Python 3.11\` · \`PyTorch\` · \`ONNX Runtime\` · \`Transformers\` · \`KoE5\` · \`PostgreSQL 16\` · \`pgvector\` · \`Docker\` · \`HCX-007\` · \`HTML/CSS/JavaScript\`
+
+## Quick Start
+
+> 실제 모델은 [PII-detect Hugging Face 조직](https://huggingface.co/PII-detect)의 Private 저장소입니다. 적절한 읽기 권한의 \`HF_TOKEN\`, 로컬 \`.env\`, PostgreSQL 환경과 **별도로 제공된 합성 평가 파일/인덱스**가 필요합니다. 새 clone만으로 187문서가 자동 적재되지는 않습니다.
+
+\`\`\`bash
 git clone https://github.com/kohjunseo1/AegisRAG.git
 cd AegisRAG
+# PR #7을 병합하기 전에는 해당 feature 브랜치 사용:
+git checkout fix/v6-chat-index-hcx-hf-org-20261112
+
 python3.11 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.lock -e ./step1_pii_detector
+pip install -r requirements.lock -e ./step1_pii_detector
 
 test -f .env || cp .env.example .env
 chmod 600 .env
-```
-
-`.env`에는 팀 공통 HMAC·DB 설정, 개인 `HF_TOKEN` 및 `LLM_API_KEY`를 설정합니다. **기존 `.env`를 덮어쓰거나 키를 Git에 올리지 마세요.**
-
-```bash
-python scripts/aegisrag.py models --device cpu
+# .env에 HF_TOKEN, 기존 HMAC 키, DB 및 LLM 연결값 설정
 docker compose --env-file .env -f step2_privacy_rag/compose.yaml up -d db
-python scripts/aegisrag.py init-db
-python scripts/aegisrag.py smoke
-```
+python scripts/aegisrag.py models --device cpu
+python scripts/verify_v6_e2e.py
+\`\`\`
 
-- `models`: 실제 고정 모델의 로딩 확인(HF 권한 필요).
-- `init-db`: 기존 DB 스키마의 **읽기 전용 점검**; 초기화/재적재 명령이 아닙니다.
-- `smoke`: 공개 합성 데이터의 계약 테스트. **실제 Holdout 성능 검증이 아닙니다.**
+**187문서 Live Index를 사용하는 로컬 챗봇**
 
-### 챗봇 실행
+\`\`\`dotenv
+AEGISRAG_TABLE=rag.aegis_live_docs
+AEGISRAG_INDEX_MODE=live
+AEGISRAG_LIVE_MIN_ROWS=187
+\`\`\`
 
-기존 V6 문서 177개 테이블(기본 `rag.aegis_koe5_v6_exp1`)이 존재하고, 해당 데이터의 HCX 외부 전송 권한을 확인한 환경에서:
-
-```bash
+\`\`\`bash
 AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
 python scripts/aegisrag.py run-chat --device cpu --port 8768
-```
+# 브라우저: http://127.0.0.1:8768
+\`\`\`
 
-**187문서 Human-assisted 실험 인덱스로 연결하기:** 관리자 REVIEW 화면의 적재 메시지는 기존 챗봇이 사용하는 테이블을 자동 변경하지 않습니다. 10건의 검토 문서를 포함한 별도 인덱스에 대한 읽기 및 외부 전송 승인이 확인된 경우에만, 실행 환경에서 다음을 명시합니다. 아래 테이블명은 이 로컬 실험의 예시입니다.
+위 환경변수는 운영자가 **외부 HCX API로 가명처리된 데이터가 전송되는 동작을 명시적으로 허용**하는 설정입니다. 실제 고객 데이터 처리 승인이나 PII 안전성 인증을 의미하지 않습니다.
 
-```bash
-AEGISRAG_TABLE=rag.aegis_repro_11d26 AEGISRAG_EXPECTED_ROWS=187 \
-AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
-python scripts/aegisrag.py run-chat --device cpu --port 8768
-```
+**88개 질의 검색 재현 (기존 DB 읽기 전용, HCX 호출 없음)**
 
-시작 후 http://127.0.0.1:8768/api/index-status 에서 `status=READY`, `rows=187`, `expected_rows=187`, `key_matches=true`, `table=rag.aegis_repro_11d26`인지 확인합니다. 이 엔드포인트는 **읽기 전용 집계 메타데이터**만 반환하며 개인정보나 HMAC 키는 반환하지 않습니다. 187개 실험 테이블은 재현 인덱스이며 기존 177개 인덱스를 덮어쓰지 않습니다.
+\`\`\`bash
+TOKENIZERS_PARALLELISM=false \
+python scripts/verify_v6_e2e.py --eval-raw
 
-**HCX 문제 진단:** 챗봇에서 `HCX_HTTP_401/403`은 API 키/권한, `HCX_HTTP_400/422`는 요청 형식, `HCX_HTTP_429`는 호출 한도, `HCX_HTTP_5XX`는 제공자 오류, `HCX_CONNECTION_FAILED` / `HCX_TIMEOUT`은 네트워크/시간 초과를 우선 확인합니다. 민감한 요청/응답 본문은 기록하지 않습니다. 합성 자료로만 외부 HCX 연동을 독립 테스트하려면, 조직 정책과 전송 승인을 확인한 후 `AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES python scripts/aegisrag.py smoke --hcx-live`를 사용합니다.
+# 실시간 질의 Gate 원인·근거 문서 로컬 점검
+python scripts/verify_v6_e2e.py --interactive --diagnose-gate
+\`\`\`
 
-**L-002 기본 실행:** 서버가 A.X·Veil + KoE5를 로딩·워밍업한 뒤에만 HTTP 요청을 받습니다. 실제 Mac CPU 평가에서 준비 이후 첫 질문의 로컬 처리시간이 약 **0.44초**였고, 서버 시작(모델 준비)에는 **약 38초**가 걸렸습니다. 외부 HCX 답변 생성시간은 별도입니다. 콘솔의 `AEGISRAG_V6_LIVE_CHAT_READY`가 출력된 이후 브라우저에서 접속하세요.
+원본 합성 질의/Gold JSONL은 \`step2_privacy_rag/local_eval/\`에 별도로 배치해야 합니다. 문서 적재·키 관리·의존성·모델 revision은 [재현 가이드](docs/REPRODUCIBILITY.md)를 참고하세요.
 
-재현·문제 진단을 위한 비활성화 옵션:
+## Repository Structure
 
-```bash
-# 모델 재사용은 유지하되, 서버 시작 시 워밍업만 해제
-AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
-python scripts/aegisrag.py run-chat --device cpu --port 8768 --no-preload
+\`\`\`text
+AegisRAG/
+├── step1_pii_detector/     # A.X / Veil 개인정보 탐지
+├── step2_privacy_rag/      # Gate · 가명처리 · pgvector · HCX · Web UI
+├── scripts/                # 로컬 E2E 진단 · 평가 · 실행
+├── dataset_explorer/       # 원본/Gold 로컬 탐색 UI (127.0.0.1:8770)
+├── config/                 # 모델·평가 설정 (비밀 제외)
+└── docs/                   # 재현 절차 · 실험 기록 · 개선 이력
+\`\`\`
 
-# L-000 방식: 요청마다 Step1 새로 로딩하고, KoE5는 지연 초기화
-AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
-python scripts/aegisrag.py run-chat --device cpu --port 8768 --no-preload --no-reuse-step1
-```
+## Documentation & Scope
 
-브라우저: **http://127.0.0.1:8768**. 이 서버는 로컬(127.0.0.1)에만 바인딩되며 **실행 중인 터미널 프로세스가 살아 있는 동안에만 동작**합니다. `Ctrl+C`로 종료합니다. Mac 재시작 후에는 Docker Desktop/DB와 챗봇을 다시 실행해야 할 수 있습니다. `docker compose up -d`로 실행한 DB 컨테이너와 웹 서버는 별도 프로세스입니다.
+| 문서 | 내용 |
+| --- | --- |
+| [Step 1](step1_pii_detector/README.md) | 탐지 모델 및 검증 |
+| [Step 2](step2_privacy_rag/README.md) | Privacy Gate · 검색 · 웹·HCX 구현 |
+| [Reproducibility](docs/REPRODUCIBILITY.md) | 설치, DB/키, 비공개 데이터 준비, 실험 재현 |
+| [Experiment History](docs/EXPERIMENT_HISTORY.md) | 이전 실험 및 모델·정책 선정 근거 |
+| [Improvement Log](docs/IMPROVEMENT_LOG.md) | Latency 최적화와 개선 실험 |
+| [Dataset Explorer](dataset_explorer/README.md) | 합성 원본·Gold 로컬 확인 |
 
-새 Clone에는 DB 데이터가 없습니다. 팀에서 승인된 비공개 입력을 준비해 **별도 테이블에 최초 적재**해야 챗봇을 실제 문서로 사용할 수 있습니다.
-
-## 데이터 준비·평가 재현
-
-비공개 문서 187건·질의 88건·Gold는 저장소에 포함하지 않습니다. 승인된 경로로 받은 뒤 `step2_privacy_rag/local_eval/`에 보관하고:
-
-```bash
-python scripts/aegisrag.py prepare-v6 \
-  --gold-jsonl step2_privacy_rag/local_eval/holdout_retrieval_queries_gold.jsonl \
-  --out step2_privacy_rag/local_eval/reproduction/prepared.json
-
-python scripts/aegisrag.py ingest-v6 \
-  --input step2_privacy_rag/local_eval/reproduction/prepared.json
-```
-
-두 번째 명령은 새로운 `rag.aegis_repro_<해시>` 테이블명을 **출력만** 합니다. 출력된 테이블명을 사용해 명시적으로 적재하고 평가합니다.
-
-```bash
-python scripts/aegisrag.py ingest-v6 \
-  --input step2_privacy_rag/local_eval/reproduction/prepared.json \
-  --confirm '<출력된_테이블명>'
-
-python scripts/aegisrag.py evaluate-v6 \
-  --input step2_privacy_rag/local_eval/reproduction/prepared.json --baseline
-```
-
-새 테이블로 채팅하려면 실행 명령 앞에 `AEGISRAG_TABLE='<출력된_테이블명>'`을 지정합니다. 기존 테이블을 삭제하거나 초기화하지 않습니다. **완전한 절차·데이터 계약·모델 revision·FAQ는 [재현 가이드](docs/REPRODUCIBILITY.md)**를 참고하세요.
-
-### V6 검색 기준선
-
-| 지표 | 결과 |
-|---|---:|
-| 문서 자동 처리 / REVIEW | 177 / 10 (전체 187) |
-| 질의 READY / REVIEW / BLOCKED | 85 / 2 / 1 (전체 88) |
-| 평가 가능 질의 | 81 |
-| Hit@1 / Hit@5 | 73/81 (90.1%) / 79/81 (97.5%) |
-| Recall@5 / MRR | 0.8802 / 0.9340 |
-
-Recall@5는 **적재 가능한 Gold** 기준입니다(전체 Gold 기준 0.8791). 이 결과는 반복 분석한 Holdout에서 측정한 검색 기준선이며 PII 탐지 정확도, 미공개 데이터 성능 또는 LLM 답변 정확도를 뜻하지 않습니다.
-
-## 기준 데이터 탐색
-
-제공된 Dev·Test·Holdout의 구성, 원문, 정답 개체 구간은 독립된 [데이터 탐색실](dataset_explorer/README.md)에서 확인할 수 있습니다. 모델·DB·Conda·추가 패키지 없이 로컬에서 실행합니다.
-
-```bash
-python3 dataset_explorer/server.py
-```
-
-접속 주소는 **http://127.0.0.1:8770**입니다. 기존 비공개 원본만 읽으며 데이터 복사·외부 전송·원본 수정은 하지 않습니다.
-
-## 테스트와 문서
-
-```bash
-PYTHONPATH=step1_pii_detector:step1_pii_detector/src \
-python -m unittest discover -s step1_pii_detector/tests -v
-
-PYTHONPATH=step2_privacy_rag/app \
-python -m unittest discover -s step2_privacy_rag/tests -v
-
-python scripts/aegisrag.py smoke
-python scripts/scan_git.py --history
-```
-
-[재현 가이드](docs/REPRODUCIBILITY.md)에는 설치·모델/DB 교체·평가를, [실험 이력](docs/EXPERIMENT_HISTORY.md)에는 각 버전의 선택 근거와 최초 평가/사후 개선 결과를 기록했습니다.
-
-## 개선 실험 일지
-
-[V6 이후 개선 실험 일지](docs/IMPROVEMENT_LOG.md)에는 Latency 기준선, 향후 개선 가설, 지표 변화와 채택 여부를 간단하게 기록합니다. 과거 버전별 개발 과정은 [실험 이력](docs/EXPERIMENT_HISTORY.md)에 별도로 보존합니다.
-
-**현재 범위:** 개인 로컬 MVP입니다. 사용자 인증, 문서별 접근 통제, Vault 복원, 운영용 출력 보호·관리자 REVIEW 워크플로, 원격 서버 배포는 후속 통합 단계에서 구현해야 합니다.
+**Known limitations:** 세 질의 REVIEW/BLOCKED의 안전한 복구 흐름, 동명이인 Identity Resolution, Q055/Q065 검색 실패, 혼동 문서 억제, 실제 HCX 응답 품질 및 UI E2E 검증은 후속 과제입니다. 개인 로컬 MVP이므로 인증·사용자별 문서 권한·운영 배포는 구현 범위 밖입니다.
