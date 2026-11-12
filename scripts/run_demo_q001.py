@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -50,6 +51,20 @@ def table_from_state(path:Path) -> str|None:
         return None
 
 
+def port_in_use(port:int)->bool:
+    with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.35)
+        return sock.connect_ex(("127.0.0.1",port))==0
+
+
+def admin_ready(port:int)->bool:
+    try:
+        with urlopen("http://127.0.0.1:"+str(port)+"/",timeout=1.5) as response:
+            return response.status==200
+    except (OSError,TimeoutError):
+        return False
+
+
 def launched(command,env):
     return subprocess.Popen([sys.executable,*command],
                             cwd=ROOT,env=env,stdin=subprocess.DEVNULL)
@@ -67,6 +82,12 @@ def main():
         p.error("INVALID_DEMO_PORTS")
     if os.getenv("AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED")!="YES":
         p.error("Set AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES after authorizing synthetic-data HCX")
+    if port_in_use(a.admin_port):
+        print("Q001_DEMO_FAILED ADMIN_PORT_ALREADY_IN_USE_"+str(a.admin_port),file=sys.stderr)
+        return 2
+    if port_in_use(a.chat_port):
+        print("Q001_DEMO_FAILED CHAT_PORT_ALREADY_IN_USE_"+str(a.chat_port),file=sys.stderr)
+        return 2
     env=os.environ.copy()
     since=DEFAULT_STATE.stat().st_mtime_ns if DEFAULT_STATE.exists() else 0
     admin=None
@@ -74,6 +95,13 @@ def main():
     try:
         admin=launched(["scripts/review_dashboard_q001.py","--enable-experimental-indexing",
                         "--port",str(a.admin_port),"--device",a.device,"--ids",*IDS],env)
+        # Admin detector initialization can take time. Verify that the admin
+        # actually starts before spending memory loading chat embedding models.
+        while not admin_ready(a.admin_port):
+            if admin.poll() is not None:
+                raise RuntimeError("ADMIN_STARTUP_FAILED_CHECK_TERMINAL_OUTPUT")
+            time.sleep(1)
+        print("Q001_DEMO_ADMIN_CONFIRMED http://127.0.0.1:"+str(a.admin_port),flush=True)
         chat_env=env.copy()
         chat=launched(["scripts/aegisrag.py","run-chat","--port",str(a.chat_port),
                        "--device",a.device],chat_env)
