@@ -90,10 +90,12 @@ def main():
     ap.add_argument("--table",default="rag.aegis_koe5_v6_exp1")
     ap.add_argument("--env",type=Path,default=ROOT/".env")
     ap.add_argument("--device",choices=("cpu","mps"),default="cpu")
+    ap.add_argument("--rank-depth",type=int,default=20,help="truncate BOTH ranking lists at the same retrieval depth; team default is 20")
     ap.add_argument("--team-run",type=Path,help="Optional team result JSONL with all 88 ranked_doc_ids")
     ap.add_argument("--ours-out",type=Path,help="Optional local_eval JSONL output of own ranked doc IDs")
     args=ap.parse_args()
     try:
+        if not 5<=args.rank_depth<=200:raise ValueError("INVALID_RANK_DEPTH")
         from reproduction import artifact
         from core import LivePipeline,PreparedQuery,PII
         from dataset_preparation import key_tag
@@ -118,20 +120,20 @@ def main():
                     continue
                 prep=PreparedQuery(q["text"],set(PII.findall(q["text"])),set(q["region_keys"]))
                 results=pipeline.retrieve(prep,top_k=None)
-                runs[q["qid"]]=[r["doc_id"] for r in results]
+                runs[q["qid"]]=[r["doc_id"] for r in results[:args.rank_depth]]
         finally:
             pipeline.close()
         indexable={q["qid"] for q in qs if q["text"] is not None and
                    bool(set(next(g["relevant_doc_ids"] for g in gold if g["qid"]==q["qid"]))&ids)}
         all_scores,all_misses=aggregate(gold,runs,qids)
         eligible_scores,_=aggregate(gold,runs,indexable)
-        out={"documents":len(ids),"total_queries":len(qids),
+        out={"documents":len(ids),"total_queries":len(qids),"rank_depth":args.rank_depth,
              "queries_prepared":sum(q["text"] is not None for q in qs),
              "queries_with_indexable_gold":len(indexable),
              "ours":{"all88":all_scores,"indexable_only":eligible_scores,
                      "all88_official_hit5_misses":all_misses}}
         if args.team_run:
-            tr=load_runs(args.team_run,qids)
+            tr={qid:ranked[:args.rank_depth] for qid,ranked in load_runs(args.team_run,qids).items()}
             scores,misses=aggregate(gold,tr,qids)
             out["team"]={"all88":scores,"all88_official_hit5_misses":misses}
             out["same_gold_and_scoring_rules"]=True
