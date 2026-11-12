@@ -27,7 +27,9 @@ def summarize_score(queries: list[dict], gold: list[dict],
     if len(labels) != len(gold) or set(labels) != ids:
         raise ValueError('GOLD_QID_MISMATCH')
     counters = dict(total=len(queries), eligible=0, deferred=0,
-                    no_indexable_gold=0, hit1=0, hit5=0, confusable_hit1=0,
+                    no_indexable_gold=0, hit1=0, hit5=0,
+                    online_hit1=0, online_hit5=0, confusable_before_gold=0,
+                    confusable_hit1=0,
                     confusable_hit5=0, confusable_eligible=0)
     recall = []; recall_full = []; mrr = []; conf_rr = []
     by_type = {}
@@ -50,6 +52,13 @@ def summarize_score(queries: list[dict], gold: list[dict],
             raise ValueError('INVALID_RANKED_IDS')
         # The effective online top-5 never removes neutral docs.
         raw5 = raw[:5]
+        counters['online_hit1'] += int(bool(raw and raw[0] in relevant))
+        counters['online_hit5'] += int(bool(set(raw5) & relevant))
+        first_gold_raw = next((i for i,d in enumerate(raw,1) if d in relevant), None)
+        first_confusable_raw = next((i for i,d in enumerate(raw,1) if d in confusable), None)
+        if (first_confusable_raw is not None and first_gold_raw is not None
+                and first_confusable_raw < first_gold_raw):
+            counters['confusable_before_gold'] += 1
         has_confusable = bool(confusable & index_ids)
         counters['confusable_eligible'] += has_confusable
         ch1 = int(bool(raw[:1] and raw[0] in confusable))
@@ -82,6 +91,11 @@ def summarize_score(queries: list[dict], gold: list[dict],
         'hit5_rate': round(counters['hit5']/n, 4),
         # Include deferred/unindexable queries as no-hit for full 88-question
         # system coverage. Do not compare these with eligible-only metrics.
+        'online_hit1_rate': round(counters['online_hit1']/n, 4),
+        'online_hit5_rate': round(counters['online_hit5']/n, 4),
+        'online_full_set_hit1_rate': round(counters['online_hit1']/len(queries), 4),
+        'online_full_set_hit5_rate': round(counters['online_hit5']/len(queries), 4),
+        'confusable_before_gold_rate': round(counters['confusable_before_gold']/n,4),
         'full_set_hit1_rate': round(counters['hit1']/len(queries), 4),
         'full_set_hit5_rate': round(counters['hit5']/len(queries), 4),
         'full_set_mrr': round(sum(mrr)/len(queries), 4),

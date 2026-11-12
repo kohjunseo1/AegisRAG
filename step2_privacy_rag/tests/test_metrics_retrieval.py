@@ -14,6 +14,9 @@ class MetricContracts(unittest.TestCase):
         self.assertEqual(m['confusable_hit5'],1)
         self.assertEqual(m['confusable_at5_rate'],1.0)
         self.assertEqual(m['mrr'],.5)
+        self.assertEqual(m['online_hit1_rate'],0.0)
+        self.assertEqual(m['online_hit5_rate'],1.0)
+        self.assertEqual(m['confusable_before_gold'],1)
         self.assertEqual(m['full_set_hit5_rate'],1.0)
         self.assertEqual(failure_cases(q,g,{'Q001':['C','B','A']},{'A','B','C'})[0]['first_confusable_rank_raw'],2)
 

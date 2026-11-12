@@ -116,6 +116,11 @@ def eval_artifact(pipeline, path: Path, max_queries: int):
                 if q['text'] is not None and
                 set(gold_by_id[q['qid']]['relevant_doc_ids']) & ids]
     subset = eligible[:max_queries] if max_queries else eligible
+    # Warm the query embedding backend once with a public synthetic string.
+    # Cold model loading is a startup metric, not per-query warmed CPU latency.
+    warm_started = time.perf_counter()
+    pipeline._encode('합성 검색 성능 측정용 문장')
+    info('EMBEDDING_COLD_START_MS', round((time.perf_counter()-warm_started)*1000,2))
     for i, q in enumerate(subset, 1):
         start = time.perf_counter()
         rows = pipeline.retrieve(PreparedQuery(
@@ -215,6 +220,8 @@ def interactive(pipeline, transport: str, base: str, *, show_masked_evidence: bo
                             'step1_issue_codes':codes})
                 continue
             info('LOCAL_QUERY', {'state':state, 'top5_doc_ids':[d['doc_id'] for d in docs],
+                                 'query_hmac_token_count': len(prepared.tokens),
+                                 'query_region_key_count': len(prepared.regions),
                                  'hmac_matches':[d['hmac_matches'] for d in docs],
                                  'region_matches':[d['region_matches'] for d in docs],
                                  'timings_ms':pipeline.timings})
