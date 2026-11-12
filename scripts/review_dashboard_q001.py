@@ -245,6 +245,9 @@ const select=document.createElement("select");
 const choices=item.kind==="name_boundary"?["UNRESOLVED","LONG_NAME","SHORT_NAME_PLUS_PARTICLE"]:
 ["UNRESOLVED","PERSON_PII","NON_PERSON_EXPRESSION"];
 for(const ch of choices){const option=document.createElement("option");option.value=ch;option.textContent=labels[ch];select.appendChild(option)}
+const old=Array.isArray(doc.saved_choices)?doc.saved_choices[i]:null;
+if(choices.includes(old))select.value=old;
+if(old && old!=="UNRESOLVED")card.appendChild(node("p","저장된 판단: "+labels[old]+" · 독립 재검증 전"));
 const button=node("button","판단 기록 (승인 아님)");button.type="button";
 button.onclick=async()=>{
  if(!confirm("판단 기록만 수행합니다. 실제 가명처리·DB 적재는 이루어지지 않습니다."))return;
@@ -298,6 +301,36 @@ elem("run-e2e").onclick=async()=>{
  }catch(e){elem("e2e-report").textContent="실험 시작 실패: "+e.message}
 };
 </script></body></html>"""
+
+
+def saved_review_choices(cases, journal):
+    """Return only current journal choices matching exact source and candidate."""
+    latest={}
+    try:
+        records=[json.loads(line) for line in private_path(journal).read_text(
+            encoding="utf-8").splitlines() if line.strip()] if journal.exists() else []
+    except (OSError,ValueError):
+        return {}
+    for record in records:
+        if not isinstance(record,dict) or record.get("format")!="q001-review-draft-v1":
+            continue
+        did=record.get("document_id")
+        index=record.get("candidate_index")
+        if did not in cases or type(index) is not int:
+            continue
+        case=cases[did]
+        if not 0<=index<len(case["candidates"]):
+            continue
+        candidate=case["candidates"][index]
+        if (record.get("source_digest")!=hashlib.sha256(
+                case["source"].encode("utf-8")).hexdigest()
+            or record.get("source_span")!=[candidate["start"],candidate["end"]]
+            or record.get("kind")!=candidate["kind"]
+            or record.get("state")!="NEEDS_INDEPENDENT_REVALIDATION"
+            or record.get("human_classification") not in CHOICES[candidate["kind"]]):
+            continue
+        latest[(did,index)]=record["human_classification"]
+    return latest
 
 
 def create_handler(cases, token, port, journal, *,
@@ -385,16 +418,11 @@ def create_handler(cases, token, port, journal, *,
             if not self.authenticated():
                 self.reply(403, {"error": "AUTH_REQUIRED"}); return
             if self.path == "/api/cases":
-                from q001_review_audit import audit
-                try:
-                    records=[json.loads(line) for line in private_path(journal).read_text(
-                        encoding="utf-8").splitlines() if line.strip()] if journal.exists() else []
-                    reviewed={c["id"]:c["review_complete"] for c in audit(cases,records)["cases"]}
-                except Exception:
-                    reviewed={}
+                current=saved_review_choices(cases,journal)
                 self.reply(200, {"experimental_enabled":bool(allow_experiment),
                                  "cases":[{"id":x["id"],"step1_status":x["step1_status"],
-                                           "review_complete":reviewed.get(x["id"],False)}
+                                           "review_complete":all(current.get((x["id"],i),"UNRESOLVED")!="UNRESOLVED"
+                                               for i in range(len(x["candidates"])))}
                                           for x in cases.values()]}); return
             if self.path == "/api/e2e-status":
                 if not allow_experiment:
@@ -403,7 +431,10 @@ def create_handler(cases, token, port, journal, *,
             if self.path.startswith("/api/case/"):
                 did = self.path[len("/api/case/"):]
                 if did in cases:
-                    self.reply(200, cases[did]); return
+                    current=saved_review_choices(cases,journal)
+                    self.reply(200, {**cases[did],"saved_choices":[
+                        current.get((did,i),"UNRESOLVED")
+                        for i in range(len(cases[did]["candidates"]))]}); return
             self.reply(404, {"error": "NOT_FOUND"})
 
         def do_POST(self):
