@@ -123,7 +123,7 @@ class ReviewRecordContracts(unittest.TestCase):
         # triple-quoted string. A non-raw "\\n" escape previously turned
         # into a literal newline within a JS quoted string, breaking ALL
         # UI actions (login, queue and E2E button).
-        match=re.search(r"<script>([\\s\\S]*?)</script>",m.HTML)
+        match=re.search(r"<script>(.*?)</script>",m.HTML,re.DOTALL)
         self.assertIsNotNone(match)
         js=match.group(1)
         self.assertIn('lines.join("\\\\n")',js)
