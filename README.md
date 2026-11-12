@@ -44,7 +44,7 @@ flowchart TD
 ```
 
 - 원문/Gold를 GitHub에 포함하지 않습니다. 문서 임베딩은 적재 시 한 번 계산하고, 온라인에서는 **질의만** 임베딩합니다.
-- 보류된 질의를 강제로 가명처리하거나 LLM에 보내지 않습니다. 로컬 관리자 REVIEW 도구는 별도 관리하며 이 저장소의 공개 기능으로 주장하지 않습니다.
+- 보류된 질의를 강제로 가명처리하거나 LLM에 보내지 않습니다. **신규 문서 REVIEW**는 이 저장소의 독립 로컬 관리자 UI(8781)에서 원문 수정 → 동일 Gate 재검증 → 승인 후 증분 적재하도록 연결했습니다. 기존 8771 관리자 화면과는 별개입니다.
 - 현재 검색은 **Dense + 결정적 토큰/지역 일치 기반 순위 보정**입니다. BM25나 Cross-Encoder를 적용한 실험 결과는 아직 없습니다.
 
 ## Evaluation
@@ -137,6 +137,26 @@ AEGISRAG_TOPIC_BOOST=1 AEGISRAG_QUERY_RECOVERY=1 \
 
 [자연어 질의 평가 가이드](docs/NATURAL_QUERY_EVAL.md). 새로운 문서 자체의 일반화 평가를 하려면 **별도 합성 문서·질의 코퍼스와 격리된 DB**가 필요합니다. 이 예제는 현재 187문서에 대한 새로운 표현의 질의 평가입니다. 문서 적재·키 관리·의존성·모델 revision은 [재현 가이드](docs/REPRODUCIBILITY.md)를 참고하세요.
 
+## New Dataset → Review → Live Index
+
+기존 187문서 재적재 없이 **새 JSONL의 자동 READY/REVIEW 분류 → 로컬 관리자 화면 수정·재검증 → 승인 문서만 증분 적재**까지 이어지는 개발용 운영 경로입니다. 문서 ID에 데이터셋 namespace를 붙이고, 필드명(원본 ID, 본문, 제목, 문서 유형)은 입력마다 지정할 수 있습니다.
+
+```bash
+# 새 데이터셋 자동 분류 (git-ignored local_eval에 stage 저장)
+python scripts/dataset_intake.py stage \
+  --input /path/to/new_source.jsonl \
+  --dataset corp2 --id-field id --text-field text \
+  --stage step2_privacy_rag/local_eval/corp2/stage.json
+
+# 별도 관리자 화면 (기존 8771 UI 대신 독립 포트 8781)
+python scripts/dataset_review_ui.py \
+  --stage step2_privacy_rag/local_eval/corp2/stage.json --port 8781
+```
+
+터미널에 출력된 임시 토큰으로 http://127.0.0.1:8781/ 에 접속하여 원문을 수정하고 Gate 재검증 후 승인 문서 DB 반영 버튼을 누릅니다. 해당 UI는 실제 모델 + DB를 사용하는 로컬 E2E 통합 검증이 아직 필요합니다. 문서의 자동 READY 또한 미탐 PII가 없다는 보증이 아닙니다. [세부 실행 및 제한](docs/DATASET_INTAKE.md) · [관리자 UI](docs/DATASET_REVIEW_UI.md)
+
+문서 유형별 동의어 재정렬(`AEGISRAG_TOPIC_BOOST=1`)은 특정 업무 분야의 수동 규칙 실험으로 **기본 OFF**입니다. 범용 검색 개선은 신규 블라인드 데이터에서 Dense+Lexical/Reranker를 비교한 뒤 결정합니다.
+
 ## Repository Structure
 
 ```text
@@ -160,4 +180,4 @@ AegisRAG/
 | [Improvement Log](docs/IMPROVEMENT_LOG.md) | Latency 최적화와 개선 실험 |
 | [Dataset Explorer](dataset_explorer/README.md) | 합성 원본·Gold 로컬 확인 |
 
-**Known limitations:** 일부 `이름 + 정보/자료` 질의에 한정해 안전한 독립 인물 검증 후 복구를 시도합니다. 나머지 REVIEW/BLOCKED, 동명이인 Identity Resolution, Q055/Q065 검색 실패, 혼동 문서 억제 및 실제 HCX 답변의 사실성 정량 검증은 후속 과제입니다. 개인 로컬 MVP이므로 인증·사용자별 문서 권한·운영 배포는 구현 범위 밖입니다.
+**Known limitations:** 신규 데이터셋 자동 스테이징·로컬 검토 UI는 합성 CI까지만 확인했으며, 사용자의 실제 Mac과 새 원본 문서/DB로 된 통합 검증은 아직 필요합니다. 범용 DB 메타데이터/ACL, PDF/CSV 어댑터와 독립 블라인드 안전성 평가는 후속 과제입니다. 일부 `이름 + 정보/자료` 질의에 한정해 안전한 독립 인물 검증 후 복구를 시도합니다. 나머지 REVIEW/BLOCKED, 동명이인 Identity Resolution, Q055/Q065 검색 실패, 혼동 문서 억제 및 실제 HCX 답변의 사실성 정량 검증은 후속 과제입니다. 개인 로컬 MVP이므로 인증·사용자별 문서 권한·운영 배포는 구현 범위 밖입니다.

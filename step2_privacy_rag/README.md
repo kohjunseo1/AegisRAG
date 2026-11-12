@@ -243,6 +243,8 @@ python scripts/verify_v6_e2e.py --eval-raw
 
 ## 7. 다음 개선 과제
 
+신규 JSONL에 대해 일반화 가능한 문서 수집·REVIEW 승인 UI(8781)가 별도로 구현되었습니다. [데이터셋 수집](../docs/DATASET_INTAKE.md), [로컬 관리자 화면](../docs/DATASET_REVIEW_UI.md) 참고. 실제 모델·신규 문서·Live DB 통합 검증은 아직 미완료입니다. 기존 관리자 8771은 이 코드와 별도로 운영됩니다.
+
 현재 MVP는 로컬 단일 사용자·단일 턴 서비스입니다. **우선순위**는 근거/인용 정확도 실측, 단계별 지연시간과 매 질문 Step1 모델 재로딩 개선, 동명이인·REVIEW 10건 처리, 새 Blind 데이터 평가, 관리자 REVIEW UI 및 권한별 복원입니다. 서버 배포 시에는 인증·문서 접근 통제·DB 최소 권한·TLS·비밀키 관리가 추가로 필요합니다.
 
 상세 실험 수치와 과거 정책 선택 과정은 [실험 이력](../docs/EXPERIMENT_HISTORY.md)에 보존했습니다.

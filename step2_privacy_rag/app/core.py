@@ -286,8 +286,9 @@ class LivePipeline:
             raise PipelineError('V6_DB_RESULT_COUNT_ERROR')
         rows = [dict(doc_id=did, text=masked, tokens=tok or [], region_keys=reg or [],
                      dense_rank=i+1) for i, (did, masked, tok, reg) in enumerate(raw_rows)]
-        # Disable with AEGISRAG_TOPIC_BOOST=0 for a strict old-V6 ablation.
-        use_topic_boost = os.environ.get('AEGISRAG_TOPIC_BOOST', '1') != '0'
+        # Manual domain synonym dictionary is experimental, not a generic default.
+        # Explicit opt-in only: AEGISRAG_TOPIC_BOOST=1
+        use_topic_boost = os.environ.get('AEGISRAG_TOPIC_BOOST', '0') == '1'
         ranked = order_results(rows, prepared.tokens, prepared.regions,
                                query_text=prepared.text, use_topic_boost=use_topic_boost)
         self.timings['rerank_ms'] = (time.perf_counter() - start) * 1000
