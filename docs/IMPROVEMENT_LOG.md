@@ -349,6 +349,16 @@ python scripts/ret001_failure_breakdown.py \
 
 **남은 검증:** 관리자 UI에서 최신 런타임 토큰 로그인 후 `판단 기록 10/10` 표시 확인, 실험 버튼을 눌러 DB 새 테이블 생성 시 `EXPERIMENT_INDEXED_AND_EVALUATED` 완료/88질의 실측 확인, 챗봇이 177→187 문서 전환됐는지 `/api/health` 확인. CI는 합성 계약 검사만 수행하므로 실제 Mac E2E 성공을 주장하지 않음.
 
+### 2026-11-12 · 관리 UI 토큰 자동 로그인 + 실제 API 응답 테스트
+
+실제 Mac 공유 로그에서 관리자 `127.0.0.1:8771`와 챗봇 `127.0.0.1:8768` 기동, 챗봇은 **177문서 인덱스** 표시를 확인. 로그에는 E2E `SUCCEEDED`/`EXPERIMENT_INDEXED_AND_EVALUATED` 또는 187문서 검색 전환 기록이 **없음**. 이전 187문서 `REVALIDATED_LOCAL`은 DB 미적재 프리뷰임. 관리자 UI에 토큰 입력만 하고 별도 **검토 문서 불러오기** 클릭 없이 목록이 표시되지 않는 UX 문제를 확인. 저장된 검토 판단 10/10은 서버 상태에서 사라지지 않으나 인증 API 호출 전 브라우저에는 보이지 않음.
+
+**해결:** 관리 UI가 로컬 `token_urlsafe(32)`의 완전한 43자 토큰 입력/붙여넣기를 감지하면 별도 버튼 없이 `/api/cases`를 자동 호출하고 명시적 로딩/오류 메시지 표시. 버튼·Enter 수동 조회도 유지. `loginBusy`로 중복 요청 방지. 인증 후 개별 문서 10건, 판정 완료 n/10, 그리고 실험 E2E 실행 버튼을 표시. 토큰 없는 페이지에서 원문/검토 기록을 반환하지 않음.
+
+**검증:** 테스트 `test_admin_http_login_returns_all_reviewed_documents`는 실제 localhost HTTPServer에 합성 10건을 바인딩해 토큰 누락 시 403, 토큰 일치 시 10개 조회, 첫 후보만 검토할 때 0/10, 두 번째 후보까지 검토할 때 10/10임을 확인. GitHub CI 통과. 실제 사용자 브라우저·로컬 DB 실험 적재는 아직 재검증 필요.
+
+**다음 실행:** 실행 서버 종료(Ctrl+C) → `git pull --ff-only origin exp/q001-review-triage` → `AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES python scripts/run_demo_q001.py` → 관리자 포트 8771에 새 토큰 붙여넣기 → 10/10 확인 → E2E 실행 승인 → `SUCCEEDED` 및 챗봇 187문서 전환 확인. 토큰을 대화에 공유했을 경우 새로 서버를 시작해 토큰 회전할 것.
+
 ### Mac 테스트(기존 main/177문서 테이블 미변경)
 
 ```bash
