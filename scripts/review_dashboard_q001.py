@@ -9,7 +9,8 @@ Use a trusted local browser. Not a production or multi-user review service.
 import argparse
 from datetime import datetime, timezone
 import hashlib
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread, Lock
 import json
 import os
 from pathlib import Path
@@ -154,6 +155,8 @@ input,select,button{font:inherit;border-radius:7px;padding:9px 12px}
 input,select{border:1px solid #b4c1cd;background:white}button{border:1px solid #b4c1cd;background:#fff;cursor:pointer}
 button:hover{background:#eff6f4}button:focus-visible{outline:3px solid #13846a;outline-offset:2px}
 button.primary{background:#116b57;color:#fff;border-color:#116b57}
+#e2e-controls{margin:14px 0;border:1px solid #7dbba5;background:#edf8f3;padding:15px;border-radius:10px}
+#e2e-controls[hidden]{display:none}#e2e-report{white-space:pre-wrap;line-height:1.6}
 #status{min-height:24px;color:#116b57;font-weight:600}
 .layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:18px;align-items:start}
 .panel{background:#fff;border:1px solid #d8e0e7;border-radius:12px;padding:16px;min-width:0}
@@ -173,6 +176,13 @@ mark.suspect{background:#ffd28a;border-radius:2px}mark.masked{background:#bbebcc
 <input type="password" id="secret" autocomplete="off" placeholder="터미널 발급 토큰" size="28">
 <button id="login" class="primary">검토 문서 불러오기</button><span class="notice">토큰은 현 로컬 서버 실행 중에만 유효</span></div>
 <p id="status" role="status"></p>
+<section id="e2e-controls" hidden>
+ <h2>Human-assisted 실험 E2E</h2>
+ <p class="sub">10문서 검토 완료 후 클릭 시 실제 Gate/HMAC 교정 → 187문서 별도 실험 테이블 생성 → 88질의 재평가. 기존 177문서 테이블 변경 없음.</p>
+ <button class="primary" id="run-e2e">검토 반영 · 실험 적재 · 88질의 평가</button>
+ <p id="e2e-report" role="status"></p>
+ <p><a href="http://127.0.0.1:8768/" target="_blank" rel="noopener noreferrer">챗봇 열기 (로컬 포트 8768 · 별도 실행 필요)</a></p>
+</section>
 <div class="layout">
 <section class="panel" aria-label="검토 문서 목록">
 <h2>REVIEW 목록 <span id="count" class="sub"></span></h2>
@@ -205,7 +215,7 @@ for(const info of entries){
 const button=node("button","");button.type="button";
 button.className="queue-item"+(selected===info.id?" active":"");
 button.appendChild(node("span",info.id));
-button.appendChild(node("small",info.step1_status==="REVIEW_REQUIRED"?"Step1":"Gate"));
+button.appendChild(node("small",(info.review_complete?"판단 기록":"검토 필요")+" · "+(info.step1_status==="REVIEW_REQUIRED"?"Step1":"Gate")));
 button.onclick=()=>loadCase(info.id);box.appendChild(button);
 }
 }
@@ -240,6 +250,7 @@ button.onclick=async()=>{
  if(!confirm("판단 기록만 수행합니다. 실제 가명처리·DB 적재는 이루어지지 않습니다."))return;
  try{const result=await api("/api/review",{id:doc.id,candidate:i,choice:select.value});
  elem("status").textContent=doc.id+" · 기록됨: "+result.state+" (재검증 전)";
+ const summary=await api("/api/cases");entries=summary.cases;renderList();
  }catch(e){elem("status").textContent="기록 실패: "+e.message}
 };
 line.append(select,button);card.appendChild(line);out.appendChild(card);
@@ -247,14 +258,89 @@ line.append(select,button);card.appendChild(line);out.appendChild(card);
 }
 elem("login").onclick=async()=>{
 try{const data=await api("/api/cases");entries=data.cases;selected=null;renderList();
+ elem("e2e-controls").hidden=!data.experimental_enabled;
 elem("status").textContent="검토 문서 "+entries.length+"건 로드 완료 · 클릭해 확인하세요";
 if(entries.length)await loadCase(entries[0].id);
+if(data.experimental_enabled)startProgressPolling();
 }catch(e){elem("status").textContent="인증/조회 실패: "+e.message}
+};
+let progressInterval=null;
+function startProgressPolling(){
+ if(progressInterval!==null)return;
+ async function poll(){
+   try{
+    const result=await api("/api/e2e-status");
+    const state=result.state;
+    const output=elem("e2e-report");
+    const lines=["실험 상태: "+state];
+    if(result.documents)lines.push("문서: "+result.documents);
+    if(result.table)lines.push("실험 테이블: "+result.table);
+    if(result.all88 && result.all88.official){
+      const o=result.all88.official;
+      lines.push("88질의 Hit@1: "+o.hit1+"/88 · Hit@5: "+o.hit5+"/88 · MRR: "+o.mrr);
+    }
+    if(result.error_type)lines.push("실패 유형: "+result.error_type);
+    output.textContent=lines.join("\n");
+    elem("run-e2e").disabled=state==="RUNNING"||state==="SUCCEEDED";
+   }catch(e){elem("e2e-report").textContent="실험 상태 조회 실패";}
+ }
+ poll();progressInterval=setInterval(poll,3500);
+}
+elem("run-e2e").onclick=async()=>{
+ if(!confirm("검토 완료된 10건을 새 독립 실험 DB 테이블에 적재하고 88질의를 재평가합니다. 운영 DB는 변경하지 않습니다. 실행할까요?"))return;
+ try{
+  const v=await api("/api/e2e-run",{confirm:"CREATE_ISOLATED_HUMAN_ASSISTED_INDEX"});
+  elem("e2e-report").textContent="실험 시작: "+v.state;
+  startProgressPolling();
+ }catch(e){elem("e2e-report").textContent="실험 시작 실패: "+e.message}
 };
 </script></body></html>"""
 
 
-def create_handler(cases, token, port, journal):
+def create_handler(cases, token, port, journal, *,
+                   allow_experiment=False, experiment_env=None,
+                   experiment_baseline=None, experiment_source=None,
+                   experiment_device="cpu", experiment_output=None,
+                   experiment_state=None):
+    task={"state":"IDLE","result":None,"error_type":None}
+    lock=Lock()
+
+    def safe_status():
+        with lock:
+            status={"state":task["state"],"error_type":task["error_type"]}
+            if task["result"] is not None:
+                status.update({
+                    "documents":task["result"].get("documents"),
+                    "table":task["result"].get("table"),
+                    "all88":task["result"].get("all88"),
+                })
+            return status
+
+    def job():
+        from q001_human_assisted_e2e import run_pipeline
+        from dataset_preparation import private_write
+        try:
+            report=run_pipeline(mode="run",env=experiment_env,
+                                baseline=experiment_baseline,
+                                source=experiment_source,
+                                journal=journal,
+                                output=experiment_output,
+                                device=experiment_device,
+                                confirm="CREATE_ISOLATED_HUMAN_ASSISTED_INDEX")
+            if report.get("state")!="EXPERIMENT_INDEXED_AND_EVALUATED":
+                raise ValueError("E2E_UNEXPECTED_OUTCOME")
+            private_write(private_path(experiment_state),{
+                "format":"q001-e2e-index-v1",
+                "table":report["table"],"documents":report["documents"],
+                "hcx_called":False,
+            })
+            with lock:
+                task.update(state="SUCCEEDED",result=report,error_type=None)
+        except Exception as exc:
+            # Generic type only: model/DB exceptions can contain raw source.
+            with lock:
+                task.update(state="FAILED",result=None,error_type=type(exc).__name__)
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *unused):
             pass  # No access logs containing sensitive data.
@@ -292,8 +378,21 @@ def create_handler(cases, token, port, journal):
             if not self.authenticated():
                 self.reply(403, {"error": "AUTH_REQUIRED"}); return
             if self.path == "/api/cases":
-                self.reply(200, {"cases": [{"id": x["id"], "step1_status": x["step1_status"]}
-                                           for x in cases.values()]}); return
+                from q001_review_audit import audit
+                try:
+                    records=[json.loads(line) for line in private_path(journal).read_text(
+                        encoding="utf-8").splitlines() if line.strip()] if journal.exists() else []
+                    reviewed={c["id"]:c["review_complete"] for c in audit(cases,records)["cases"]}
+                except Exception:
+                    reviewed={}
+                self.reply(200, {"experimental_enabled":bool(allow_experiment),
+                                 "cases":[{"id":x["id"],"step1_status":x["step1_status"],
+                                           "review_complete":reviewed.get(x["id"],False)}
+                                          for x in cases.values()]}); return
+            if self.path == "/api/e2e-status":
+                if not allow_experiment:
+                    self.reply(404,{"error":"NOT_ENABLED"});return
+                self.reply(200,safe_status());return
             if self.path.startswith("/api/case/"):
                 did = self.path[len("/api/case/"):]
                 if did in cases:
@@ -303,7 +402,7 @@ def create_handler(cases, token, port, journal):
         def do_POST(self):
             if not self.valid_origin() or not self.authenticated():
                 self.reply(403, {"error": "AUTH_REQUIRED"}); return
-            if self.path != "/api/review":
+            if self.path not in ("/api/review","/api/e2e-run"):
                 self.reply(404, {"error": "NOT_FOUND"}); return
             if self.headers.get("Content-Type") != "application/json":
                 self.reply(415, {"error": "JSON_REQUIRED"}); return
@@ -311,8 +410,21 @@ def create_handler(cases, token, port, journal):
                 size = int(self.headers.get("Content-Length", "-1"))
                 if not 0 < size <= 1024:
                     raise ValueError("BAD_SIZE")
-                record = review_record(json.loads(self.rfile.read(size)), cases)
-                persist(journal, record)
+                payload=json.loads(self.rfile.read(size))
+                if self.path=="/api/e2e-run":
+                    if not allow_experiment or payload!={"confirm":"CREATE_ISOLATED_HUMAN_ASSISTED_INDEX"}:
+                        raise ValueError("EXPERIMENT_DISABLED_OR_UNCONFIRMED")
+                    with lock:
+                        if task["state"]!="IDLE":
+                            self.reply(409,{"error":"EXPERIMENT_ALREADY_STARTED"});return
+                        task.update(state="RUNNING",result=None,error_type=None)
+                    Thread(target=job,daemon=True,name="q001-experiment").start()
+                    self.reply(202,{"state":"RUNNING"});return
+                with lock:
+                    if task["state"]!="IDLE":
+                        self.reply(409,{"error":"REVIEW_LOCKED_DURING_EXPERIMENT"});return
+                    record = review_record(payload, cases)
+                    persist(journal, record)
                 self.reply(200, {"state": "NEEDS_INDEPENDENT_REVALIDATION"})
             except (TypeError, ValueError, OSError):
                 self.reply(400, {"error": "INVALID_REVIEW"})
@@ -325,6 +437,16 @@ def main():
     ap.add_argument("--journal", type=Path, default=LOCAL/"q001_review_decisions.jsonl")
     ap.add_argument("--ids", nargs="+", required=True)
     ap.add_argument("--port", type=int, default=8771)
+    ap.add_argument("--enable-experimental-indexing",action="store_true",
+                    help="admin-confirmed isolated 187-doc DB indexing + 88-query eval")
+    ap.add_argument("--env",type=Path,default=ROOT/".env")
+    ap.add_argument("--baseline",type=Path,
+                    default=LOCAL/"reproduction_20261111/prepared.json")
+    ap.add_argument("--experiment-out",type=Path,
+                    default=LOCAL/"q001_human_assisted_187.json")
+    ap.add_argument("--experiment-state",type=Path,
+                    default=LOCAL/"q001_e2e_state.json")
+    ap.add_argument("--device",choices=("cpu","mps"),default="cpu")
     args = ap.parse_args()
     try:
         if not 1024 <= args.port <= 65535 or private_path(args.input) == private_path(args.journal):
@@ -334,11 +456,24 @@ def main():
         with create_detector() as detector:
             cases = get_cases(sources, detector)
         secret = secrets.token_urlsafe(32)
-        server = HTTPServer(("127.0.0.1", args.port),
-                            create_handler(cases, secret, args.port, args.journal))
+        if args.enable_experimental_indexing and set(args.ids)!=set((
+            "H0002","H0057","H0072","H0091","H0103",
+            "H0105","H0116","H0117","H0119","H0135")):
+            raise ValueError("REQUIRE_FULL_Q001_REVIEW_SET")
+        server = ThreadingHTTPServer(("127.0.0.1", args.port),
+                            create_handler(cases, secret, args.port, args.journal,
+                            allow_experiment=args.enable_experimental_indexing,
+                            experiment_env=args.env,experiment_baseline=args.baseline,
+                            experiment_source=args.input,experiment_device=args.device,
+                            experiment_output=args.experiment_out,
+                            experiment_state=args.experiment_state))
         print("Q001_REVIEW_LOCAL http://127.0.0.1:" + str(args.port), flush=True)
         print("Q001_REVIEW_SESSION_TOKEN " + secret, flush=True)
-        print("REVIEW_ONLY_NO_AUTOMATIC_RELEASE", flush=True)
+        print("REVIEW_HUMAN_CLASSIFICATION_REQUIRED", flush=True)
+        if args.enable_experimental_indexing:
+            print("Q001_EXPERIMENTAL_INGEST_ENABLED isolated_index_only=TRUE",flush=True)
+        else:
+            print("REVIEW_ONLY_NO_AUTOMATIC_RELEASE", flush=True)
         try: server.serve_forever()
         except KeyboardInterrupt: pass
         finally: server.server_close()
