@@ -194,6 +194,18 @@ python scripts/verify_v6_e2e.py \
 
 `--synthetic-review`는 Mock 모델의 `REVIEW_REQUIRED` 동작과 승인을 흉내 낸 데이터 계약을 검증합니다. **8771 관리자 웹 UI의 실제 승인·재검증·삽입 동작까지 검증했다는 뜻은 아닙니다.** 실제 UI는 로컬 전용이므로 해당 코드와 연결하려면 별도 통합 테스트가 필요합니다.
 
+### STEP1_GATE_FAILED 오류 확인 (Mac 실모델, 안전 진단)
+
+`STEP1_GATE_FAILED`가 첫 질의에 발생한 다음 `STEP1_DETECTOR_FAILED_RESTART_REQUIRED`가 반복된다면 해당 프로세스는 이미 fail-closed 상태입니다. 같은 프로세스에서 계속 재시도하지 마세요. `aegisrag-retrieval` 등 **현재 실행 중인 Python 환경**에서 다음을 실행합니다.
+
+```bash
+python scripts/diagnose_step1.py
+```
+
+단계별로 `STEP1_ENVIRONMENT`, `STEP1_MODEL_INIT`, `STEP1_BACKEND`, `STEP1_DETECT`, `STEP2_LOCAL_PREPARE`를 출력합니다. 에러의 **유형과 저장소 내부 위치**만 출력하며 원문, 개인정보, HMAC, API 키, 스택 내용이나 외부 의존성의 에러 메시지를 출력하지 않습니다. 합성 문장만 사용하며 DB나 HCX에는 접근하지 않습니다. 먼저 해당 환경에서 `python scripts/aegisrag.py models --device cpu`를 재실행해도 좋습니다.
+
+`STEP1_MODEL_INIT`에서 실패하면 HF_TOKEN 유무·해당 환경의 의존성·모델 revision 권한부터 확인하고, 초기화가 통과한 다음 백엔드가 실패하면 A.X/Veil 런타임으로 범위를 좁힙니다. `STEP2_LOCAL_PREPARE`만 실패한다면 모델은 동작하며 게이트/가명처리 연동을 확인해야 합니다. 이전에 다른 Conda 환경에서 나온 `PINNED_MODELS_READY`만으로 현재 환경의 성공을 가정하지 마세요.
+
 ## 7. 다음 개선 과제
 
 현재 MVP는 로컬 단일 사용자·단일 턴 서비스입니다. **우선순위**는 근거/인용 정확도 실측, 단계별 지연시간과 매 질문 Step1 모델 재로딩 개선, 동명이인·REVIEW 10건 처리, 새 Blind 데이터 평가, 관리자 REVIEW UI 및 권한별 복원입니다. 서버 배포 시에는 인증·문서 접근 통제·DB 최소 권한·TLS·비밀키 관리가 추가로 필요합니다.

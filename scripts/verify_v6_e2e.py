@@ -84,6 +84,12 @@ def real_review_probes(pipeline):
             from core import PipelineError
             outcome = str(exc) if isinstance(exc, PipelineError) else 'ERROR'
         results.append({'case': number, 'state': outcome})
+        if outcome in {'STEP1_GATE_FAILED','STEP1_DETECTOR_FAILED_RESTART_REQUIRED'}:
+            # Fail closed: repeat requests cannot repair a faulted live detector.
+            results.extend({'case': n, 'state': 'NOT_RUN_AFTER_STEP1_FAILURE'}
+                           for n in range(number+1, len(cases)+1))
+            print('STEP1_FAULT: run python scripts/diagnose_step1.py in the current environment', flush=True)
+            break
     info('REAL_MODEL_REVIEW_PROBES', {
         'cases': results,
         'review_observed': any('REVIEW' in r['state'].upper() for r in results),
@@ -201,6 +207,9 @@ def interactive(pipeline, transport: str, base: str):
             from hcx import OutboundError
             code = str(exc) if isinstance(exc, (PipelineError, OutboundError)) else type(exc).__name__
             info('LOCAL_TEST_ERROR', {'code': code})
+            if code in {'STEP1_GATE_FAILED','STEP1_DETECTOR_FAILED_RESTART_REQUIRED'}:
+                print('STEP1_FAULT: stop this process and run python scripts/diagnose_step1.py', flush=True)
+                break
 
 
 def main() -> int:

@@ -24,6 +24,8 @@ jobs:
       - run: python scripts/check_step1_reuse_parity.py --help
       - run: python -m py_compile scripts/verify_v6_e2e.py step2_privacy_rag/app/metrics_retrieval.py step2_privacy_rag/app/live_index.py
       - run: python scripts/verify_v6_e2e.py --help
+      - run: python -m py_compile scripts/diagnose_step1.py
+      - run: python scripts/diagnose_step1.py --environment-only
       - run: python scripts/verify_v6_e2e.py --synthetic-review --synthetic-only
       - run: python scripts/aegisrag.py smoke
       - run: python scripts/scan_git.py --history
