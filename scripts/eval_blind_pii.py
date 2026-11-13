@@ -138,6 +138,7 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
     prepare_states=Counter()
     prepare_reasons=Counter()
     intake_states=Counter()
+    projected_review_reasons=Counter()
     gold_chars=masked_gold_chars=0
     possible_literal_residuals=0
     ready_docs_with_suspected_residual=0
@@ -193,6 +194,17 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
             else:
                 intake_state='REVIEW_PENDING'
             intake_states[intake_state]+=1
+            if intake_state!='READY':
+                if outcome.state=='BLOCKED':
+                    projected_review_reasons['BLOCKED_'+outcome.reason]+=1
+                elif outcome.state=='REVIEW':
+                    projected_review_reasons['REVIEW_'+outcome.reason]+=1
+                elif outcome.unlinked_mentions:
+                    projected_review_reasons['UNLINKED_MENTIONS_REVIEW']+=1
+                elif outcome.state=='LOCAL_PREPARED':
+                    projected_review_reasons['RESIDUAL_PII_OR_EMPTY_REVIEW']+=1
+                else:
+                    projected_review_reasons['OTHER']+=1
             residual=0
             if auto_ready:
                 # Conservative lexical signal only: a short given name can
@@ -225,6 +237,7 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
         'prepare_states':dict(prepare_states),
         'prepare_reasons':dict(prepare_reasons),
         'projected_intake_states':dict(intake_states),
+        'projected_nonready_reasons':dict(projected_review_reasons),
         'timing_ms':{
             'cold_detector_model_load':init_ms,
             'first_document_step1':round(stage1_ms[0],2),
