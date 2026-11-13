@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import statistics
 import sys
 import time
@@ -40,7 +41,7 @@ def load_cases(path: Path) -> list[dict]:
                 or (refs is not None and
                     (not isinstance(refs, list)
                      or not refs
-                     or any(not isinstance(x, str) or not x.startswith('H') for x in refs)))):
+                     or any(not isinstance(x, str) or re.fullmatch(r'[A-Za-z0-9_-]{1,60}',x) is None for x in refs)))):
             raise ValueError('MVP_CASE_SCHEMA_INVALID')
         ids.add(case_id)
         cases.append(obj)
@@ -52,6 +53,8 @@ def load_cases(path: Path) -> list[dict]:
 def metric_report(rows: list[dict]) -> dict:
     n = len(rows)
     labeled = [r for r in rows if r['labeled']]
+    policy = [r for r in rows if r.get('expected_decision') in {'ANSWER','CLARIFY','INSUFFICIENT_EVIDENCE'}]
+    judged_policy = [r for r in policy if r.get('decision') is not None]
     states = Counter(r['gate_state'] for r in rows)
     decisions = Counter(r['decision'] for r in rows if r['decision'])
     lat = sorted(r['total_ms'] for r in rows)
@@ -70,6 +73,11 @@ def metric_report(rows: list[dict]) -> dict:
         'hit1_rate_labeled': round(sum(r['hit1'] for r in labeled)/len(labeled),4) if labeled else None,
         'hit5_rate_labeled': round(sum(r['hit5'] for r in labeled)/len(labeled),4) if labeled else None,
         'answer_with_expected_citation': sum(r.get('cited_expected') is True for r in labeled),
+        'policy_cases':len(policy),
+        'decision_scored_cases':len(judged_policy),
+        'expected_decision_accuracy':round(sum(r['decision']==r['expected_decision'] for r in judged_policy)/len(judged_policy),4) if judged_policy else None,
+        'unanswerable_false_answers':sum(r['expected_decision']!='ANSWER' and r.get('decision')=='ANSWER' for r in judged_policy),
+        'non_gold_citation_cases':sum(r.get('non_gold_citations',0)>0 for r in judged_policy),
         'latency_ms': {'mean': round(statistics.mean(lat),2), 'p50':pct(.5), 'p95':pct(.95)},
         'note': 'Citations matching a labeled document do not establish factual answer correctness. Unlabeled questions are not scored.'
     }
@@ -111,6 +119,9 @@ def evaluate(cases: list[dict], *, device='cpu', hcx_live=False) -> dict:
                 'gate_state':state,
                 'query_recovery':recovery,
                 'decision':decision,
+                'expected_decision':case.get('expected_decision'),
+                'split':case.get('split','unassigned'),
+                'non_gold_citations':len([c for c in cited if c not in refs]) if hcx_live and refs else (len(cited) if hcx_live and case.get('expected_decision')!='ANSWER' else 0),
                 'top5_doc_ids':ranked[:5],
                 'citations':cited,
                 'labeled':scored,
@@ -177,6 +188,7 @@ def main(argv=None):
     p.add_argument('--write-example', action='store_true',
                    help='create git-ignored synthetic question examples under local_eval; no model calls')
     p.add_argument('--device',choices=['cpu','mps'],default='cpu')
+    p.add_argument('--limit',type=int,default=0,help='Limit evaluation to first N selected cases (0 = all)')
     p.add_argument('--hcx-live',action='store_true',help='Call paid HCX API after local masking and outbound checks')
     args=p.parse_args(argv)
     if args.write_example:
@@ -190,7 +202,12 @@ def main(argv=None):
     if args.hcx_live and os.environ.get('AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED') != 'YES':
         p.error('live HCX requires AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES')
     try:
-        return 0 if evaluate(load_cases(args.cases),device=args.device,hcx_live=args.hcx_live) else 2
+        cases=load_cases(args.cases)
+        if args.limit < 0:
+            raise ValueError('MVP_LIMIT_INVALID')
+        if args.limit:
+            cases=cases[:args.limit]
+        return 0 if evaluate(cases,device=args.device,hcx_live=args.hcx_live) else 2
     except Exception as exc:
         # Exceptions might contain original query snippets; only expose type and safe code.
         safe = str(exc) if isinstance(exc, ValueError) and str(exc).startswith('MVP_') else type(exc).__name__
