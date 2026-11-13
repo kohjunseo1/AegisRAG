@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 import unittest
 import zipfile
-from scripts.eval_blind_pii import read_rows,set_spans,mask_coverage,counts_to_metrics
+from scripts.eval_blind_pii import read_rows,set_spans,mask_coverage,counts_to_metrics,latency_summary
 from collections import Counter
 
 
@@ -31,6 +31,12 @@ class BlindPIIEvalContract(unittest.TestCase):
             path.write_text(json.dumps(item,ensure_ascii=False),encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'BLIND_GOLD_OFFSET_MISMATCH'):
                 read_rows(path)
+
+    def test_timing_percentiles(self):
+        vals=latency_summary([10,20,30,40,50])
+        self.assertEqual(vals['p50_ms'],30)
+        self.assertEqual(vals['p95_ms'],48)
+        self.assertEqual(latency_summary([])['n'],0)
 
     def test_strict_metric(self):
         result=counts_to_metrics(Counter(tp=2,fp=1,fn=2))

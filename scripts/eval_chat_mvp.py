@@ -49,6 +49,18 @@ def load_cases(path: Path) -> list[dict]:
     return cases
 
 
+def timing_aggregate_ms(values: list[float]) -> dict:
+    if not values:
+        return {'n':0,'mean':None,'p50':None,'p95':None}
+    vals=sorted(values)
+    def pct(frac):
+        i=(len(vals)-1)*frac
+        lo=int(i)
+        return round(vals[lo]+(vals[min(lo+1,len(vals)-1)]-vals[lo])*(i-lo),2)
+    return {'n':len(vals),'mean':round(statistics.mean(vals),2),
+            'p50':pct(0.5),'p95':pct(0.95)}
+
+
 def metric_report(rows: list[dict]) -> dict:
     n = len(rows)
     labeled = [r for r in rows if r['labeled']]
@@ -84,6 +96,14 @@ def metric_report(rows: list[dict]) -> dict:
         'unanswerable_false_answers':sum(r['expected_decision']!='ANSWER' and r.get('decision')=='ANSWER' for r in judged_policy),
         'non_gold_citation_cases':sum(r.get('non_gold_citations',0)>0 for r in judged_policy),
         'latency_ms': {'mean': round(statistics.mean(lat),2), 'p50':pct(.5), 'p95':pct(.95)},
+        'phase_latency_ms':{
+            name:timing_aggregate_ms([
+                r['phase_timings_ms'][name] for r in rows
+                if isinstance(r.get('phase_timings_ms'),dict)
+                and isinstance(r['phase_timings_ms'].get(name),(int,float))
+                and r['phase_timings_ms'][name]>0
+            ]) for name in ('step1_ms','step1_process_ms','embedding_ms','db_ms','rerank_ms','hcx_ms')
+        },
         'note': 'Citations matching a labeled document do not establish factual answer correctness. Unlabeled questions are not scored.'
     }
 
@@ -128,6 +148,8 @@ def evaluate(cases: list[dict], *, device='cpu', hcx_live=False, report_file: Pa
                 recovery = pipeline.last_query_recovery
                 cited = []
                 answer_text=None
+            phase_timing=(result.get('diagnostics',{}).get('timings_ms',{}) if hcx_live
+                          else getattr(pipeline,'timings',{}))
             refs = set(case.get('relevant_doc_ids') or [])
             indexable_refs=refs & indexed
             scored = bool(refs)
@@ -150,6 +172,11 @@ def evaluate(cases: list[dict], *, device='cpu', hcx_live=False, report_file: Pa
                 'recall5_indexable':round(len(indexable_refs & set(ranked[:5])) / len(indexable_refs),4) if indexable_refs else None,
                 'cited_expected':bool(refs.intersection(cited)) if (scored and hcx_live) else None,
                 'total_ms':round((time.perf_counter()-start)*1000,2),
+                'phase_timings_ms':{
+                    k:round(v,2) for k,v in phase_timing.items()
+                    if k in ('step1_ms','step1_process_ms','embedding_ms','db_ms','rerank_ms','hcx_ms')
+                    and isinstance(v,(int,float))
+                },
             }
             rows.append(row)
             if report_file is not None:

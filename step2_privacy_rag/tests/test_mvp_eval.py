@@ -5,10 +5,14 @@ import unittest
 from pathlib import Path
 
 from unittest.mock import patch
-from scripts.eval_chat_mvp import load_cases, metric_report, write_example_cases
+from scripts.eval_chat_mvp import load_cases, metric_report, write_example_cases, timing_aggregate_ms
 
 
 class TestMVPEval(unittest.TestCase):
+    def test_phase_latency_percentiles(self):
+        self.assertEqual(timing_aggregate_ms([10,20,30,40,50])['p95'],48.0)
+        self.assertEqual(timing_aggregate_ms([])['n'],0)
+
     def test_labeled_and_unlabeled_cases(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'cases.jsonl'

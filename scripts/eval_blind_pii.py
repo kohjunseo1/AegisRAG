@@ -11,6 +11,8 @@ import argparse
 from collections import Counter
 import json
 import os
+import statistics
+import time
 from pathlib import Path
 import sys
 import zipfile
@@ -100,6 +102,18 @@ def mask_coverage(gold:list[dict], masks:list[dict], length:int) -> tuple[int,in
     return hit,total
 
 
+def latency_summary(samples:list[float])->dict:
+    if not samples:
+        return {'n':0,'mean_ms':None,'p50_ms':None,'p95_ms':None}
+    vals=sorted(float(x) for x in samples)
+    def pct(q):
+        i=(len(vals)-1)*q
+        lo=int(i)
+        return vals[lo]+(vals[min(lo+1,len(vals)-1)]-vals[lo])*(i-lo)
+    return {'n':len(vals),'mean_ms':round(statistics.mean(vals),2),
+            'p50_ms':round(pct(.50),2),'p95_ms':round(pct(.95),2)}
+
+
 def counts_to_metrics(c:Counter)->dict:
     tp,fp,fn=c['tp'],c['fp'],c['fn']
     p=tp/(tp+fp) if tp+fp else (1.0 if not fn else 0.0)
@@ -128,10 +142,19 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
     ready_docs_with_suspected_residual=0
     ready_docs_with_step1_gap=0
     per_doc=[]
-    with create_detector() as detector:
+    stage1_ms=[]
+    downstream_ms=[]
+    privacy_total_ms=[]
+    cold_started=time.perf_counter()
+    detector=create_detector()
+    init_ms=round((time.perf_counter()-cold_started)*1000,2)
+    with detector:
         for i,row in enumerate(rows,1):
+            doc_started=time.perf_counter()
             gold=set_spans(row['entities'])
+            step1_started=time.perf_counter()
             result=detector.detect(row['text'])
+            step1_elapsed=(time.perf_counter()-step1_started)*1000
             pred=set_spans(result.get('entities',[]))
             tp=pred&gold
             fp=pred-gold
@@ -146,7 +169,12 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
             gold_chars+=total
             # Freeze original Step1 output; Gate can call independent A.X/Veil
             # but must not re-infer another Step1 result.
+            next_started=time.perf_counter()
             outcome=prepare('EVAL_%05d'%i,row['text'],_FrozenDetectorView(detector,result),key)
+            downstream_elapsed=(time.perf_counter()-next_started)*1000
+            stage1_ms.append(step1_elapsed)
+            downstream_ms.append(downstream_elapsed)
+            privacy_total_ms.append((time.perf_counter()-doc_started)*1000)
             prepare_states[outcome.state]+=1
             # Mirror the existing dataset_workflow._process intake gate.
             auto_ready=(outcome.state=='LOCAL_PREPARED'
@@ -178,7 +206,10 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
                             'step1_gold_chars_uncovered':total-hit,
                             'prepare_state':outcome.state,
                             'intake_state':intake_state,
-                            'suspected_unmasked_gold_literals':residual})
+                            'suspected_unmasked_gold_literals':residual,
+                            'timings_ms':{'step1_detector':round(step1_elapsed,2),
+                                          'gate_and_local_pseudonymization':round(downstream_elapsed,2),
+                                          'privacy_total':round(privacy_total_ms[-1],2)}})
             if i==len(rows) or i%25==0:
                 print('BLIND_PROGRESS',json.dumps({'completed':i,'total':len(rows)}),flush=True)
     return {
@@ -188,6 +219,17 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
         'step1_statuses':dict(doc_status),
         'prepare_states':dict(prepare_states),
         'projected_intake_states':dict(intake_states),
+        'timing_ms':{
+            'cold_detector_model_load':init_ms,
+            'first_document_step1':round(stage1_ms[0],2),
+            'first_document_privacy_total':round(privacy_total_ms[0],2),
+            'warm_documents_excluding_first':len(rows)-1,
+            'warm_step1_detector':latency_summary(stage1_ms[1:]),
+            'warm_gate_and_pseudonymization':latency_summary(downstream_ms[1:]),
+            'warm_privacy_total':latency_summary(privacy_total_ms[1:]),
+            'all_documents_privacy_processing_total_ms':round(sum(privacy_total_ms),2),
+            'scope':'Raw document privacy pass only; excludes doc_type prefix, staging file IO, document embeddings and DB writes.'
+        },
         'strict':counts_to_metrics(strict),
         'strict_by_label':{k:counts_to_metrics(c) for k,c in by_label.items()},
         'step1_mask_gold_character_recall':round(masked_gold_chars/gold_chars,6) if gold_chars else None,
