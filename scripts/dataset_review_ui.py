@@ -232,12 +232,20 @@ class Handler(BaseHTTPRequestHandler):
                 from live_index import validate_approved_batch,incremental_upsert
                 from dataset_preparation import key_tag
                 from settings import db_config
+                # This experimental UI is intentionally TEST-DB ONLY.
+                # An unrelated process environment variable must never
+                # silently redirect its confirmed UPSERT into the 187-doc DB.
+                target_db=db_config(self.ctx.env)
+                if (target_db.get('dbname')!='aegis_blind_test'
+                    or target_db.get('host') not in ('127.0.0.1','localhost')
+                    or int(target_db.get('port',0)) != 5544):
+                    raise ValueError('REVIEW_UI_REQUIRES_ISOLATED_5544_DB')
                 batch=export_approved(stage)
                 with tempfile.TemporaryDirectory(dir=BASE) as td:
                     temp=Path(td)/'approved.json'
                     write_private(temp,batch)
                     rows=validate_approved_batch(temp,self.ctx.env)
-                with psycopg.connect(**db_config(self.ctx.env)) as conn:
+                with psycopg.connect(**target_db) as conn:
                     report=incremental_upsert(conn,rows,key_tag(key),self.ctx.device,confirmed=True)
                 return self._send(200,report)
             return self._send(404,{'error':'UNKNOWN_ROUTE'})

@@ -85,7 +85,9 @@ class ReviewUIContracts(unittest.TestCase):
         self.assertEqual(stage['documents'][0]['approval_state'],'HUMAN_APPROVED')
         self.assertIsNone(stage['documents'][0]['raw_for_local_review'])
         with patch('live_index.fixed_key',return_value=KEY), \
-             patch('settings.db_config',return_value={}), \
+             patch('settings.db_config',return_value={
+                 'host':'127.0.0.1','port':5544,'dbname':'aegis_blind_test'
+             }), \
              patch('psycopg.connect') as conn, \
              patch('live_index.incremental_upsert',
                    return_value={'inserted':1,'updated':0,'unchanged':0,
@@ -95,6 +97,25 @@ class ReviewUIContracts(unittest.TestCase):
         self.assertEqual(committed['resulting_rows'],188)
         upsert.assert_called_once()
         self.assertEqual(upsert.call_args.args[1][0]['doc_id'],'synthetic__A')
+
+    def test_prod_db_target_is_refused_before_db_connect(self):
+        from document_preparation import Outcome
+        headers={'X-Aegis-Review-Token':'very-long-test-auth-token',
+                 'Content-Type':'application/json','Origin':self.url}
+        valid=Outcome('synthetic__A','LOCAL_PREPARED','LOCAL_ONLY_NOT_EXTERNAL_AUTHORIZED',
+                      sanitized_text='비식별화된 가상 문서',tokens=(),region_keys=())
+        with patch('dataset_workflow.prepare',return_value=valid):
+            self._request('/api/review',headers,data=json.dumps({
+                'doc_id':'synthetic__A','revised_source':'수정된 가상 문서',
+                'reviewer':'reviewer1'}).encode('utf-8'))
+        with patch('settings.db_config',return_value={
+            'host':'127.0.0.1','port':5433,'dbname':'pii_rag'}), \
+            patch('psycopg.connect') as connect:
+            with self.assertRaises(urllib.error.HTTPError) as err:
+                self._request('/api/commit',headers,data=json.dumps({
+                    'confirm':'rag.aegis_live_docs'}).encode('utf-8'))
+            self.assertEqual(err.exception.code,400)
+            connect.assert_not_called()
 
     def test_cross_origin_post_fails(self):
         headers={'X-Aegis-Review-Token':'very-long-test-auth-token',
