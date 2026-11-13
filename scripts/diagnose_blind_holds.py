@@ -45,6 +45,8 @@ def main(argv=None):
     p.add_argument('--report',required=True,type=Path,help='private per-doc baseline JSON')
     p.add_argument('--env',type=Path,default=ROOT/'.env')
     p.add_argument('--limit',type=int,default=0,help='optional smoke test of first N held cases')
+    p.add_argument('--only-blocked',action='store_true',
+                   help='replay only prior BLOCKED docs, not the REVIEW queue')
     a=p.parse_args(argv)
     try:
         from eval_blind_pii import read_rows
@@ -58,6 +60,10 @@ def main(argv=None):
         records=read_rows(a.input)
         summary=json.loads(a.report.read_text(encoding='utf-8'))
         selected=select_nonready(records,summary)
+        if a.only_blocked:
+            selected=[x for x in selected if x[2].get('intake_state')=='BLOCKED']
+            if not selected:
+                raise ValueError('BLIND_DIAG_NO_BLOCKED_DOCS')
         if a.limit<0:raise ValueError('BLIND_DIAG_LIMIT_INVALID')
         if a.limit:selected=selected[:a.limit]
         key=fixed_key(a.env)

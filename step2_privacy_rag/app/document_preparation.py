@@ -96,7 +96,22 @@ def prepare(doc_id: str, text: str, detector: Any, key: bytes) -> Outcome:
                      'invalid_address_span','address_not_protected',
                      'hmac_entity_not_covered','role_redaction_not_covered',
                      'invalid_result','invalid_spans','invalid_labels','invalid_offsets'}
+            # PseudonymizationError only carries our static, PII-free error
+            # codes. Still allowlist the code rather than exposing exc str.
+            allowed.update({
+                'invalid_input','gate_not_ready','missing_or_weak_hmac_key',
+                'invalid_capture_flag','invalid_entity_label',
+                'conflicting_entity_or_role_spans','unmasked_entity_or_role',
+                'overlapping_replacement_jobs','incomplete_mask_coverage',
+                'invalid_canonicalization_input','empty_canonical_value',
+                'invalid_email_value','invalid_phone_value',
+                'invalid_account_value','invalid_number_value',
+                'unsupported_label','unknown_replacement_kind','token_collision'
+            })
             raw_code=exc.args[0] if len(exc.args)==1 and type(exc.args[0]) is str else None
+            if type(exc).__name__=='PseudonymizationError' and raw_code:
+                if re.fullmatch(r'invalid_(?:mask_intervals|hmac_entities|redaction_intervals|strict_entities)(?:_offsets)?',raw_code):
+                    allowed.add(raw_code)
             code=raw_code if raw_code in allowed else 'UNCLASSIFIED'
             print('BLIND_SAFE_FAILURE',json.dumps({
                 'case':doc_id,'stage':stage,'exception_type':type(exc).__name__,

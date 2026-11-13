@@ -24,6 +24,20 @@ class TestLocalFailureDiagnostics(unittest.TestCase):
         self.assertNotIn(sensitive,stream.getvalue())
         self.assertNotIn('9876',stream.getvalue())
 
+    def test_safe_pseudonymization_code_diagnostic(self):
+        from local_pseudonymizer import PseudonymizationError
+        detector=Mock()
+        detector.detect.return_value={'status':'READY_FOR_PSEUDONYMIZATION',
+                                      'entities':[],'mask_intervals':[]}
+        with patch('document_preparation.decide',side_effect=PseudonymizationError('invalid_phone_value')), \
+             patch.dict(os.environ,{'AEGISRAG_LOCAL_FAILURE_DIAG':'1'}):
+            stream=io.StringIO()
+            with contextlib.redirect_stdout(stream):
+                result=prepare('EVAL_00007','비밀 예시',detector,b'K'*32)
+        self.assertEqual(result.state,'BLOCKED')
+        self.assertIn('"code": "invalid_phone_value"',stream.getvalue())
+        self.assertNotIn('비밀 예시',stream.getvalue())
+
     def test_no_diagnostic_without_opt_in(self):
         detector=Mock()
         detector.detect.side_effect=RuntimeError('비밀정보 010-0000-0000')
