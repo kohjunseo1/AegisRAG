@@ -14,11 +14,12 @@ sys.path.insert(0, str(ROOT/'step1_pii_detector/src'))
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command', choices=['models', 'init-db', 'prepare-v6', 'ingest-v6', 'evaluate-v6', 'run-chat', 'smoke', 'manifest'])
+    p.add_argument('command', choices=['models', 'init-db', 'prepare-v6', 'ingest-v6', 'evaluate-v6', 'promote-live', 'ingest-live', 'run-chat', 'smoke', 'manifest'])
     p.add_argument('--env', type=Path, default=ROOT/'.env')
     p.add_argument('--input', type=Path)
     p.add_argument('--device', choices=['cpu','mps'], default='cpu')
     p.add_argument('--table')
+    p.add_argument('--source', help='old immutable snapshot table for one-time promotion')
     p.add_argument('--confirm')
     p.add_argument('--baseline', action='store_true')
     p.add_argument('--write', action='store_true')
@@ -58,7 +59,28 @@ def main():
             import psycopg
             from settings import db_config
             from reproduction import artifact, target, encode_docs, ingest, evaluate
-            if args.command == 'init-db':
+            if args.command == 'promote-live':
+                if not args.source or not args.confirm:
+                    p.error('promote-live requires --source and --confirm PROMOTE_TO_rag.aegis_live_docs')
+                from live_index import promote_snapshot
+                from dataset_preparation import fixed_key, key_tag
+                from settings import settings
+                minimum = int(settings(args.env)('AEGISRAG_LIVE_MIN_ROWS', '187'))
+                with psycopg.connect(**db_config(args.env)) as conn:
+                    outcome = promote_snapshot(conn, args.source, minimum,
+                                               key_tag(fixed_key(args.env)), args.confirm)
+                print(outcome, 'rag.aegis_live_docs', 'rows', minimum)
+            elif args.command == 'ingest-live':
+                if not args.input or args.confirm != 'rag.aegis_live_docs':
+                    p.error('ingest-live requires --input and --confirm rag.aegis_live_docs')
+                from live_index import validate_approved_batch, incremental_upsert
+                from dataset_preparation import fixed_key, key_tag
+                rows = validate_approved_batch(args.input, args.env)
+                with psycopg.connect(**db_config(args.env)) as conn:
+                    report = incremental_upsert(conn, rows, key_tag(fixed_key(args.env)), args.device,
+                                                confirmed=True)
+                print(json.dumps(report, sort_keys=True))
+            elif args.command == 'init-db':
                 # Starter init is automatic ONLY on a new volume. Never replay role/schema creation.
                 with psycopg.connect(**db_config(args.env)) as conn:
                     conn.execute('SET TRANSACTION READ ONLY')

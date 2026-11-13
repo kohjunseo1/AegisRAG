@@ -4,6 +4,7 @@ const thread = $("thread"), chat = $("chat"), question = $("question");
 const send = $("send");
 const modePill = $("mode-pill"), status = $("status");
 let busy = false;
+let composing = false;
 const el = (tag, cls, text) => {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -24,6 +25,13 @@ function addMessage(role, text, result = null) {
       badges.appendChild(el("span", "status-badge", result.decision));
       badges.appendChild(el("span", "status-badge", result.mode === "hcx" ? "HCX-007" : "로컬 검색"));
       box.appendChild(badges);
+      const citedIds = Array.isArray(result.citations) ? result.citations : [];
+      if (citedIds.length) {
+        const refs = el("div", "citation-line");
+        refs.appendChild(el("span", "citation-label", "근거 문서"));
+        for (const id of citedIds) refs.appendChild(el("span", "citation-chip", id));
+        box.appendChild(refs);
+      }
       const sources = (result.sources || []).filter(d => (result.citations || []).includes(d.doc_id));
       if (sources.length) {
         const details = el("details", "sources");
@@ -40,12 +48,29 @@ function addMessage(role, text, result = null) {
         const d = result.diagnostics;
         const items = ["Gate: " + d.gate_state];
         if (typeof d.hmac_token_count === "number") items.push("HMAC tokens: " + d.hmac_token_count);
+        if (d.query_recovery) items.push("질의 복구: " + d.query_recovery);
         if (typeof d.region_key_count === "number") items.push("Region keys: " + d.region_key_count);
         if (typeof d.hcx_input_tokens === "number") items.push("입력 토큰: " + d.hcx_input_tokens);
         if (d.timings_ms) items.push("지연(ms): " + JSON.stringify(d.timings_ms));
         const debug = el("details", "usage");
         debug.appendChild(el("summary", "", "개발자 상세"));
         debug.appendChild(el("p", "", items.join(" · ")));
+        const candidates = Array.isArray(d.retrieval_candidates) ? d.retrieval_candidates : [];
+        if (candidates.length) {
+          debug.appendChild(el("strong", "", "검색 후보 Top-" + candidates.length + " (HCX 인용/정답 보장 아님)"));
+          for (const c of candidates) {
+            debug.appendChild(el("p", "",
+              c.doc_id + " · HMAC 일치 " + c.hmac_matches +
+              " · 지역 일치 " + c.region_matches +
+              " · 주제 적합도 " + (c.topic_score || 0) +
+              " · Dense 순위 " + c.dense_rank));
+          }
+          if (result.decision === "INSUFFICIENT_EVIDENCE") {
+            debug.appendChild(el("p", "", "검색 후보는 존재하지만 HCX가 답변 근거로 채택하지 않았습니다. 정답 문서가 Top-5에 있는지는 별도 검증해야 합니다."));
+          }
+        } else if (result.decision === "INSUFFICIENT_EVIDENCE") {
+          debug.appendChild(el("p", "", "검색 후보 요약 정보가 없습니다. 서버 버전 및 검색 진단을 확인하세요."));
+        }
         box.appendChild(debug);
       }
     }
@@ -53,6 +78,21 @@ function addMessage(role, text, result = null) {
   }
   thread.appendChild(outer);
   scrollBottom();
+}
+function explainError(code) {
+  if (code === "HCX_HTTP_401" || code === "HCX_HTTP_403") return "답변 생성 API 인증 또는 접근 권한을 확인해 주세요.";
+  if (code === "HCX_HTTP_400" || code === "HCX_HTTP_422") return "답변 생성 API가 요청 형식을 거부했습니다. 서버 설정을 확인해 주세요.";
+  if (code === "HCX_HTTP_429") return "답변 생성 API의 호출 한도에 도달했습니다.";
+  if (code === "HCX_HTTP_5XX" || code === "HCX_TIMEOUT" || code === "HCX_CONNECTION_FAILED") return "답변 생성 API 연결이 불안정합니다.";
+  if (code.startsWith("HCX_")) return "문서 검색 이후 답변 생성 단계에서 실패했습니다.";
+  if (code === "V6_DB_TABLE_NOT_FOUND") return "지정한 검색 테이블이 없습니다. AEGISRAG_TABLE 값을 확인해 주세요.";
+  if (code === "V6_DB_ACCESS_DENIED") return "검색 테이블에 대한 DB 사용자 권한이 없습니다.";
+  if (code === "V6_DB_AUTH_FAILED") return "DB 사용자명 또는 비밀번호를 확인해 주세요.";
+  if (code === "V6_DB_CONNECTION_FAILED") return "PostgreSQL 서버 또는 접속 포트를 확인해 주세요.";
+  if (code === "V6_DB_DATABASE_NOT_FOUND") return "설정한 데이터베이스가 없습니다.";
+  if (code === "V6_DB_SCHEMA_MISMATCH") return "검색 테이블 구조 또는 pgvector 확장을 확인해 주세요.";
+  if (code.startsWith("V6_DB_")) return "문서 검색 인덱스의 연결 또는 쿼리 설정을 확인해 주세요.";
+  return "요청을 처리하지 못했습니다.";
 }
 async function ask() {
   const value = question.value.trim();
@@ -73,19 +113,46 @@ async function ask() {
     addMessage("assistant", result.answer, result);
     status.textContent = "완료";
   } catch (err) {
-    addMessage("assistant", "요청을 처리하지 못했습니다. (" + String(err.message) + ")");
+    const code = String(err.message || "REQUEST_FAILED");
+    addMessage("assistant", explainError(code) + " (" + code + ")");
     status.textContent = "요청 실패";
   } finally {
     busy = false; send.disabled = false; $("reset").disabled = false; question.focus(); scrollBottom();
   }
 }
-send.addEventListener("click", ask);
+question.addEventListener("compositionstart", () => { composing = true; });
+question.addEventListener("compositionend", () => { composing = false; });
+// Blurring before a click-submit commits an active Korean IME composition.
+send.addEventListener("click", () => {
+  if (composing) {
+    question.blur();
+    Promise.resolve().then(ask);
+  } else {
+    ask();
+  }
+});
 question.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); ask(); }
+  if (event.key === "Enter" && !event.shiftKey) {
+    // The first Enter completes Hangul composition; the next Enter sends.
+    if (event.isComposing || composing || event.keyCode === 229) return;
+    event.preventDefault();
+    ask();
+  }
 });
 $("reset").addEventListener("click", () => { thread.replaceChildren(); $("welcome").style.display = "block"; question.value = ""; status.textContent = "화면을 비웠습니다 · 각 질문은 독립 처리"; });
 document.querySelectorAll(".sample").forEach(button => button.addEventListener("click", () => { question.value = button.textContent; question.focus(); }));
 fetch("/api/health").then(r => r.json()).then(d => {
   modePill.textContent = d.external_hcx_enabled ? "문서 상담" : "서버 설정 확인";
   status.textContent = d.external_hcx_enabled ? "질문을 입력해 주세요" : "HCX 서비스 비활성";
-}).catch(() => { status.textContent = "서버 연결 확인 실패"; });
+  return fetch("/api/index-status").then(async response => {
+    const index = await response.json();
+    if (!response.ok) throw new Error(index.error || "INDEX_STATUS_FAILED");
+    if (index.status === "READY") {
+      modePill.textContent = "문서 상담 · " + index.rows + "건";
+      status.textContent = "검색 인덱스: " + index.table + " (" + index.rows + "/" + index.expected_rows + "건)";
+    } else {
+      modePill.textContent = "DB 설정 확인";
+      status.textContent = "인덱스 불일치: " + index.table + " (" + index.rows + "/" + index.expected_rows + "건, 키 일치=" + index.key_matches + ")";
+    }
+  });
+}).catch(() => { status.textContent = "검색 인덱스 연결 또는 상태 확인 실패"; });

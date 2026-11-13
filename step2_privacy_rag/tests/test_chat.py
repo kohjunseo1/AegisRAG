@@ -20,6 +20,34 @@ class TestE2EContract(unittest.TestCase):
               dict(doc_id='B',tokens=[TK],region_keys=[],dense_rank=2)]
         self.assertEqual(order_results(rows,{TK},set())[0]['doc_id'],'B')
 
+    def test_topic_boost_finds_condolence_notice_over_unrelated_dense(self):
+        rows=[
+            dict(doc_id='S001',text='[공지] 시스템 점검 안내\\n로그인 화면 업데이트입니다.',
+                 tokens=[],region_keys=[],dense_rank=1),
+            dict(doc_id='S002',text='[부고] 동료 가족상\\n빈소와 발인 일정이 공지되었습니다.',
+                 tokens=[],region_keys=[],dense_rank=35),
+        ]
+        ranked=order_results(rows,set(),set(),query_text='경조사 관련 공지 알려줘')
+        self.assertEqual(ranked[0]['doc_id'],'S002')
+        self.assertGreater(ranked[0]['topic_score'],0)
+        frozen=order_results(rows,set(),set(),query_text='경조사 관련 공지 알려줘',
+                             use_topic_boost=False)
+        self.assertEqual(frozen[0]['doc_id'],'S001')
+
+    def test_topic_boost_never_overrides_exact_person_token(self):
+        rows=[
+            dict(doc_id='S001',text='[부고] 가족상 공지',tokens=[],region_keys=[],dense_rank=1),
+            dict(doc_id='S002',text='[업무] 대상 직원 기록',tokens=[TK],region_keys=[],dense_rank=40),
+        ]
+        self.assertEqual(order_results(rows,{TK},set(),query_text='경조사 관련 공지')[0]['doc_id'],'S002')
+
+    def test_no_category_query_preserves_dense(self):
+        rows=[
+            dict(doc_id='S001',text='[업무] 상담 결과',tokens=[],region_keys=[],dense_rank=1),
+            dict(doc_id='S002',text='[부고] 공지',tokens=[],region_keys=[],dense_rank=40),
+        ]
+        self.assertEqual(order_results(rows,set(),set(),query_text='처리 상태 알려줘')[0]['doc_id'],'S001')
+
     def test_redact_doc_preserve_hmac(self):
         text='고객 '+TK+' 연락처: 010-1234-5678; mail person@example.com'
         red,counts=redact_residual_pii(text)
@@ -79,6 +107,27 @@ class TestE2EContract(unittest.TestCase):
         self.assertEqual(result['decision'],'ANSWER')
         self.assertEqual(result['mode'],'hcx')
         mock_call.assert_called_once()
+
+    @patch('app.call_hcx')
+    def test_nonanswer_exposes_candidate_ids_not_document_text(self, mock_call):
+        pl = MagicMock()
+        pl.root = '.'
+        pl.ask_local.return_value = ('READY', PreparedQuery('안전교육', set(), set()), self.docs)
+        mock_call.return_value = (
+            {'decision': 'INSUFFICIENT_EVIDENCE',
+             'answer': '확인 가능한 문서에서 질문에 답할 충분한 근거를 찾지 못했습니다.',
+             'citations': []},
+            {'prompt_tokens': 100, 'completion_tokens': 20},
+            {'email': 0, 'phone': 0, 'id_number': 0, 'clipped_documents': 0},
+        )
+        out = respond(pl, {'question': '안전교육'})
+        self.assertEqual(out['decision'], 'INSUFFICIENT_EVIDENCE')
+        self.assertEqual(out['sources'], [])
+        diag = out['diagnostics']
+        self.assertEqual(diag['retrieved_count'], 5)
+        self.assertEqual(diag['retrieval_candidates'][0]['doc_id'], 'H0001')
+        self.assertNotIn('text', diag['retrieval_candidates'][0])
+        self.assertEqual(diag['retrieval_candidates'][0]['topic_score'], 0)
 
     @patch('app.call_hcx')
     def test_review_never_calls_hcx(self,mock_call):

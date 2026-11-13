@@ -2,6 +2,8 @@
 
 Step2는 Step1의 탐지 결과를 **검증·가명처리**하고 PostgreSQL/PGVector에 저장해, 자연어 질문에 대한 근거 기반 답변을 생성합니다. 현재 코드는 **로컬 단일 턴 챗봇 MVP**입니다.
 
+> **2026-11-12 업데이트:** 아래 초기 V6 수치(177문서/81 eligible)는 과거 기준선이며, 운영 DB는 현재 187문서입니다. 최근 변경된 주제어 보정·제한적 질의 복구·HCX 대화형 답변은 별도 실측이 필요합니다. 현재 테스트 및 새로운 질의 평가는 [자연어 질의 평가 가이드](../docs/NATURAL_QUERY_EVAL.md) 참고. 현재 동결 V6 187/88 수치는 [루트 README](../README.md)에서 분리 표기합니다.
+
 ## 1. 전체 구조
 
 ```text
@@ -97,7 +99,151 @@ compose.yaml, init/           기존 팀 PostgreSQL/PGVector 초기 구성
 
 공통 실행 CLI는 루트의 `scripts/aegisrag.py`입니다. 문서 적재 시 한 번 임베딩하고, 질문마다 새 질의만 임베딩합니다. DB의 기본 테이블은 `rag.aegis_koe5_v6_exp1`이며, 재현 테이블 사용 시 `AEGISRAG_TABLE`로 선택합니다.
 
-## 5. 다음 개선 과제
+### DB 오류 진단 및 한글 입력
+
+`V6_DB_READ_ERROR`는 DB 접속·권한·테이블·SQL 실행 오류를 뭉뚱그렸던 코드입니다. 이 수정본은 `V6_DB_TABLE_NOT_FOUND`, `V6_DB_ACCESS_DENIED`, `V6_DB_AUTH_FAILED`, `V6_DB_CONNECTION_FAILED`, `V6_DB_DATABASE_NOT_FOUND`, `V6_DB_SCHEMA_MISMATCH`, `V6_DB_QUERY_FAILED`로 구분합니다.
+
+실행 중인 챗봇과 **같은 루트 .env 및 환경변수**에서 아래 명령으로 안전한 읽기 전용 진단을 합니다. DB 컨테이너를 초기화하거나 기존 177문서 테이블을 수정하지 않습니다.
+
+```bash
+python scripts/diagnose_v6_db.py
+```
+
+현재 활성화된 DB 테이블과 행 수만 출력하고 비밀번호, HMAC 토큰, 원문 문서는 출력하지 않습니다. 로컬 서버 재시작 후 `/api/index-status`의 오류 코드를 확인하세요.
+
+한글을 조합하는 동안 Enter를 누르면 첫 Enter는 글자 조합만 끝내고, **두 번째 Enter에서 전송**하도록 했습니다. 전송 버튼을 눌러도 조합이 완료된 후 질문을 전송합니다.
+
+## 5. 단일 운영 인덱스 (증분 적재)
+
+기존 `ingest-v6`는 재현 가능한 실험 스냅샷을 생성하는 명령으로 유지합니다. **운영에서는 한 테이블에 누적 적재**합니다. 이미 검증된 187문서 스냅샷은 복사하지 않고 단 한 번 물리적으로 `rag.aegis_live_docs`로 이름을 변경해 승격할 수 있습니다. 실행하기 전에 **8768 챗봇을 종료**하고 `.env`의 기존 팀 설정을 백업하세요. 관리자 REVIEW 서비스는 현재 공개 저장소 코드와 별도이므로, 검토 승인 결과를 새 승인 배치 형식으로 넘기는 작업은 통합이 필요합니다.
+
+```bash
+python scripts/aegisrag.py promote-live \
+  --source rag.aegis_repro_11d26bb4db0f23360bdb \
+  --confirm PROMOTE_TO_rag.aegis_live_docs
+```
+
+이 명령은 **기존 테이블에 대한 ALTER TABLE RENAME 한 번만 수행**합니다. 승인된 기존 187건을 복사하거나 다시 임베딩하지 않고, 기존 177건이 아닌 현재 187건을 검증한 후 실행합니다. 성공 시 `.env`를 다음과 같이 변경합니다.
+
+```text
+AEGISRAG_TABLE=rag.aegis_live_docs
+AEGISRAG_INDEX_MODE=live
+AEGISRAG_LIVE_MIN_ROWS=187
+```
+
+서버 재시작 시 `index_mode=live`는 행 수가 **187개 이상**이고 모든 행의 HMAC 키 버전이 같을 때 조회를 허용합니다. 신규 문서가 추가되어 188, 189개가 되어도 `AEGISRAG_EXPECTED_ROWS=187` 때문에 차단되지 않습니다. 조회는 REPEATABLE READ로 일관된 스냅샷을 사용합니다.
+
+**새 문서 증분 적재:** 원본이 아니라 검토·가명처리·보호 재검증을 마친 승인 문서만 로컬 파일로 전달합니다. 아래 JSONL이 아닌 JSON 형식이며 `hmac_key_tag`는 실제 환경에서 계산한 비밀 아닌 키 버전 식별자여야 합니다. 민감한 원문 또는 비밀번호를 넣지 않습니다.
+
+```json
+{
+  "format": "aegisrag-live-approved-v1",
+  "hmac_key_tag": "<key_tag_from_local_approval_pipeline>",
+  "documents": [
+    {
+      "doc_id": "S001",
+      "text": "합성 교육은 수요일입니다.",
+      "region_keys": [],
+      "approval_state": "AUTO_READY"
+    }
+  ]
+}
+```
+
+```bash
+python scripts/aegisrag.py ingest-live \
+  --input /path/to/locally_approved_documents.json \
+  --confirm rag.aegis_live_docs
+```
+
+`AUTO_READY`와 `HUMAN_APPROVED`는 **신뢰 가능한 로컬 승인 워크플로가 발행한 값이어야 하며, 필드만으로 사람의 실제 승인을 증명하지는 않습니다.** `REVIEW_PENDING`은 적재 불가능합니다. 추가 문서의 `doc_id`가 새 것이면 INSERT, 기존 것이고 텍스트/Region 토큰이 바뀌면 해당 행만 UPDATE+재임베딩합니다. 변경이 없으면 SKIP하므로 모델을 다시 로드할 필요도 없습니다. 정식 관리자 검토 UI와 이 로컬 승인 배치의 연결은 별도로 검증해야 합니다.
+
+테이블 삭제, `DROP SCHEMA`, 원문·Gold 저장, 다른 문서 재임베딩은 하지 않습니다. 기존 개인정보 보호 및 외부 LLM 전송 승인 조건은 그대로 유지됩니다.
+
+## 6. 로컬 E2E 통합 진단 · 88질의 평가
+
+서버와 실제 DB·API는 사용자의 Mac에서만 실행됩니다. GitHub CI는 개인정보 없는 합성 계약 테스트입니다.
+
+```bash
+# 1) 기존 로컬 DB 메타데이터 점검 (읽기 전용)
+python scripts/verify_v6_e2e.py
+
+# 2) 강제로 REVIEW → (모의 관리자) 승인 계약을 검사. DB 변경 없음
+python scripts/verify_v6_e2e.py --synthetic-review
+
+# 추가: 실제 A.X/Veil/Privacy Gate에 가상의 REVIEW 후보 문서를 입력해 로컬 상태만 검증
+python scripts/verify_v6_e2e.py --real-review-probes
+
+# 3) 실제 질문의 Step1+HMAC+PGVector Top-5를 로컬에서 확인. HCX 미호출
+python scripts/verify_v6_e2e.py --interactive
+
+# 4) 승인받은 데이터에서만 HCX 직접 호출. 답변·인용 확인
+AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
+  python scripts/verify_v6_e2e.py --interactive --transport hcx
+
+# 5) 이미 실행 중인 실제 웹챗의 /api/chat 경로 전체 테스트
+AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
+  python scripts/verify_v6_e2e.py --interactive --transport http
+
+# 6) 보안이 유지된 로컬 평가 산출물로 검색 지표와 CPU retrieval latency 평가
+python scripts/verify_v6_e2e.py \
+  --eval-artifact step2_privacy_rag/local_eval/reproduction/prepared.json
+```
+
+질문 입력 예: `오가은`, `오가은 이름 있는 자료`, `윤선영 정보`는 `--interactive` 모드에서만 로컬로 입력합니다. GitHub 코드·일반 로그에 비공개 질문/문서 본문을 올리지 마세요. `--transport local`은 문서 ID와 매칭 수, 지연시간만 출력합니다. `--transport hcx/http`는 외부 전송을 명시적으로 승인한 경우에만 실행하세요.
+
+평가에서 **Hit@1/5, Recall@5, MRR**은 기존 평가 방식에 맞춰 neutral 문서를 *채점 시* 제외하고, **Confusable@1/5**는 실제 챗봇에 전달되는 neutral 미제외 Top-5 기준으로 계산합니다. 따라서 Confusable@5는 낮을수록 좋으며, 높은 Hit@5라도 동명이인/혼동 문서가 함께 나올 수 있습니다. `eligible`(정답이 인덱스에 있고 준비된 질문), `deferred`, `no_indexable_gold`를 분리해 분모를 명시합니다. 지연시간은 워밍업 후 로컬 임베딩+DB+리랭크 기준으로 측정하며 Step1과 HCX 시간은 별도입니다.
+
+`--synthetic-review`는 Mock 모델의 `REVIEW_REQUIRED` 동작과 승인을 흉내 낸 데이터 계약을 검증합니다. **8771 관리자 웹 UI의 실제 승인·재검증·삽입 동작까지 검증했다는 뜻은 아닙니다.** 실제 UI는 로컬 전용이므로 해당 코드와 연결하려면 별도 통합 테스트가 필요합니다.
+
+### STEP1_GATE_FAILED 오류 확인 (Mac 실모델, 안전 진단)
+
+`STEP1_GATE_FAILED`가 첫 질의에 발생한 다음 `STEP1_DETECTOR_FAILED_RESTART_REQUIRED`가 반복된다면 해당 프로세스는 이미 fail-closed 상태입니다. 같은 프로세스에서 계속 재시도하지 마세요. `aegisrag-retrieval` 등 **현재 실행 중인 Python 환경**에서 다음을 실행합니다.
+
+```bash
+python scripts/diagnose_step1.py
+```
+
+단계별로 `STEP1_ENVIRONMENT`, `STEP1_MODEL_INIT`, `STEP1_BACKEND`, `STEP1_DETECT`, `STEP2_LOCAL_PREPARE`를 출력합니다. 에러의 **유형과 저장소 내부 위치**만 출력하며 원문, 개인정보, HMAC, API 키, 스택 내용이나 외부 의존성의 에러 메시지를 출력하지 않습니다. 합성 문장만 사용하며 DB나 HCX에는 접근하지 않습니다. 먼저 해당 환경에서 `python scripts/aegisrag.py models --device cpu`를 재실행해도 좋습니다.
+
+`STEP1_MODEL_INIT`에서 실패하면 HF_TOKEN 유무·해당 환경의 의존성·모델 revision 권한부터 확인하고, 초기화가 통과한 다음 백엔드가 실패하면 A.X/Veil 런타임으로 범위를 좁힙니다. `STEP2_LOCAL_PREPARE`만 실패한다면 모델은 동작하며 게이트/가명처리 연동을 확인해야 합니다. 이전에 다른 Conda 환경에서 나온 `PINNED_MODELS_READY`만으로 현재 환경의 성공을 가정하지 마세요.
+
+### 검색 결과 문서 검토와 88질의 전체 지표
+
+```bash
+# 개인 테스트 질문의 Gate 보류 원인 + Top-5 비식별화 문서 미리보기
+python scripts/verify_v6_e2e.py --interactive --diagnose-gate --show-masked-evidence
+
+# 현재 로컬 평가 산출물의 88개 질문을 전부 고려해 검색 지표 출력
+python scripts/verify_v6_e2e.py \
+  --eval-artifact step2_privacy_rag/local_eval/reproduction/prepared.json
+```
+
+`--show-masked-evidence`는 **명시적 로컬 옵션**으로만 본문 일부를 출력합니다. 합성 데이터라도 잔여 개인정보가 있을 수 있어 해당 화면 출력을 공개 저장소에 올리지 마세요. `--diagnose-gate`는 보류 사유 코드(예: `STEP1_NOT_READY`, `V5_ABSTAIN`, `GATE_NOT_READY`)와 Step1 이슈 코드만 출력합니다. 원문은 출력하지 않습니다.
+
+전체 평가 결과의 `full_set_hit1_rate`, `full_set_hit5_rate`, `full_set_mrr`은 **보류된 질의를 0점으로 처리한 전체 질문 분모**이며, `hit1_rate`, `hit5_rate`, `mrr`은 평가 가능 질의만의 분모입니다. `RETRIEVAL_FAILURE_CASES`는 정답 누락·혼동 후보의 QID·유형·순위만 보여줍니다. `artifact_matches_live_index=false`라면 해당 파일이 구형 177문서 산출물일 수 있으므로, 187문서 최종 성능으로 발표하지 마세요.
+
+### Hugging Face 및 ONNX 임시 공간
+
+Hugging Face 저장소를 개인 계정에서 조직으로 이전하면 저장소 ID별로 별도 캐시 엔트리가 생성될 수 있습니다. 현행 `load_backends`는 실행 중에 Veil ONNX 임시 파일을 만들며, 새 코드는 정상 Python 프로세스 종료 시 해당 임시 폴더를 삭제하도록 등록합니다. 동일 모델 재사용에는 기존 `--reuse-step1` 및 `--preload` 옵션을 사용합니다. ONNX 파일이 현재 프로세스에서 사용 중일 수 있으므로 실행 중인 프로세스의 임시 폴더는 삭제하지 않습니다.
+
+### 예시 평가 파일이 존재하지 않을 때
+
+`local_eval/reproduction/prepared.json`은 예시 출력 경로이며 `ingest-live` 실행만으로 생성되지 않습니다. 이미 187문서가 `rag.aegis_live_docs`에 있으므로 **재적재하지 않고** 원본 합성 질의 88건과 Gold로 직접 실시간 Gate·검색을 평가할 수 있습니다.
+
+```bash
+python scripts/verify_v6_e2e.py --eval-raw
+```
+
+기본 입력은 `local_eval/holdout_retrieval_queries.jsonl` 및 `local_eval/holdout_retrieval_queries_gold.jsonl`입니다. 경로가 다르면 `--queries-jsonl <로컬파일>` 및 `--gold-jsonl <로컬파일>`로 지정하세요. 입력 파일이 없으면 안전한 오류 상태만 출력하며 DB에 쓰지 않습니다.
+
+이 결과는 **현 온라인 개인정보 Gate를 포함한 88질의 전체 기준선**입니다. 구 관리자 Q001의 Human-assisted 재검토·질의 승인 결과까지 자동 재현하는 것은 아니어서 이전 77/88 기록과 차이가 날 수 있습니다.
+
+`--interactive --diagnose-gate`는 `GATE_NOT_READY`일 때 Gate의 세부 원인 코드와 Veil 후보 집계까지 출력합니다. 자동 재시도·자동 HMAC 승격은 하지 않습니다. 특히 이름만 입력하면 READY, 이름+부가문구는 REVIEW인 현상은 먼저 원인을 확인한 뒤 동일인 연결을 보호하는 질의 파싱 방식으로 해결해야 합니다. 챗봇은 이 경우 내부 에러 대신 사용자가 다시 검색할 수 있는 안내 문구를 제공합니다.
+
+## 7. 다음 개선 과제
+
+신규 JSONL에 대해 일반화 가능한 문서 수집·REVIEW 승인 UI(8781)가 별도로 구현되었습니다. [데이터셋 수집](../docs/DATASET_INTAKE.md), [로컬 관리자 화면](../docs/DATASET_REVIEW_UI.md) 참고. 실제 모델·신규 문서·Live DB 통합 검증은 아직 미완료입니다. 기존 관리자 8771은 이 코드와 별도로 운영됩니다.
 
 현재 MVP는 로컬 단일 사용자·단일 턴 서비스입니다. **우선순위**는 근거/인용 정확도 실측, 단계별 지연시간과 매 질문 Step1 모델 재로딩 개선, 동명이인·REVIEW 10건 처리, 새 Blind 데이터 평가, 관리자 REVIEW UI 및 권한별 복원입니다. 서버 배포 시에는 인증·문서 접근 통제·DB 최소 권한·TLS·비밀키 관리가 추가로 필요합니다.
 
