@@ -8,7 +8,7 @@ This repo stores only benchmark **code**, not raw synthetic PII, questions or Go
 
 - Corpus: 171 documents and 1,439 PII span labels in the user-provided ZIP.
 - Questions: 100 (32 single-fact, 12 paraphrase, 16 multi-document category, 12 name mention, 8 PII value, 12 clarify, 8 insufficient evidence).
-- Splits: all 100, no split. These are question splits, not independent source-corpus splits.
+- Evaluation scope: **all 100 questions as one shared team-comparison set**. No dev/validation/challenge split; the same 171-document corpus supplies all questions.
 - Gold uses original Bxxxx document IDs. The converter maps IDs using the same namespace-scoped HMAC as the local review intake. Do not compare Bxxxx IDs to stored DB doc IDs.
 - User-supplied question and Gold files go under step2_privacy_rag/local_eval/blind_v1/ (git-ignored).
 
@@ -96,7 +96,7 @@ DB_HOST=127.0.0.1 DB_PORT=5544 POSTGRES_DB=aegis_blind_test \
 AEGISRAG_TABLE=rag.aegis_live_docs AEGISRAG_INDEX_MODE=live AEGISRAG_LIVE_MIN_ROWS=1 \
 python scripts/eval_chat_mvp.py \
   --cases step2_privacy_rag/local_eval/blind_v1/eval_full100.jsonl \
-  --report step2_privacy_rag/local_eval/blind_v1/search_dev_private.json
+  --report step2_privacy_rag/local_eval/blind_v1/search_full100_private.json
 ```
 
 Use --limit 10 for first smoke tests. The runner distinguishes Gold docs not physically present in the test index from search misses, reports Gate status, Hit@1/5, MRR/Recall@5 on indexable Gold and CPU latency. The report stays owner-readable in local_eval and contains raw synthetic query text.
@@ -113,7 +113,7 @@ python scripts/eval_chat_mvp.py \
   --report step2_privacy_rag/local_eval/blind_v1/hcx_full100_private.json
 ```
 
-Manual check expected_answer, factual correctness, citation support, hallucination, missed privacy labels, unnecessary CLARIFY/INSUFFICIENT_EVIDENCE and per-query latency. Separate metrics for no-evidence/ambiguous questions; don't score these as 0 Hit@K. **After model tuning on dev, do not use challenge 30 for further tuning.**
+Manual check expected_answer, factual correctness, citation support, hallucination, missed privacy labels, unnecessary CLARIFY/INSUFFICIENT_EVIDENCE and per-query latency. Separate metrics for no-evidence/ambiguous questions; don't score these as 0 Hit@K. **Use all 100 questions for the initial comparison. Once any system is tuned based on these results, this dataset is a development benchmark, no longer an untouched blind evaluation.**
 
 ## 7. End-to-end completion thresholds
 

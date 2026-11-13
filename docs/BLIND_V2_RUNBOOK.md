@@ -10,7 +10,7 @@
 |---|---|---|
 | `blind_eval.jsonl.zip` | **171 문서** (16 유형, PII Gold 1,439 span, 그중 Zero-PII 19문서) | Step1 Strict F1/Mask Recall + Gate + 문서 스테이징·검색 인덱스 |
 | `pii_negative_controls_28.jsonl` | **28 Zero-PII 문서** (기존 171에 부족한 14개 유형 × 2) | 문서 유형에 따른 False Positive/불필요한 REVIEW 편향 점검; **171문서 검색 인덱스에 섞지 않음** |
-| `blind_queries_100.jsonl` | **100 검색 질문** (dev40 / validation30 / challenge30) | 유형별 검색·답변 QA; 개인정보 표현이 포함될 수 있으므로 비공개 |
+| `blind_queries_100.jsonl` | **100 검색 질문** (전체 단일 평가세트, 분할 없음) | 유형별 검색·답변 QA; 개인정보 표현이 포함될 수 있으므로 비공개 |
 | `blind_gold_100.jsonl` | 질문별 원본 `Bxxxx` 문서 ID, 기대 답변, 근거 구절, ANSWER/CLARIFY/INSUFFICIENT_EVIDENCE | 검색 Hit/Recall + 인용 지지 + 답변 수동 채점 |
 | `QA_AUDIT.md` / `human_review_template_100.jsonl` | 정제 이력과 채점 양식 | 날짜·요일 정정, 평가 결과 기록 |
 
@@ -155,7 +155,7 @@ python scripts/eval_chat_mvp.py \
   --cases step2_privacy_rag/local_eval/blind_v2/eval_full100.jsonl --limit 10
 ~~~
 
-첫 10개가 문제없이 통과하면 `--limit 10`을 제거해 100문항 전체 평가. 지표: Gate 상태·indexable Gold coverage·Hit@1/5·MRR@5·Recall@5·CPU 지연시간. **CLARIFY 12개/근거 부족 8개는 관련 Gold가 빈 목록인 것이 정상**이며, 검색 Hit 분모에서 제외해야 합니다.
+첫 10개는 스모크 테스트만 수행합니다. 정식 비교 지표를 산출할 때는 `--limit 10`을 제거해 **100문항 전체를 평가**합니다. 지표: Gate 상태·indexable Gold coverage·Hit@1/5·MRR@5·Recall@5·CPU 지연시간. **CLARIFY 12개/근거 부족 8개는 관련 Gold가 빈 목록인 것이 정상**이며, 검색 Hit 분모에서 제외해야 합니다.
 
 ## 8. 실제 HCX 답변 + 인용 평가 (유료 API·명시적 승인 필요)
 
