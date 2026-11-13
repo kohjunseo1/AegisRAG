@@ -1,3 +1,5 @@
+> **팀 간 비교:** Clean v2의 100문항은 ALL 100을 단일 검증 집합으로 사용합니다. 과거의 dev/validation/challenge 구분은 이번 실험에서 사용하지 않습니다. `--split all`과 `eval_full100.jsonl`을 기준으로 동일 질의/Gold를 평가합니다.
+
 > **2026-11-13 Clean v2 update (recommended for current E2E):** Keep the first raw 171-document Blind ZIP unchanged as the initial benchmark snapshot. A separately downloadable Clean v2 data bundle fixes 7 incorrect date/weekdays in 6 documents, preserving all 1,439 Gold PII character offsets and original document IDs. It also corrects 12 awkward Korean name-mention questions and adds a **separate** 28-document Zero-PII negative-control set covering the other 14 document types. Do **not** mix this negative-control set into the original 171-document Strict F1 denominator. When using Clean v2, replace all `blind_v1` file paths, dataset/namespace values and review-stage names in the steps below with `blind_v2`. The new raw ZIP is named `blind_eval.jsonl.zip` inside the downloaded bundle and keeps `blind_eval.jsonl` as its internal member. Run `scripts/eval_blind_pii.py` independently for the 171 labeled corpus and the 28 empty-Gold controls. Source-world facts beyond calendrical weekday corrections remain subject to human QA; retrieval Hit@K does not prove HCX answer grounding.
 
 # Blind 171 Documents × 100 Natural-Language Questions
@@ -6,7 +8,7 @@ This repo stores only benchmark **code**, not raw synthetic PII, questions or Go
 
 - Corpus: 171 documents and 1,439 PII span labels in the user-provided ZIP.
 - Questions: 100 (32 single-fact, 12 paraphrase, 16 multi-document category, 12 name mention, 8 PII value, 12 clarify, 8 insufficient evidence).
-- Splits: dev 40, validation 30, challenge 30. These are question splits, not independent source-corpus splits.
+- Splits: all 100, no split. These are question splits, not independent source-corpus splits.
 - Gold uses original Bxxxx document IDs. The converter maps IDs using the same namespace-scoped HMAC as the local review intake. Do not compare Bxxxx IDs to stored DB doc IDs.
 - User-supplied question and Gold files go under step2_privacy_rag/local_eval/blind_v1/ (git-ignored).
 
@@ -16,7 +18,7 @@ This repo stores only benchmark **code**, not raw synthetic PII, questions or Go
 
 ## Generate locally mapped test cases
 
-    python scripts/prepare_blind_100.py --documents step2_privacy_rag/local_eval/blind_v1/blind_eval.jsonl.zip --queries step2_privacy_rag/local_eval/blind_v1/blind_queries_100.jsonl --gold step2_privacy_rag/local_eval/blind_v1/blind_gold_100.jsonl --namespace blind_v1 --split dev --out step2_privacy_rag/local_eval/blind_v1/eval_dev.jsonl
+    python scripts/prepare_blind_100.py --documents step2_privacy_rag/local_eval/blind_v1/blind_eval.jsonl.zip --queries step2_privacy_rag/local_eval/blind_v1/blind_queries_100.jsonl --gold step2_privacy_rag/local_eval/blind_v1/blind_gold_100.jsonl --namespace blind_v1 --split all --out step2_privacy_rag/local_eval/blind_v1/eval_full100.jsonl
 
 ## 1. Provision isolated PostgreSQL on localhost:5544
 
@@ -88,12 +90,12 @@ The bootstrap code hard-requires dbname=aegis_blind_test, host=localhost, port=5
 DB_HOST=127.0.0.1 DB_PORT=5544 POSTGRES_DB=aegis_blind_test \
 AEGISRAG_TABLE=rag.aegis_live_docs AEGISRAG_INDEX_MODE=live AEGISRAG_LIVE_MIN_ROWS=1 \
 python scripts/eval_chat_mvp.py \
-  --cases step2_privacy_rag/local_eval/blind_v1/eval_dev.jsonl --limit 10
+  --cases step2_privacy_rag/local_eval/blind_v1/eval_full100.jsonl --limit 10
 
 DB_HOST=127.0.0.1 DB_PORT=5544 POSTGRES_DB=aegis_blind_test \
 AEGISRAG_TABLE=rag.aegis_live_docs AEGISRAG_INDEX_MODE=live AEGISRAG_LIVE_MIN_ROWS=1 \
 python scripts/eval_chat_mvp.py \
-  --cases step2_privacy_rag/local_eval/blind_v1/eval_dev.jsonl \
+  --cases step2_privacy_rag/local_eval/blind_v1/eval_full100.jsonl \
   --report step2_privacy_rag/local_eval/blind_v1/search_dev_private.json
 ```
 
@@ -106,9 +108,9 @@ DB_HOST=127.0.0.1 DB_PORT=5544 POSTGRES_DB=aegis_blind_test \
 AEGISRAG_TABLE=rag.aegis_live_docs AEGISRAG_INDEX_MODE=live AEGISRAG_LIVE_MIN_ROWS=1 \
 AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
 python scripts/eval_chat_mvp.py \
-  --cases step2_privacy_rag/local_eval/blind_v1/eval_dev.jsonl \
+  --cases step2_privacy_rag/local_eval/blind_v1/eval_full100.jsonl \
   --hcx-live --limit 10 \
-  --report step2_privacy_rag/local_eval/blind_v1/hcx_dev_private.json
+  --report step2_privacy_rag/local_eval/blind_v1/hcx_full100_private.json
 ```
 
 Manual check expected_answer, factual correctness, citation support, hallucination, missed privacy labels, unnecessary CLARIFY/INSUFFICIENT_EVIDENCE and per-query latency. Separate metrics for no-evidence/ambiguous questions; don't score these as 0 Hit@K. **After model tuning on dev, do not use challenge 30 for further tuning.**

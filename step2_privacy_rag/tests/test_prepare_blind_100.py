@@ -17,6 +17,11 @@ class BlindQATests(unittest.TestCase):
             by=validate(q,g,docs)
             rows=prepare(q,by,'blind_v1',b'R'*32,'dev')
             self.assertEqual(rows[0]['expected_decision'],'ANSWER')
+            # Official benchmark must not be restricted by split labels.
+            q[0].pop('split')
+            g[0].pop('split')
+            self.assertEqual(validate(q,g,docs)['BF001']['expected_decision'],'ANSWER')
+            self.assertEqual(prepare(q,validate(q,g,docs),'blind_v1',b'R'*32,'all')[0]['split'],'full100')
             self.assertIn('expected_answer_for_private_review',rows[0])
             self.assertTrue(rows[0]['relevant_doc_ids'][0].startswith('blind_v1__'))
             self.assertNotIn('B0001',rows[0]['relevant_doc_ids'][0])

@@ -51,7 +51,6 @@ def validate(questions,gold,docs):
         decision=g.get('expected_decision')
         query=q.get('query')
         if (not isinstance(query,str) or not 2<=len(query)<=1000 or query in seen
-            or q.get('split') not in ('dev','validation','challenge')
             or q.get('split')!=g.get('split') or q.get('type')!=g.get('type')
             or decision not in ('ANSWER','CLARIFY','INSUFFICIENT_EVIDENCE')
             or not isinstance(refs,list) or len(refs)!=len(set(refs))
@@ -65,11 +64,11 @@ def validate(questions,gold,docs):
 
 def prepare(questions,by,namespace,key,split):
     from dataset_workflow import doc_id
-    return [dict(case_id=q['qid'],question=q['query'],category=q['type'],split=q['split'],
+    return [dict(case_id=q['qid'],question=q['query'],category=q['type'],split='full100' if split=='all' else q.get('split','legacy'),
                  expected_decision=by[q['qid']]['expected_decision'],
                  expected_answer_for_private_review=by[q['qid']].get('expected_answer'),
                  relevant_doc_ids=sorted(set(doc_id(namespace,k,key) for k in by[q['qid']]['relevant_source_ids'])))
-            for q in questions if split=='all' or q['split']==split]
+            for q in questions if split=='all' or q.get('split')==split]
 
 def write_local(path,data):
     root=(ROOT/'step2_privacy_rag/local_eval').resolve()
@@ -88,7 +87,8 @@ def main(argv=None):
     p.add_argument('--queries',type=Path,required=True)
     p.add_argument('--gold',type=Path,required=True)
     p.add_argument('--namespace',default='blind_v1')
-    p.add_argument('--split',choices=('all','dev','validation','challenge'),default='dev')
+    p.add_argument('--split',choices=('all','dev','validation','challenge'),default='all',
+                   help='Official team comparison: all 100 questions (default); legacy filtering is optional')
     p.add_argument('--check-only',action='store_true')
     p.add_argument('--env',type=Path,default=ROOT/'.env')
     p.add_argument('--out',type=Path)
@@ -101,7 +101,7 @@ def main(argv=None):
         original=docs_from_zip(a.documents)
         by=validate(questions,gold,original)
         info={'documents':len(original),'questions':len(questions),
-              'splits':dict(Counter(q['split'] for q in questions)),
+              'types':dict(Counter(q['type'] for q in questions)),
               'expected_decisions':dict(Counter(g['expected_decision'] for g in gold))}
         print('BLIND_QA_GOLD_CHECK',json.dumps(info,ensure_ascii=False),flush=True)
         if a.check_only:return 0

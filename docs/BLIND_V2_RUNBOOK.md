@@ -1,3 +1,5 @@
+> **팀 비교 평가 정책 (2026-11-13):** **100문항 전체가 한 개의 비교 벤치마크**입니다. 개발/검증/챌린지 분할은 이번 팀 간 비교 목적에서 폐기했습니다. 처음의 `--limit 10`은 실행 스모크 테스트일 뿐 점수로 보고하지 않습니다. PII 171문서+별도 Zero-PII 28건, 검색 100문항을 양 팀 동일한 입력으로 돌리고 Gate coverage, unindexed Gold, Hit@K, 답변 사실성/인용 정확성, 지연시간을 각각 비교합니다. 팀원의 동일 데이터 테스트가 성능 개선에 피드백되는 순간 이 데이터는 이후의 독립적인 블라인드 테스트는 아닙니다.
+
 # Blind Clean v2 — 실제 실행 가이드 (171문서 + 28 Zero-PII + 100질의)
 
 > 기준: 기존 187문서 운영 DB `127.0.0.1:5433` 보호, 5544에 격리된 신규 데이터 실험. GitHub에는 원본·질문·Gold·개인정보·비밀키를 올리지 않습니다. 모든 명령은 AegisRAG 루트에서 실행합니다. 합성 CI 통과는 로컬 171문서 모델·DB 실험 완료를 뜻하지 않습니다.
@@ -137,8 +139,8 @@ python scripts/prepare_blind_100.py \
   --gold step2_privacy_rag/local_eval/blind_v2/blind_gold_100.jsonl \
   --namespace blind_v2 \
   --env step2_privacy_rag/local_eval/blind_v2/blind.env \
-  --split dev \
-  --out step2_privacy_rag/local_eval/blind_v2/eval_dev.jsonl
+  --split all \
+  --out step2_privacy_rag/local_eval/blind_v2/eval_full100.jsonl
 ~~~
 
 원본 Gold `Bxxxx`와 DB에 저장되는 `blind_v2__<HMAC>`는 직접 비교할 수 없습니다. 변환 스크립트가 동일 key와 namespace로 매핑합니다.
@@ -150,10 +152,10 @@ DB_HOST=127.0.0.1 DB_PORT=5544 POSTGRES_DB=aegis_blind_test \
 AEGISRAG_TABLE=rag.aegis_live_docs AEGISRAG_INDEX_MODE=live \
 AEGISRAG_LIVE_MIN_ROWS=1 AEGISRAG_TOPIC_BOOST=0 \
 python scripts/eval_chat_mvp.py \
-  --cases step2_privacy_rag/local_eval/blind_v2/eval_dev.jsonl --limit 10
+  --cases step2_privacy_rag/local_eval/blind_v2/eval_full100.jsonl --limit 10
 ~~~
 
-첫 10개가 문제없이 통과하면 `--limit 10`을 제거해 dev 40문항 평가. 지표: Gate 상태·indexable Gold coverage·Hit@1/5·MRR@5·Recall@5·CPU 지연시간. **CLARIFY 12개/근거 부족 8개는 관련 Gold가 빈 목록인 것이 정상**이며, 검색 Hit 분모에서 제외해야 합니다.
+첫 10개가 문제없이 통과하면 `--limit 10`을 제거해 100문항 전체 평가. 지표: Gate 상태·indexable Gold coverage·Hit@1/5·MRR@5·Recall@5·CPU 지연시간. **CLARIFY 12개/근거 부족 8개는 관련 Gold가 빈 목록인 것이 정상**이며, 검색 Hit 분모에서 제외해야 합니다.
 
 ## 8. 실제 HCX 답변 + 인용 평가 (유료 API·명시적 승인 필요)
 
@@ -163,9 +165,9 @@ AEGISRAG_TABLE=rag.aegis_live_docs AEGISRAG_INDEX_MODE=live \
 AEGISRAG_LIVE_MIN_ROWS=1 AEGISRAG_TOPIC_BOOST=0 \
 AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
 python scripts/eval_chat_mvp.py \
-  --cases step2_privacy_rag/local_eval/blind_v2/eval_dev.jsonl \
+  --cases step2_privacy_rag/local_eval/blind_v2/eval_full100.jsonl \
   --hcx-live --limit 10 \
-  --report step2_privacy_rag/local_eval/blind_v2/hcx_first_10.json
+  --report step2_privacy_rag/local_eval/blind_v2/hcx_smoke_10.json
 ~~~
 
 로컬 보고서에는 질문·기대 답변·HCX 실제 답변·인용 ID·사람 채점용 빈 필드가 기록됩니다. 확인 지표: 답변 사실성, 실제 문서 인용 지지 여부, 과잉 인용, 환각/원문 PII 누출, 불필요한 거절. 실제 HCX 호출은 비용을 발생시킵니다.
@@ -190,7 +192,7 @@ python scripts/aegisrag.py run-chat --device cpu --port 8769
 4. **검색:** 승인되어 실제 인덱스에 있는 Gold 기준 Hit@K/Recall@K; 미적재 Gold는 별도 보고.
 5. **HCX:** 답변 사실성과 인용 지지·과잉 인용·개인정보 안전성·보류 적절성.
 6. **기존 회귀:** 187문서/88질의 동결 기준선 유지 여부 점검.
-7. **최종 블라인드:** dev40 → validation30 → challenge30 순서. 문서 자체는 공유하므로 완전한 독립 외부 코퍼스는 아님.
+7. **최종 블라인드:** 100문항 전체 동일 조건으로 평가. 문서 자체는 공유하므로 완전한 독립 외부 코퍼스는 아님.
 
 ### 데이터와 평가의 한계
 
