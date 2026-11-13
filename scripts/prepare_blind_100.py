@@ -67,6 +67,7 @@ def prepare(questions,by,namespace,key,split):
     from dataset_workflow import doc_id
     return [dict(case_id=q['qid'],question=q['query'],category=q['type'],split=q['split'],
                  expected_decision=by[q['qid']]['expected_decision'],
+                 expected_answer_for_private_review=by[q['qid']].get('expected_answer'),
                  relevant_doc_ids=sorted(set(doc_id(namespace,k,key) for k in by[q['qid']]['relevant_source_ids'])))
             for q in questions if split=='all' or q['split']==split]
 

@@ -40,7 +40,6 @@ def load_cases(path: Path) -> list[dict]:
                 or not 0 < len(question.strip()) <= 1000
                 or (refs is not None and
                     (not isinstance(refs, list)
-                     or not refs
                      or any(not isinstance(x, str) or re.fullmatch(r'[A-Za-z0-9_-]{1,60}',x) is None for x in refs)))):
             raise ValueError('MVP_CASE_SCHEMA_INVALID')
         ids.add(case_id)

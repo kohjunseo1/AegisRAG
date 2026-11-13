@@ -42,6 +42,17 @@ class TestMVPEval(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'MVP_EXAMPLES_ALREADY_EXIST_NO_OVERWRITE'):
                     write_example_cases(path)
 
+    def test_no_reference_cases_are_valid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'cases.jsonl'
+            p.write_text(json.dumps({
+                'case_id':'AMBIGUOUS_1','question':'어느 사례인가요?',
+                'expected_decision':'CLARIFY','relevant_doc_ids':[]
+            },ensure_ascii=False)+'\n',encoding='utf-8')
+            cases=load_cases(p)
+            self.assertEqual(len(cases),1)
+            self.assertEqual(cases[0]['relevant_doc_ids'],[])
+
     def test_duplicate_ids_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'bad.jsonl'
