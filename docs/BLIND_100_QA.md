@@ -16,14 +16,109 @@ This repo stores only benchmark **code**, not raw synthetic PII, questions or Go
 
     python scripts/prepare_blind_100.py --documents step2_privacy_rag/local_eval/blind_v1/blind_eval.jsonl.zip --queries step2_privacy_rag/local_eval/blind_v1/blind_queries_100.jsonl --gold step2_privacy_rag/local_eval/blind_v1/blind_gold_100.jsonl --namespace blind_v1 --split dev --out step2_privacy_rag/local_eval/blind_v1/eval_dev.jsonl
 
-## Run AFTER local review and isolated test-DB ingestion
+## 1. Provision isolated PostgreSQL on localhost:5544
 
-    python scripts/eval_chat_mvp.py --cases step2_privacy_rag/local_eval/blind_v1/eval_dev.jsonl --limit 10
+```bash
+# Existing root .env provides POSTGRES_USER/POSTGRES_PASSWORD/RAG_PASSWORD etc.
+docker compose --env-file .env -f step2_privacy_rag/compose.blind.yaml up -d
 
-HCX actual API calls (only masked data, paid and explicitly approved):
+# Copy secret values into a PRIVATE, git-ignored test config.
+cp .env step2_privacy_rag/local_eval/blind_v1/blind.env
+cat >> step2_privacy_rag/local_eval/blind_v1/blind.env <<'EOF'
+DB_HOST=127.0.0.1
+DB_PORT=5544
+POSTGRES_DB=aegis_blind_test
+AEGISRAG_TABLE=rag.aegis_live_docs
+AEGISRAG_INDEX_MODE=live
+AEGISRAG_LIVE_MIN_ROWS=1
+EOF
+chmod 600 step2_privacy_rag/local_eval/blind_v1/blind.env
+```
 
-    AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES python scripts/eval_chat_mvp.py --cases step2_privacy_rag/local_eval/blind_v1/eval_dev.jsonl --hcx-live --limit 10
+The docker compose project name and volume are separated from the original port 5433 database. Do not pass the original root .env to the blind bootstrap command.
 
-**Important:** The live upsert requires an initialized nonempty table and HMAC key consistency. Provision an isolated PostgreSQL test database and appropriate initial seeded snapshot, never use the original 187-row production DB for first-run testing. The actual blind integration is not verified until run locally.
+## 2. Run original-document Gold audit before any indexing
 
-Other limitations: Current eval_chat_mvp measures retrieval hits, HCX decision and citation matches, NOT independent factual correctness of a generated answer. Review answers manually against the expected fact and original sanitized evidence; record separate human accuracy, unsupported claims, privacy leak and p95 latency. Do not use the 30 challenge questions to tune the system.
+```bash
+python scripts/eval_blind_pii.py \
+  --input step2_privacy_rag/local_eval/blind_v1/blind_eval.jsonl.zip \
+  --report step2_privacy_rag/local_eval/blind_v1/pii_first_report.json
+```
+
+Review suspected missed PII; especially documents projected READY but containing a Gold PII literal. A regular expression signal is not a final leak certificate. Keep the FIRST blind test unchanged before tuning.
+
+## 3. Local intake and REVIEW
+
+```bash
+unzip -p step2_privacy_rag/local_eval/blind_v1/blind_eval.jsonl.zip blind_eval.jsonl \
+  > step2_privacy_rag/local_eval/blind_v1/source.jsonl
+
+python scripts/dataset_intake.py stage \
+  --input step2_privacy_rag/local_eval/blind_v1/source.jsonl \
+  --dataset blind_v1 --id-field id --text-field text --type-field doc_type \
+  --stage step2_privacy_rag/local_eval/blind_v1/stage.json
+
+python scripts/dataset_review_ui.py \
+  --stage step2_privacy_rag/local_eval/blind_v1/stage.json \
+  --env step2_privacy_rag/local_eval/blind_v1/blind.env --port 8781
+```
+
+At http://127.0.0.1:8781/ use the one-time terminal token; revise and recheck REVIEW documents locally. **Do not press DB Commit until the initial table has been bootstrapped.** The admin UI uses the selected DB env to write, therefore only point it to blind.env.
+
+## 4. Bootstrap the empty BLIND test DB once
+
+```bash
+python scripts/dataset_intake.py export \
+  --stage step2_privacy_rag/local_eval/blind_v1/stage.json \
+  --output step2_privacy_rag/local_eval/blind_v1/approved.json
+
+python scripts/bootstrap_blind_db.py \
+  --input step2_privacy_rag/local_eval/blind_v1/approved.json \
+  --env step2_privacy_rag/local_eval/blind_v1/blind.env \
+  --confirm BOOTSTRAP_BLIND_TEST_DB
+```
+
+The bootstrap code hard-requires dbname=aegis_blind_test, host=localhost, port=5544, empty rag.aegis_live_docs, and the same HMAC key tag. It only accepts approved masked batch records and reuses the canonical KoE5 document embeddings. Subsequent approved documents are added with the admin UI's confirmed incremental UPSERT. This has synthetic CI tests; an actual local 171-document DB bootstrap is not yet executed by this assistant.
+
+## 5. Run retrieval evaluation (DB test mode)
+
+```bash
+DB_HOST=127.0.0.1 DB_PORT=5544 POSTGRES_DB=aegis_blind_test \
+AEGISRAG_TABLE=rag.aegis_live_docs AEGISRAG_INDEX_MODE=live AEGISRAG_LIVE_MIN_ROWS=1 \
+python scripts/eval_chat_mvp.py \
+  --cases step2_privacy_rag/local_eval/blind_v1/eval_dev.jsonl --limit 10
+
+DB_HOST=127.0.0.1 DB_PORT=5544 POSTGRES_DB=aegis_blind_test \
+AEGISRAG_TABLE=rag.aegis_live_docs AEGISRAG_INDEX_MODE=live AEGISRAG_LIVE_MIN_ROWS=1 \
+python scripts/eval_chat_mvp.py \
+  --cases step2_privacy_rag/local_eval/blind_v1/eval_dev.jsonl \
+  --report step2_privacy_rag/local_eval/blind_v1/search_dev_private.json
+```
+
+Use --limit 10 for first smoke tests. The runner distinguishes Gold docs not physically present in the test index from search misses, reports Gate status, Hit@1/5, MRR/Recall@5 on indexable Gold and CPU latency. The report stays owner-readable in local_eval and contains raw synthetic query text.
+
+## 6. Optional paid HCX response audit (only masked documents)
+
+```bash
+DB_HOST=127.0.0.1 DB_PORT=5544 POSTGRES_DB=aegis_blind_test \
+AEGISRAG_TABLE=rag.aegis_live_docs AEGISRAG_INDEX_MODE=live AEGISRAG_LIVE_MIN_ROWS=1 \
+AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES \
+python scripts/eval_chat_mvp.py \
+  --cases step2_privacy_rag/local_eval/blind_v1/eval_dev.jsonl \
+  --hcx-live --limit 10 \
+  --report step2_privacy_rag/local_eval/blind_v1/hcx_dev_private.json
+```
+
+Manual check expected_answer, factual correctness, citation support, hallucination, missed privacy labels, unnecessary CLARIFY/INSUFFICIENT_EVIDENCE and per-query latency. Separate metrics for no-evidence/ambiguous questions; don't score these as 0 Hit@K. **After model tuning on dev, do not use challenge 30 for further tuning.**
+
+## 7. End-to-end completion thresholds
+
+- Step1 external blind Strict F1 + Mask Recall; inspect all READY documents with potential Gold miss.
+- New documents auto READY vs REVIEW/BLOCKED; each manual correction independently passes unchanged Step1 + Gate.
+- No unauthorized raw record in DB/HCX.
+- Test DB count and HMAC tag match; re-ingest idempotently skips unchanged docs.
+- Indexed Gold coverage and retrieval Hit@K / MRR, multi-positive Recall@K; no false answer for no-evidence cases.
+- HCX answer fact support and citation precision manually graded; CPU warm p50/p95 tracked.
+- Only after this test passes, plan separate production rollout; never promote the blind test DB directly into production.
+
+Known limitation: The original synthetic Gold includes incorrect dates/weekdays and ambiguous name policies; read the user-provided audit report. New 100 QA questions were checked for source ID/evidence grounding but have not undergone independent two-reviewer semantic validation.
