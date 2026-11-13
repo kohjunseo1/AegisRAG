@@ -116,11 +116,13 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
     from pii_detector import create_detector
     from document_preparation import prepare
     from name_protection_handoff import _FrozenDetectorView
+    from hcx import redact_residual_pii
     key=fixed_key(env_file)
     strict=Counter()
     by_label={label:Counter() for label in sorted(LABELS)}
     doc_status=Counter()
-    gate_status=Counter()
+    prepare_states=Counter()
+    intake_states=Counter()
     gold_chars=masked_gold_chars=0
     possible_literal_residuals=0
     ready_docs_with_suspected_residual=0
@@ -145,9 +147,24 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
             # Freeze original Step1 output; Gate can call independent A.X/Veil
             # but must not re-infer another Step1 result.
             outcome=prepare('EVAL_%05d'%i,row['text'],_FrozenDetectorView(detector,result),key)
-            gate_status[outcome.state]+=1
+            prepare_states[outcome.state]+=1
+            # Mirror the existing dataset_workflow._process intake gate.
+            auto_ready=(outcome.state=='LOCAL_PREPARED'
+                        and outcome.unlinked_mentions==0
+                        and isinstance(outcome.sanitized_text,str)
+                        and bool(outcome.sanitized_text.strip()))
+            if auto_ready:
+                _,regex_residual=redact_residual_pii(outcome.sanitized_text)
+                auto_ready=not any(regex_residual.values())
+            if auto_ready:
+                intake_state='READY'
+            elif outcome.state=='BLOCKED':
+                intake_state='BLOCKED'
+            else:
+                intake_state='REVIEW_PENDING'
+            intake_states[intake_state]+=1
             residual=0
-            if outcome.state=='LOCAL_PREPARED':
+            if auto_ready:
                 # Conservative lexical signal only: a short given name can
                 # coincidentally occur elsewhere. Not proof of PII leakage.
                 masked=outcome.sanitized_text or ''
@@ -159,7 +176,8 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
                              str(row['id']).encode()).hexdigest()[:8],
                             'gold_entities':len(gold),'strict_fn':len(fn),
                             'step1_gold_chars_uncovered':total-hit,
-                            'gate_state':outcome.state,
+                            'prepare_state':outcome.state,
+                            'intake_state':intake_state,
                             'suspected_unmasked_gold_literals':residual})
             if i==len(rows) or i%25==0:
                 print('BLIND_PROGRESS',json.dumps({'completed':i,'total':len(rows)}),flush=True)
@@ -168,7 +186,8 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
         'gold_entities':sum(len(r['entities']) for r in rows),
         'zero_gold_docs':sum(not r['entities'] for r in rows),
         'step1_statuses':dict(doc_status),
-        'gate_states':dict(gate_status),
+        'prepare_states':dict(prepare_states),
+        'projected_intake_states':dict(intake_states),
         'strict':counts_to_metrics(strict),
         'strict_by_label':{k:counts_to_metrics(c) for k,c in by_label.items()},
         'step1_mask_gold_character_recall':round(masked_gold_chars/gold_chars,6) if gold_chars else None,
@@ -176,7 +195,7 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
         'ready_docs_with_step1_mask_gap':ready_docs_with_step1_gap,
         'ready_docs_with_suspected_literal_residual':ready_docs_with_suspected_residual,
         'suspected_literal_residual_count':possible_literal_residuals,
-        'warning':'Gold raw-literal residuals are conservative text matches and can yield false positives, especially short names. Review locally before any ingestion. This report is NOT zero-PII-leak certification.',
+        'warning':'READY is projected using the same local intake conditions. Gold raw-literal residuals are conservative text matches and can yield false positives, especially short names. A Step1 mask gap may be repaired by downstream Gate/V5; review final sanitized evidence locally. Do not ingest any suspect READY document without review. This report is NOT zero-PII-leak certification.',
         'per_doc':per_doc,
     }
 
