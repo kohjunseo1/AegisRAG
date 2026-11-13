@@ -6,7 +6,7 @@ require the dedicated local DB name, port, host and exact confirmation phrase.
 Inputs are already privacy-approved; no raw/unapproved documents are accepted.
 """
 from __future__ import annotations
-import argparse,json,re,sys
+import argparse,json,re,sys,time
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -31,6 +31,8 @@ def bootstrap(input_file:Path,env_file:Path,device:str,confirm:str)->dict:
     rows=validate_approved_batch(input_file,env_file)
     if not rows:raise ValueError('NO_APPROVED_DOCUMENTS')
     tag=key_tag(fixed_key(env_file))
+    total_started=time.perf_counter()
+    embed_ms=0.0
     with psycopg.connect(**db) as conn:
         with conn.cursor() as cur:
             cur.execute('SELECT current_database(), to_regclass(%s)',('rag.aegis_live_docs',))
@@ -41,7 +43,9 @@ def bootstrap(input_file:Path,env_file:Path,device:str,confirm:str)->dict:
             if cur.fetchone()[0] is None:
                 raise ValueError('TEST_DB_SCHEMA_NOT_READY')
             # Private model invocation is local and happens before any DB DDL.
+            embed_started=time.perf_counter()
             vectors=encode_docs({'documents':rows},device)
+            embed_ms=(time.perf_counter()-embed_started)*1000
             if len(vectors)!=len(rows):
                 raise ValueError('TEST_EMBEDDING_COUNT_MISMATCH')
             cur.execute('''CREATE TABLE rag.aegis_live_docs (
@@ -64,8 +68,12 @@ def bootstrap(input_file:Path,env_file:Path,device:str,confirm:str)->dict:
             if count!=len(rows) or unique_ids!=count or tags!=1:
                 raise ValueError('TEST_DB_BOOTSTRAP_INTEGRITY_FAILED')
         # psycopg context commits only when all checks pass.
+    total_ms=(time.perf_counter()-total_started)*1000
     return {'database':'aegis_blind_test','port':5544,'table':'rag.aegis_live_docs',
-            'inserted':len(rows),'key_tag':tag,'production_187_untouched':True}
+            'inserted':len(rows),'key_tag':tag,'production_187_untouched':True,
+            'timings_ms':{'embedding_model_load_and_batch_encoding':round(embed_ms,2),
+                          'db_connect_plus_embedding_plus_transaction':round(total_ms,2),
+                          'db_transaction_excluding_embedding_approx':round(max(0,total_ms-embed_ms),2)}}
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)

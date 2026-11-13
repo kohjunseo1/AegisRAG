@@ -5,6 +5,7 @@ import argparse
 import json
 import re
 import sys
+import time
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -41,10 +42,22 @@ def main(argv=None):
             from dotenv import load_dotenv
             load_dotenv(a.env)
             from pii_detector import create_detector
-            with create_detector() as detector:
+            model_started=time.perf_counter()
+            detector=create_detector()
+            model_load_ms=(time.perf_counter()-model_started)*1000
+            pipeline_started=time.perf_counter()
+            with detector:
                 stage=stage_dataset(records,a.dataset,detector,key)
+            batch_ms=(time.perf_counter()-pipeline_started)*1000
             write_private(a.stage,signed(stage,key))
             print('INTAKE_STAGE',json.dumps(summary(stage),ensure_ascii=False))
+            print('INTAKE_STAGE_TIMING_MS',json.dumps({
+                'cold_detector_load':round(model_load_ms,2),
+                'privacy_stage_documents':len(records),
+                'privacy_stage_total':round(batch_ms,2),
+                'mean_per_document':round(batch_ms/len(records),2),
+                'includes':'Document detector, Gate, pseudonymization and in-memory staging; excludes KoE5 embedding and DB insertion.'
+            },ensure_ascii=False))
         elif a.command=='status':
             if not a.stage:
                 p.error('status: --stage required')

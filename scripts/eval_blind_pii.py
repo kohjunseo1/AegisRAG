@@ -136,6 +136,7 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
     by_label={label:Counter() for label in sorted(LABELS)}
     doc_status=Counter()
     prepare_states=Counter()
+    prepare_reasons=Counter()
     intake_states=Counter()
     gold_chars=masked_gold_chars=0
     possible_literal_residuals=0
@@ -176,6 +177,7 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
             downstream_ms.append(downstream_elapsed)
             privacy_total_ms.append((time.perf_counter()-doc_started)*1000)
             prepare_states[outcome.state]+=1
+            prepare_reasons[str(outcome.reason)]+=1
             # Mirror the existing dataset_workflow._process intake gate.
             auto_ready=(outcome.state=='LOCAL_PREPARED'
                         and outcome.unlinked_mentions==0
@@ -205,7 +207,10 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
                             'gold_entities':len(gold),'strict_fn':len(fn),
                             'step1_gold_chars_uncovered':total-hit,
                             'prepare_state':outcome.state,
+                            'prepare_reason':str(outcome.reason),
                             'intake_state':intake_state,
+                            'strict_fn_labels':dict(Counter(e[0] for e in fn)),
+                            'strict_fp_labels':dict(Counter(e[0] for e in fp)),
                             'suspected_unmasked_gold_literals':residual,
                             'timings_ms':{'step1_detector':round(step1_elapsed,2),
                                           'gate_and_local_pseudonymization':round(downstream_elapsed,2),
@@ -218,6 +223,7 @@ def evaluate(rows:list[dict], env_file:Path)->dict:
         'zero_gold_docs':sum(not r['entities'] for r in rows),
         'step1_statuses':dict(doc_status),
         'prepare_states':dict(prepare_states),
+        'prepare_reasons':dict(prepare_reasons),
         'projected_intake_states':dict(intake_states),
         'timing_ms':{
             'cold_detector_model_load':init_ms,
