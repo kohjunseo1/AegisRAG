@@ -53,6 +53,7 @@ def load_cases(path: Path) -> list[dict]:
 def metric_report(rows: list[dict]) -> dict:
     n = len(rows)
     labeled = [r for r in rows if r['labeled']]
+    indexable_labeled = [r for r in labeled if r.get('indexable_gold_count', 1) > 0]
     policy = [r for r in rows if r.get('expected_decision') in {'ANSWER','CLARIFY','INSUFFICIENT_EVIDENCE'}]
     judged_policy = [r for r in policy if r.get('decision') is not None]
     states = Counter(r['gate_state'] for r in rows)
@@ -72,6 +73,11 @@ def metric_report(rows: list[dict]) -> dict:
         'hit5_labeled': sum(r['hit5'] for r in labeled),
         'hit1_rate_labeled': round(sum(r['hit1'] for r in labeled)/len(labeled),4) if labeled else None,
         'hit5_rate_labeled': round(sum(r['hit5'] for r in labeled)/len(labeled),4) if labeled else None,
+        'cases_with_indexable_gold':len(indexable_labeled),
+        'cases_with_unindexed_gold_only':len(labeled)-len(indexable_labeled),
+        'hit5_rate_indexable_gold':round(sum(r['hit5'] for r in indexable_labeled)/len(indexable_labeled),4) if indexable_labeled else None,
+        'mrr_indexable_gold':round(sum(r.get('rr',0) for r in indexable_labeled)/len(indexable_labeled),4) if indexable_labeled else None,
+        'recall5_indexable_gold':round(sum(r.get('recall5_indexable',0) for r in indexable_labeled)/len(indexable_labeled),4) if indexable_labeled else None,
         'answer_with_expected_citation': sum(r.get('cited_expected') is True for r in labeled),
         'policy_cases':len(policy),
         'decision_scored_cases':len(judged_policy),
@@ -83,7 +89,7 @@ def metric_report(rows: list[dict]) -> dict:
     }
 
 
-def evaluate(cases: list[dict], *, device='cpu', hcx_live=False) -> dict:
+def evaluate(cases: list[dict], *, device='cpu', hcx_live=False, report_file: Path | None = None) -> dict:
     from core import LivePipeline
     from app import respond
     pipeline = LivePipeline(ROOT, device=device, reuse_step1=True)
@@ -94,7 +100,17 @@ def evaluate(cases: list[dict], *, device='cpu', hcx_live=False) -> dict:
         started = time.perf_counter()
         pipeline.preload_models()
         print('MVP_MODEL_PRELOAD_MS', round((time.perf_counter()-started)*1000,2), flush=True)
+        # Read the actual DB index once to distinguish missing approved documents
+        # from retrieval misses. This never queries raw/private source documents.
+        import psycopg
+        from psycopg import sql
+        with psycopg.connect(**pipeline.db) as conn:
+            with conn.cursor() as cur:
+                cur.execute('SET TRANSACTION READ ONLY')
+                cur.execute(sql.SQL('SELECT doc_id FROM {} WHERE key_tag=%s').format(pipeline.table),(pipeline.tag,))
+                indexed={r[0] for r in cur.fetchall()}
         rows=[]
+        private_rows=[]
         for case in cases:
             start = time.perf_counter()
             if hcx_live:
@@ -105,13 +121,16 @@ def evaluate(cases: list[dict], *, device='cpu', hcx_live=False) -> dict:
                 decision = result.get('decision')
                 recovery = result.get('diagnostics', {}).get('query_recovery')
                 cited = result.get('citations', [])
+                answer_text=result.get('answer')
             else:
                 state, prepared, evidence = pipeline.ask_local(case['question'])
                 ranked = [x['doc_id'] for x in evidence]
                 decision = None
                 recovery = pipeline.last_query_recovery
                 cited = []
+                answer_text=None
             refs = set(case.get('relevant_doc_ids') or [])
+            indexable_refs=refs & indexed
             scored = bool(refs)
             row = {
                 'case_id':case['case_id'],
@@ -125,15 +144,36 @@ def evaluate(cases: list[dict], *, device='cpu', hcx_live=False) -> dict:
                 'top5_doc_ids':ranked[:5],
                 'citations':cited,
                 'labeled':scored,
+                'indexable_gold_count':len(indexable_refs),
                 'hit1':int(bool(refs and ranked[:1] and ranked[0] in refs)),
                 'hit5':int(bool(refs.intersection(ranked[:5]))),
+                'rr':round(next((1/(i+1) for i,doc_id in enumerate(ranked[:5]) if doc_id in refs),0.0),4),
+                'recall5_indexable':round(len(indexable_refs & set(ranked[:5])) / len(indexable_refs),4) if indexable_refs else None,
                 'cited_expected':bool(refs.intersection(cited)) if (scored and hcx_live) else None,
                 'total_ms':round((time.perf_counter()-start)*1000,2),
             }
             rows.append(row)
+            if report_file is not None:
+                private_rows.append({
+                    'case_id':case['case_id'],'split':case.get('split','unassigned'),
+                    'category':case.get('category','unspecified'),
+                    'question':case['question'],'expected_decision':case.get('expected_decision'),
+                    'expected_answer':case.get('expected_answer_for_private_review'),
+                    'hcx_answer':answer_text,'observed':row,
+                    'human_answer_correct':None,'human_citation_supported':None,'human_privacy_safe':None})
             print('MVP_CASE',json.dumps(row,ensure_ascii=False,sort_keys=True),flush=True)
         summary=metric_report(rows)
         print('MVP_EVALUATION_SUMMARY',json.dumps(summary,ensure_ascii=False,sort_keys=True),flush=True)
+        if report_file is not None:
+            dest=report_file.expanduser().resolve()
+            parent=(ROOT/'step2_privacy_rag/local_eval').resolve()
+            if not dest.is_relative_to(parent) or dest.suffix!='.json' or dest.exists():
+                raise ValueError('MVP_REPORT_MUST_BE_NEW_LOCAL_JSON')
+            dest.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+            fd=os.open(dest,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+            with os.fdopen(fd,'w',encoding='utf-8') as out:
+                json.dump({'metrics':summary,'cases':private_rows},out,ensure_ascii=False,indent=2)
+            print('MVP_PRIVATE_REPORT_SAVED',str(dest),flush=True)
         return summary
     finally:
         pipeline.close()
@@ -190,6 +230,7 @@ def main(argv=None):
     p.add_argument('--device',choices=['cpu','mps'],default='cpu')
     p.add_argument('--limit',type=int,default=0,help='Limit evaluation to first N selected cases (0 = all)')
     p.add_argument('--hcx-live',action='store_true',help='Call paid HCX API after local masking and outbound checks')
+    p.add_argument('--report',type=Path,help='owner-only local_eval JSON with questions/HCX answers for human evaluation')
     args=p.parse_args(argv)
     if args.write_example:
         try:
@@ -207,7 +248,7 @@ def main(argv=None):
             raise ValueError('MVP_LIMIT_INVALID')
         if args.limit:
             cases=cases[:args.limit]
-        return 0 if evaluate(cases,device=args.device,hcx_live=args.hcx_live) else 2
+        return 0 if evaluate(cases,device=args.device,hcx_live=args.hcx_live,report_file=args.report) else 2
     except Exception as exc:
         # Exceptions might contain original query snippets; only expose type and safe code.
         safe = str(exc) if isinstance(exc, ValueError) and str(exc).startswith('MVP_') else type(exc).__name__
