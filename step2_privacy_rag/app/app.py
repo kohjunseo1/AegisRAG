@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 from core import LivePipeline, PipelineError
 from hcx import call_hcx, OutboundError, redact_residual_pii
+from query_privacy_controller import unresolved_query_response, insufficient_evidence_response
 
 HERE = Path(__file__).resolve().parent
 ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
@@ -39,15 +40,19 @@ def respond(pipeline: LivePipeline, message: dict, allow_hcx: bool = True) -> di
     start = time.perf_counter()
     state, prepared, evidence = pipeline.ask_local(question)
     hcx_start = time.perf_counter()
-    if prepared is None:
-        is_review = 'REVIEW' in state.upper()
-        return {'decision': 'REVIEW_REQUIRED' if is_review else 'BLOCKED_OR_DEFERRED',
-                'answer': ('질문의 인물·개체 표현을 안전하게 연결할 수 없어 검색을 보류했습니다. 인물 이름만 입력하거나, 찾으려는 문서 종류를 구체적으로 다시 입력해 주세요.' if is_review
-                           else '현재 질문을 안전하게 처리할 수 없습니다. 표현을 바꿔 다시 질문해 주세요.'),
-                'citations': [], 'sources': [],
-                'diagnostics': {'gate_state': state,
-                    'timings_ms': {**getattr(pipeline, 'timings', {}), 'total_ms': round((time.perf_counter()-start)*1000, 2)}
-                    if isinstance(getattr(pipeline, 'timings', None), dict) else {}}, 'mode': 'hcx'}
+    if prepared is None or not evidence:
+        # REVIEW is a local clarification, not an admin approval or an HCX call.
+        # Empty evidence must likewise return without outbound transport.
+        disposition = (unresolved_query_response(state) if prepared is None
+                       else insufficient_evidence_response())
+        timings = getattr(pipeline, 'timings', None)
+        diagnostics = {'gate_state': state, 'retrieved_count': 0}
+        if isinstance(timings, dict):
+            diagnostics['timings_ms'] = {
+                **timings, 'total_ms': round((time.perf_counter() - start) * 1000, 2)
+            }
+        return {**disposition, 'citations': [], 'sources': [],
+                'diagnostics': diagnostics, 'mode': 'local'}
 
     # All downstream calls use only masked query and DB V6 already-prepared docs.
     try:
