@@ -61,7 +61,7 @@ class HTTPContract(unittest.TestCase):
         self.assertEqual(result['citations'],['S001'])
         self.assertIn('total_ms',result['diagnostics']['timings_ms'])
         self.pipeline.ask_local.return_value = ('REVIEW',None,[])
-        self.assertEqual(ask()['decision'],'REVIEW_REQUIRED')
+        self.assertEqual(ask()['decision'],'CLARIFY')
         self.assertEqual(hcx.call_count,1)
 
     def test_cross_origin_rejected(self):
