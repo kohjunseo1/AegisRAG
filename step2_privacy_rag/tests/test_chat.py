@@ -134,7 +134,9 @@ class TestE2EContract(unittest.TestCase):
         pl=MagicMock()
         pl.ask_local.return_value=('REVIEW_REQUIRED',None,[])
         result=respond(pl,{'question':'검토 질의'})
-        self.assertEqual(result['decision'],'REVIEW_REQUIRED')
+        self.assertEqual(result['decision'],'CLARIFY')
+        self.assertEqual(result['citations'], [])
+        self.assertEqual(result['mode'], 'local')
         mock_call.assert_not_called()
 
 if __name__=='__main__':unittest.main()
