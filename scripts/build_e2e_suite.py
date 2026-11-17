@@ -67,13 +67,33 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--size",type=int,default=16,help="type-balanced pilot, 1..88")
     parser.add_argument("--out",type=Path,default=LOCAL/"e2e_pilot_16.jsonl")
+    parser.add_argument("--queries",type=Path,default=QS,
+                        help="Existing local private 88-query JSONL")
+    parser.add_argument("--gold",type=Path,default=GOLD,
+                        help="Existing local private 88-Gold JSONL")
+    parser.add_argument("--include-qids",nargs="*",default=[],
+                        help="Append diagnostic QIDs in test suite only, never runtime rules")
     args=parser.parse_args()
     try:
         dest=args.out.expanduser().resolve()
         if (not dest.is_relative_to(LOCAL.resolve())
                 or dest.suffix!=".jsonl" or dest.exists()):
             raise ValueError("E2E_DEST_MUST_BE_NEW_LOCAL_JSONL")
-        chosen=choose(read(QS),read(GOLD),args.size)
+        query_rows=read(args.queries)
+        gold_rows=read(args.gold)
+        chosen=choose(query_rows,gold_rows,args.size)
+        # Targeted evaluation examples do not become per-case inference rules.
+        if args.include_qids:
+            lookup={x["case_id"]:x for x in choose(query_rows,gold_rows,88)}
+            if len(args.include_qids)!=len(set(args.include_qids)) or any(
+                qid not in lookup for qid in args.include_qids
+            ):
+                raise ValueError("E2E_EXTRA_QID_INVALID")
+            present={x["case_id"] for x in chosen}
+            for qid in args.include_qids:
+                if qid not in present:
+                    chosen.append(lookup[qid])
+                    present.add(qid)
         dest.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
         fd=os.open(dest,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
         with os.fdopen(fd,"w",encoding="utf-8") as f:
