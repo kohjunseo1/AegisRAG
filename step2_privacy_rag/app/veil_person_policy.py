@@ -32,9 +32,18 @@ PARTICLE_ALTS = "|".join(sorted({
     "께서는", "께서", "에게서", "에게", "한테", "으로", "부터", "까지", "이랑",
     "은", "는", "이", "가", "을", "를", "도", "의", "과", "와", "로", "께",
 }, key=len, reverse=True))
+# A surname+title followed by a *complete* Korean copula is still a role
+# reference, not a stable personal identity. Require a Hangul boundary after
+# the entire ending: do not treat unknown continuations as safe role phrases.
+# This applies only to otherwise-uncovered Veil-only one-syllable candidates.
+ROLE_COPULAS = (
+    "입니다", "이었습니다", "였습니다", "이에요", "예요",
+    "이었어요", "였어요", "이라고", "라고", "이라는", "라는",
+)
+COPULA_ALTS = "|".join(sorted(map(re.escape, ROLE_COPULAS), key=len, reverse=True))
 ROLE_AFTER = re.compile(
     rf"^[ \t]*(?P<title>{TITLE_ALTS})(?:님)?"
-    rf"(?=$|[^가-힣]|(?:{PARTICLE_ALTS})(?=$|[^가-힣]))"
+    rf"(?=$|[^가-힣]|(?:(?:{PARTICLE_ALTS})|(?:{COPULA_ALTS}))(?=$|[^가-힣]))"
 )
 
 # Use a strong *field boundary*: a generic nearby keyword is not enough.
@@ -102,6 +111,18 @@ def classify_veil_only_person(text: str, start: int, end: int) -> Decision:
 
     # A single Korean syllable followed by a category-defined job title is an
     # identity-ambiguous role reference, NOT a deterministic HMAC PERSON.
+
+    # A role expression modifying the following noun is ambiguous. Keep it in
+    # REVIEW instead of treating it as a confirmed surname/job-title reference.
+    # Predicative quotations such as "박 대리라고 합니다" remain eligible for
+    # role redaction; their safety still depends on the original Gate checks.
+    if len(val) == 1 and re.match(
+        rf"^[ \t]*(?:{TITLE_ALTS})(?:님)?"
+        rf"(?:이라는|이란|라는|란)(?=$|[^가-힣])",
+        after,
+    ):
+        return Decision(REVIEW, "quoted_role_reference")
+
     if len(val) == 1:
         matched = ROLE_AFTER.match(after)
         if matched:

@@ -31,6 +31,7 @@ _ALLOWED_REASONS = {
     'GATE_REVIEW', 'GATE_BLOCKED', 'INVALID_GATE_CONTRACT',
     'NAME_PROTECTION_INCOMPLETE', 'NAME_SPAN_COLLISION',
     'PROTECTION_REGRESSION', 'PSEUDONYMIZATION_FAILED',
+    'MALFORMED_TYPED_ENTITY_REVIEW',
     'VALIDATION_OR_RUNTIME_FAILURE', 'INVALID_NAME_PROPOSAL',
 }
 _COUNTER_KEYS = {
@@ -170,7 +171,23 @@ def _protection_plan(text: str, r: dict, g: dict, decision: dict, proposals: lis
     safe_entities = []
     suppressed = 0
     preserved_name = 0
+    malformed_typed = 0
+    from local_pseudonymizer import canonicalize, PseudonymizationError
     for entity in hmac_entities:
+        # An invalid EMAIL/PHONE fragment is not a valid HMAC identity.
+        # Keep its already-approved protection mask, and let the downstream
+        # pseudonymizer replace that region as mask-only residual text.
+        # Do NOT silently auto-approve: document_preparation marks it REVIEW.
+        if entity['label'] in ('email', 'phone_number'):
+            try:
+                canonicalize(entity['label'], text[entity['start']:entity['end']])
+            except PseudonymizationError as err:
+                if str(err) not in ('invalid_email_value', 'invalid_phone_value'):
+                    raise
+                if not _covers(masks, entity['start'], entity['end']):
+                    raise RuntimeError('malformed_typed_unprotected')
+                malformed_typed += 1
+                continue
         if entity['label'] != 'person':
             safe_entities.append(entity)
             continue
@@ -215,6 +232,7 @@ def _protection_plan(text: str, r: dict, g: dict, decision: dict, proposals: lis
         'extra_masked_chars': len(decision['added']),
         'nonlinked_name_mentions': sum(1 for p in proposals if
                 classifications[p.candidate_full_span] in ('AMBIGUOUS','CONFLICT')),
+        'malformed_typed_count': malformed_typed,
         'suppressed_person_hmac_entities': suppressed,
         'preserved_person_hmac_entities': preserved_name,
         'gate_checked': 1,
@@ -277,6 +295,14 @@ def preview_one(doc_id: str, text: str, detector: Any, *, key: bytes | None = No
         # reconstructed as token/redaction by pseudonymize_local(); do not print
         # or persist resulting text or HMAC tokens.
         del transformed
+        # Private typed-fragment diagnostic is not part of the public safe
+        # result whitelist. Keep malformed EMAIL/PHONE spans review-only,
+        # while preserving the existing preview output schema for all others.
+        malformed = info.pop('malformed_typed_count', 0)
+        if type(malformed) is not int or malformed < 0:
+            return _result(doc_id,'BLOCKED','INVALID_GATE_CONTRACT',**info)
+        if malformed:
+            return _result(doc_id,'REVIEW_QUEUE','MALFORMED_TYPED_ENTITY_REVIEW',**info)
         return _result(doc_id,'LOCAL_DRYRUN_OK','LOCAL_ONLY_NOT_INDEX_AUTHORIZED',**info)
     except Exception:
         # Do not serialize exception details (they can contain original PII).

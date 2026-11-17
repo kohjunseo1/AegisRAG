@@ -82,6 +82,11 @@ def prepare(doc_id: str, text: str, detector: Any, key: bytes) -> Outcome:
         # These contract checks do not prove that unrecognized PII is absent.
         if p.vault_records is not None or not isinstance(p.sanitized_text,str):
             return Outcome(doc_id,'BLOCKED','INVALID_PSEUDONYMIZER_RESULT')
+        # The invalid fragment was mask-only protected, not trusted as an HMAC
+        # identity. We cannot certify that the surrounding original identifier
+        # was fully covered: require review before indexing or external use.
+        if counts.get('malformed_typed_count', 0):
+            return Outcome(doc_id,'REVIEW','MALFORMED_TYPED_ENTITY_REVIEW')
         tokens=tuple(sorted(set(_TOKEN.findall(p.sanitized_text))))
         return Outcome(doc_id,'LOCAL_PREPARED','LOCAL_ONLY_NOT_EXTERNAL_AUTHORIZED',
                        p.sanitized_text,tokens,counts['nonlinked_name_mentions'],tuple(sorted(region_keys)))
