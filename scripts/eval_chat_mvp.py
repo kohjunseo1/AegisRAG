@@ -94,7 +94,7 @@ def metric_report(rows: list[dict]) -> dict:
         'decision_scored_cases':len(judged_policy),
         'expected_decision_accuracy':round(sum(r['decision']==r['expected_decision'] for r in judged_policy)/len(judged_policy),4) if judged_policy else None,
         'unanswerable_false_answers':sum(r['expected_decision']!='ANSWER' and r.get('decision')=='ANSWER' for r in judged_policy),
-        'non_gold_citation_cases':sum(r.get('non_gold_citations',0)>0 for r in judged_policy),
+        'non_gold_citation_cases':sum(r.get('non_gold_citations',0)>0 for r in labeled if r.get('decision') is not None),
         'latency_ms': {'mean': round(statistics.mean(lat),2), 'p50':pct(.5), 'p95':pct(.95)},
         'phase_latency_ms':{
             name:timing_aggregate_ms([
