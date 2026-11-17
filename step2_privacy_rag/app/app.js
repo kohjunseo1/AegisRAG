@@ -142,14 +142,16 @@ question.addEventListener("keydown", (event) => {
 $("reset").addEventListener("click", () => { thread.replaceChildren(); $("welcome").style.display = "block"; question.value = ""; status.textContent = "화면을 비웠습니다 · 각 질문은 독립 처리"; });
 document.querySelectorAll(".sample").forEach(button => button.addEventListener("click", () => { question.value = button.textContent; question.focus(); }));
 fetch("/api/health").then(r => r.json()).then(d => {
-  modePill.textContent = d.external_hcx_enabled ? "문서 상담" : "서버 설정 확인";
-  status.textContent = d.external_hcx_enabled ? "질문을 입력해 주세요" : "HCX 서비스 비활성";
+  const hcxEnabled = d.external_hcx_enabled === true;
+  modePill.textContent = hcxEnabled ? "문서 상담" : "로컬 검색 (HCX 미사용)";
+  status.textContent = hcxEnabled ? "질문을 입력해 주세요" : "로컬 검색 모드 · AI 답변 생성 없음";
   return fetch("/api/index-status").then(async response => {
     const index = await response.json();
     if (!response.ok) throw new Error(index.error || "INDEX_STATUS_FAILED");
     if (index.status === "READY") {
-      modePill.textContent = "문서 상담 · " + index.rows + "건";
-      status.textContent = "검색 인덱스: " + index.table + " (" + index.rows + "/" + index.expected_rows + "건)";
+      modePill.textContent = (hcxEnabled ? "문서 상담 · " : "로컬 검색 · ") + index.rows + "건";
+      status.textContent = "검색 인덱스: " + index.table + " (" + index.rows + "/" + index.expected_rows + "건)" +
+        (hcxEnabled ? "" : " · HCX 비활성 · 답변 생성 없음");
     } else {
       modePill.textContent = "DB 설정 확인";
       status.textContent = "인덱스 불일치: " + index.table + " (" + index.rows + "/" + index.expected_rows + "건, 키 일치=" + index.key_matches + ")";
