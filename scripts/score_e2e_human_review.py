@@ -30,10 +30,14 @@ def grade(items:list[dict])->dict:
         if not isinstance(cid,str) or not cid.replace("_","").replace("-","").isalnum():
             raise ValueError("E2E_SCORE_CASE_ID_INVALID")
         if decision not in ("ANSWER","CLARIFY","INSUFFICIENT_EVIDENCE",
-                            "BLOCKED_OR_DEFERRED","REVIEW_REQUIRED"):
+                            "BLOCKED_OR_DEFERRED","REVIEW_REQUIRED",
+                            "TEMPORARY_ERROR"):
             raise ValueError("E2E_SCORE_UNKNOWN_DECISION")
         by_decision[decision]=by_decision.get(decision,0)+1
-        if any(type(v) is not bool for v in verdicts):
+        # Transient infrastructure failures are never valid task successes.
+        if decision=="TEMPORARY_ERROR":
+            failed.append(cid)
+        elif any(type(v) is not bool for v in verdicts):
             pending.append(cid)
         elif all(verdicts):
             graded.append(cid)
