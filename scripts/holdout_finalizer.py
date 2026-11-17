@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from collections import Counter
 import re
 import subprocess
 import sys
@@ -161,6 +162,63 @@ def _run_intake(args: list[str], label: str) -> None:
         raise RuntimeError(label + "_OUTPUT_INVALID")
 
 
+def audit_stage_summary(stage_data: dict) -> dict:
+    """Aggregate signed, already-staged documents without displaying content/IDs.
+
+    This is only triage metadata, not authorization to change document status.
+    """
+    if not isinstance(stage_data, dict) or stage_data.get("dataset") != "holdoute2e":
+        raise ValueError("STAGE_DATASET_MISMATCH")
+    documents = stage_data.get("documents")
+    if not isinstance(documents, list) or len(documents) != 187:
+        raise ValueError("STAGE_DOCUMENT_COUNT_INVALID")
+    states = Counter()
+    reasons = Counter()
+    approvals = Counter()
+    ids = set()
+    for row in documents:
+        if not isinstance(row, dict) or not isinstance(row.get("doc_id"), str):
+            raise ValueError("INVALID_STAGE_ROW")
+        if row["doc_id"] in ids:
+            raise ValueError("DUPLICATE_STAGE_DOCUMENT_ID")
+        ids.add(row["doc_id"])
+        state = row.get("state")
+        if state not in {"READY", "REVIEW_PENDING", "BLOCKED"}:
+            raise ValueError("INVALID_STAGE_STATE")
+        approval = row.get("approval_state")
+        if (state == "READY" and
+                (approval not in {"AUTO_READY", "HUMAN_APPROVED"} or
+                 not isinstance(row.get("text"), str) or not row["text"].strip())):
+            raise ValueError("UNAPPROVED_READY_STAGE_ROW")
+        if state != "READY" and (approval is not None or row.get("text") is not None):
+            raise ValueError("PENDING_STAGE_CONTAINS_APPROVAL")
+        reason = row.get("reason")
+        if not isinstance(reason, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,79}", reason):
+            raise ValueError("INVALID_STAGE_REASON")
+        states[state] += 1
+        reasons[reason] += 1
+        approvals[approval or "NOT_APPROVED"] += 1
+    return {
+        "documents": len(documents),
+        "states": dict(sorted(states.items())),
+        "reasons": dict(sorted(reasons.items())),
+        "approval_states": dict(sorted(approvals.items())),
+        "pending": states["REVIEW_PENDING"] + states["BLOCKED"],
+        "note": "Signed private stage metadata only. No source text, doc IDs, Gold, DB writes or HCX.",
+    }
+
+
+def audit() -> None:
+    if not STAGE.is_file():
+        raise RuntimeError("HOLDOUT_STAGE_MISSING")
+    sys.path.insert(0, str(ROOT / "step2_privacy_rag" / "app"))
+    from dataset_preparation import fixed_key
+    from dataset_workflow import read_signed
+    stage_data = read_signed(STAGE, fixed_key(ROOT / ".env"))
+    print("HOLDOUT_STAGE_AUDIT",
+          json.dumps(audit_stage_summary(stage_data), sort_keys=True), flush=True)
+
+
 def stage() -> None:
     preflight()
     if STAGE.exists():
@@ -227,13 +285,15 @@ def query() -> None:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=("policy", "stage", "query", "all"))
+    parser.add_argument("phase", choices=("policy", "stage", "audit", "query", "all"))
     args = parser.parse_args(argv)
     try:
         if args.phase in ("policy", "all"):
             policy()
         if args.phase in ("stage", "all"):
             stage()
+        if args.phase in ("audit",):
+            audit()
         if args.phase in ("query", "all"):
             query()
     except Exception as exc:
