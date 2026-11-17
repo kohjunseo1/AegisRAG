@@ -197,6 +197,9 @@ def run(args: argparse.Namespace) -> None:
         if not args.live:
             return
 
+        # Create an isolated owner-only private report directory if absent.
+        # dest has already been resolved and checked against PRIVATE.
+        dest.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
         # No output content or raw question is ever written to stdout.
         from hcx import OutboundError, call_hcx, redact_residual_pii
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
