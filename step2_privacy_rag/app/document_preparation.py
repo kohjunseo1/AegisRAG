@@ -32,6 +32,8 @@ class Outcome:
     tokens: tuple[str, ...] = ()
     unlinked_mentions: int = 0
     region_keys: tuple[str, ...] = ()
+    # Allowlisted internal reason code. No input text, spans, or secrets.
+    safe_issue_code: str | None = None
 
 
 def prepare(doc_id: str, text: str, detector: Any, key: bytes) -> Outcome:
@@ -68,7 +70,12 @@ def prepare(doc_id: str, text: str, detector: Any, key: bytes) -> Outcome:
                          and g.get('decision') in {'BLOCKED','REVIEW_REQUIRED'} else 'UNKNOWN',
                     'gate_reason':raw_reason if raw_reason in allowed_reasons else 'UNCLASSIFIED'
                 },sort_keys=True),flush=True)
-            return Outcome(doc_id,'REVIEW','GATE_NOT_READY')
+            safe_reason=g.get('reason') if isinstance(g,dict) else None
+            if safe_reason not in {'unresolved_veil_person','unprotected_ax_address',
+                                   'detector_not_ready','entity_not_covered',
+                                   'gate_validation_failed','invalid_input'}:
+                safe_reason='gate_other'
+            return Outcome(doc_id,'REVIEW','GATE_NOT_READY',safe_issue_code=safe_reason)
         stage='name_protection_plan'
         g,counts = _protection_plan(text,result,g,decision,proposals)
         stage='region_key_derivation'
@@ -123,4 +130,8 @@ def prepare(doc_id: str, text: str, detector: Any, key: bytes) -> Outcome:
                 'code':code,'source_module':Path(leaf.filename).name if leaf else 'unknown',
                 'source_line':leaf.lineno if leaf else 0,
             },sort_keys=True),flush=True)
-        return Outcome(doc_id,'BLOCKED','SAFE_PIPELINE_FAILURE')
+        code=exc.args[0] if len(exc.args)==1 and type(exc.args[0]) is str else None
+        if type(exc).__name__!='PseudonymizationError' or code not in {
+            'invalid_number_value','invalid_phone_value','invalid_account_value'}:
+            code='safe_pipeline_failure'
+        return Outcome(doc_id,'BLOCKED','SAFE_PIPELINE_FAILURE',safe_issue_code=code)
