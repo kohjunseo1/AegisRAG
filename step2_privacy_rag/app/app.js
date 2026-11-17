@@ -5,6 +5,12 @@ const send = $("send");
 const modePill = $("mode-pill"), status = $("status");
 let busy = false;
 let composing = false;
+const decisionLabels = Object.freeze({
+  ANSWER: "답변", CLARIFY: "추가 정보 필요",
+  INSUFFICIENT_EVIDENCE: "근거 부족", BLOCKED_OR_DEFERRED: "안전하게 처리 불가",
+  REVIEW_REQUIRED: "개인정보 보호 보류", TEMPORARY_ERROR: "답변 생성 장애",
+  LOCAL_SEARCH_ONLY: "로컬 검색만 완료",
+});
 const el = (tag, cls, text) => {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -22,7 +28,7 @@ function addMessage(role, text, result = null) {
     box.appendChild(el("div", "answer", text));
     if (result) {
       const badges = el("div", "badges");
-      badges.appendChild(el("span", "status-badge", result.decision));
+      badges.appendChild(el("span", "status-badge", decisionLabels[result.decision] || "처리 결과"));
       badges.appendChild(el("span", "status-badge", result.mode === "hcx" ? "HCX-007" : "로컬 검색"));
       box.appendChild(badges);
       const citedIds = Array.isArray(result.citations) ? result.citations : [];
@@ -111,7 +117,10 @@ async function ask() {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "REQUEST_FAILED");
     addMessage("assistant", result.answer, result);
-    status.textContent = "완료";
+    status.textContent = result.decision === "TEMPORARY_ERROR" ? "답변 생성 장애 · 다시 시도 가능" :
+      result.decision === "CLARIFY" ? "추가 정보가 필요합니다" :
+      result.decision === "BLOCKED_OR_DEFERRED" || result.decision === "REVIEW_REQUIRED" ? "개인정보 보호 정책으로 처리 보류" :
+      result.decision === "INSUFFICIENT_EVIDENCE" ? "제공된 근거로 확인할 수 없음" : "완료";
   } catch (err) {
     const code = String(err.message || "REQUEST_FAILED");
     addMessage("assistant", explainError(code) + " (" + code + ")");
