@@ -87,7 +87,7 @@ def main(env_file, device='cpu', write=False, hcx_live=False):
     from unittest.mock import MagicMock
     pl = MagicMock(); pl.ask_local.return_value = ('REVIEW', None, [])
     with patch('app.call_hcx') as mock:
-        assert respond(pl, {'question':'합성 질문'})['decision'] == 'REVIEW_REQUIRED'
+        assert respond(pl, {'question':'합성 질문'})['decision'] == 'CLARIFY'
         mock.assert_not_called()
     if hcx_live:
         # These values originate only from the public fabricated fixture above.

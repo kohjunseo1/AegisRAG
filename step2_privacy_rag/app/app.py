@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 from core import LivePipeline, PipelineError
 from hcx import call_hcx, OutboundError, redact_residual_pii
+from query_privacy_controller import unresolved_query_response, insufficient_evidence_response
 
 HERE = Path(__file__).resolve().parent
 ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
@@ -32,22 +33,48 @@ def respond(pipeline: LivePipeline, message: dict, allow_hcx: bool = True) -> di
     question = message['question']
     if not isinstance(question, str) or not question.strip() or len(question) > 1000:
         raise PipelineError('INVALID_QUESTION')
-    if not allow_hcx:
-        raise OutboundError('HCX_SERVICE_NOT_AUTHORIZED')
-
+    # In local-only mode, execute the *same* Step1/Gate/HMAC/retrieval path,
+    # but never call HCX or claim to have generated a factual answer.
     # No raw user question is passed to the LLM or written to logs.
     start = time.perf_counter()
     state, prepared, evidence = pipeline.ask_local(question)
     hcx_start = time.perf_counter()
-    if prepared is None:
-        is_review = 'REVIEW' in state.upper()
-        return {'decision': 'REVIEW_REQUIRED' if is_review else 'BLOCKED_OR_DEFERRED',
-                'answer': ('개인정보 보호 검토가 필요하여 답변을 보류했습니다.' if is_review
-                           else '이 요청은 자동으로 처리할 수 없습니다.'),
-                'citations': [], 'sources': [],
-                'diagnostics': {'gate_state': state,
-                    'timings_ms': {**getattr(pipeline, 'timings', {}), 'total_ms': round((time.perf_counter()-start)*1000, 2)}
-                    if isinstance(getattr(pipeline, 'timings', None), dict) else {}}, 'mode': 'hcx'}
+    if prepared is None or not evidence:
+        # REVIEW is a local clarification, not an admin approval or an HCX call.
+        # Empty evidence must likewise return without outbound transport.
+        disposition = (unresolved_query_response(state) if prepared is None
+                       else insufficient_evidence_response())
+        timings = getattr(pipeline, 'timings', None)
+        diagnostics = {'gate_state': state, 'retrieved_count': 0}
+        if isinstance(timings, dict):
+            diagnostics['timings_ms'] = {
+                **timings, 'total_ms': round((time.perf_counter() - start) * 1000, 2)
+            }
+        return {**disposition, 'citations': [], 'sources': [],
+                'diagnostics': diagnostics, 'mode': 'local'}
+
+    if not allow_hcx:
+        # Only IDs and bounded aggregate retrieval metadata; no document text,
+        # original query, tokens or pseudonymized evidence leaves the process.
+        candidates = [
+            {'doc_id': d['doc_id'], 'dense_rank': d['dense_rank'],
+             'hmac_matches': d['hmac_matches'],
+             'region_matches': d['region_matches']}
+            for d in evidence
+        ]
+        timings = getattr(pipeline, 'timings', None)
+        diagnostics = {'gate_state': state, 'retrieved_count': len(candidates),
+                       'retrieval_candidates': candidates}
+        if isinstance(timings, dict):
+            diagnostics['timings_ms'] = {
+                **timings, 'total_ms': round((time.perf_counter() - start) * 1000, 2)
+            }
+        return {
+            'decision': 'LOCAL_SEARCH_ONLY',
+            'answer': '로컬 검색은 완료되었습니다. 외부 답변 생성이 비활성화되어 답변을 생성하지 않았습니다.',
+            'citations': [], 'sources': [],
+            'diagnostics': diagnostics, 'mode': 'local',
+        }
 
     # All downstream calls use only masked query and DB V6 already-prepared docs.
     try:
@@ -69,8 +96,19 @@ def respond(pipeline: LivePipeline, message: dict, allow_hcx: bool = True) -> di
         sources.append({'doc_id': d['doc_id'], 'masked_text': display_text[:2000],
                         'dense_rank': d['dense_rank'], 'hmac_matches': d['hmac_matches'],
                         'region_matches': d['region_matches']})
+    # Keep only non-sensitive retrieval metadata for troubleshooting. These
+    # candidates are NOT citations or proof that the answer was supported.
+    retrieval_candidates = [
+        {'doc_id': d['doc_id'], 'dense_rank': d['dense_rank'],
+         'hmac_matches': d['hmac_matches'], 'region_matches': d['region_matches'],
+         'topic_score': d.get('topic_score', 0)}
+        for d in evidence
+    ]
     diagnostics = {
         'gate_state': state,
+        'query_recovery': ('ISOLATED_PERSON_VERIFIED' if getattr(pipeline, 'last_query_recovery', None) == 'ISOLATED_PERSON_VERIFIED' else None),
+        'retrieval_candidates': retrieval_candidates,
+        'retrieved_count': len(retrieval_candidates),
         'hmac_token_count': len(prepared.tokens),
         'region_key_count': len(prepared.regions),
         'db_index_rows': getattr(pipeline, 'expected_rows', 177),
@@ -124,6 +162,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({'status': 'OK', 'data_scope': 'V6_PRIVATE_LOCAL',
                                'external_hcx_enabled': self.allow_hcx,
                                'db_write': False})
+        if path == '/api/index-status':
+            try:
+                return self._json(self.pipeline.index_status())
+            except PipelineError as exc:
+                return self._json({'error': str(exc)}, 503)
         if path not in ASSETS:
             return self._json({'error': 'NOT_FOUND'}, 404)
         name, mimetype = ASSETS[path]
@@ -164,13 +207,15 @@ def main() -> int:
                     help='reuse A.X/Veil across requests (default: enabled)')
     ap.add_argument('--preload', action=argparse.BooleanOptionalAction, default=True,
                     help='warm Step1 and KoE5 before accepting HTTP requests (default: enabled)')
+    ap.add_argument('--local-only', action='store_true',
+                    help='run real local privacy gate and DB retrieval without HCX or external transfer')
     args = ap.parse_args()
     if not 1024 <= args.port <= 65535:
         ap.error('port must be between 1024 and 65535')
     if args.preload and not args.reuse_step1:
         ap.error('--preload requires --reuse-step1')
-    if os.environ.get('AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED') != 'YES':
-        ap.error('service requires one-time external transfer authorization: AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES')
+    if not args.local_only and os.environ.get('AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED') != 'YES':
+        ap.error('HCX service requires one-time external transfer authorization: AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES')
     pipeline = None
     try:
         pipeline = LivePipeline(Path(__file__).resolve().parents[2], args.device, reuse_step1=args.reuse_step1)
@@ -182,7 +227,7 @@ def main() -> int:
                   ' total_ms=' + str(metrics['total_ms']), flush=True)
         # Do not listen for incoming connections until preload has succeeded.
         Handler.pipeline = pipeline
-        Handler.allow_hcx = True
+        Handler.allow_hcx = not args.local_only
         server = HTTPServer(('127.0.0.1', args.port), Handler)
     except Exception as e:
         if pipeline is not None:
@@ -190,7 +235,7 @@ def main() -> int:
         print('LIVE_CHAT_STARTUP_FAILED', type(e).__name__, flush=True)
         return 2
     print('AEGISRAG_V6_LIVE_CHAT_READY http://127.0.0.1:' + str(args.port), flush=True)
-    print('MODE=V6_LIVE_AUTOMATIC_HCX_APPROVED', flush=True)
+    print('MODE=' + ('V6_LOCAL_SEARCH_NO_HCX' if args.local_only else 'V6_LIVE_AUTOMATIC_HCX_APPROVED'), flush=True)
     print('DB_READ_ONLY=TRUE GOLD_USED=FALSE SERVER_LOCALHOST_ONLY=TRUE', flush=True)
     try:
         server.serve_forever()

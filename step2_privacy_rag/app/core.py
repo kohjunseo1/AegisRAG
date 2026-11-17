@@ -10,6 +10,7 @@ import re
 import sys
 import time
 from settings import settings, db_config, table_identifier, load_embedding_model
+from retrieval_intents import topic_score
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,15 +25,43 @@ class PipelineError(Exception):
     """Non-sensitive error identifier, suitable for UI rendering."""
 
 
-def order_results(rows: list[dict], query_tokens: set[str], region_keys: set[str]) -> list[dict]:
-    """C ranking: HMAC count, region count, DB dense rank (original order)."""
+def db_failure_code(exc: Exception) -> str:
+    """Expose only a stable PostgreSQL failure category, never exception text."""
+    import psycopg
+    if not isinstance(exc, psycopg.Error):
+        return 'V6_DB_READ_ERROR'
+    state = getattr(exc, 'sqlstate', None) or ''
+    if state == '42P01':
+        return 'V6_DB_TABLE_NOT_FOUND'
+    if state == '42501':
+        return 'V6_DB_ACCESS_DENIED'
+    if state.startswith('28'):
+        return 'V6_DB_AUTH_FAILED'
+    if state == '3D000':
+        return 'V6_DB_DATABASE_NOT_FOUND'
+    if state in {'42703', '42883', '42704'}:
+        return 'V6_DB_SCHEMA_MISMATCH'
+    if state.startswith('08') or (isinstance(exc, psycopg.OperationalError) and not state):
+        return 'V6_DB_CONNECTION_FAILED'
+    return 'V6_DB_QUERY_FAILED'
+
+
+def order_results(rows: list[dict], query_tokens: set[str], region_keys: set[str],
+                  *, query_text: str = '', use_topic_boost: bool = True) -> list[dict]:
+    """Rank by exact identity, verified region, then domain-topic and dense evidence.
+
+    Topic synonym boost is strictly lower priority than pseudonym matching.
+    Pass use_topic_boost=False to reproduce the frozen V6 ranking.
+    """
     def counts(row):
         return (len(query_tokens & set(row['tokens'])),
                 len(region_keys & set(row['region_keys'])))
     for row in rows:
         row['hmac_matches'], row['region_matches'] = counts(row)
         row['verified_region_match'] = (row['region_matches'] > 0) if region_keys else None
-    return sorted(rows, key=lambda r: (-r['hmac_matches'], -r['region_matches'], r['dense_rank']))
+        row['topic_score'] = topic_score(query_text, row.get('text', '')) if use_topic_boost else 0
+    return sorted(rows, key=lambda r: (-r['hmac_matches'], -r['region_matches'],
+                                       -r['topic_score'], r['dense_rank']))
 
 
 @dataclass
@@ -59,12 +88,20 @@ class LivePipeline:
             raise PipelineError('INVALID_HMAC_SECRET')
         self.tag = key_tag(self.secret)
         setting = settings(env_file)
-        self.table = table_identifier(setting('AEGISRAG_TABLE', TABLE))
-        self.expected_rows = int(setting('AEGISRAG_EXPECTED_ROWS', '177'))
+        self.table_name = setting('AEGISRAG_TABLE', TABLE)
+        self.table = table_identifier(self.table_name)
+        self.index_mode = setting('AEGISRAG_INDEX_MODE', 'snapshot').lower()
+        if self.index_mode not in {'snapshot', 'live'}:
+            raise PipelineError('INVALID_INDEX_MODE')
+        self.expected_rows = int(setting(
+            'AEGISRAG_LIVE_MIN_ROWS' if self.index_mode == 'live' else 'AEGISRAG_EXPECTED_ROWS',
+            '187' if self.index_mode == 'live' else '177'
+        ))
         if self.expected_rows < 1:
             raise PipelineError('INVALID_EXPECTED_ROWS')
         self.db = db_config(env_file)
         self.timings = {}
+        self.last_query_recovery = None
         self._model = None
         # Opt-in only until the real Mac memory/latency regression is verified.
         self.reuse_step1 = bool(reuse_step1)
@@ -138,6 +175,12 @@ class LivePipeline:
             started = time.perf_counter()
             try:
                 result = prepare('Q_LIVE', raw_question, detector, self.secret)
+                recovered = None
+                if (getattr(result, 'state', None) == 'REVIEW'
+                        and getattr(result, 'reason', None) == 'GATE_NOT_READY'
+                        and os.environ.get('AEGISRAG_QUERY_RECOVERY', '1') != '0'):
+                    from query_recovery import recover_simple_name_query
+                    recovered = recover_simple_name_query(raw_question, detector, self.secret)
             finally:
                 self.timings['step1_process_ms'] = (time.perf_counter() - started) * 1000
                 if not self.reuse_step1 and detector is not None:
@@ -151,6 +194,9 @@ class LivePipeline:
                 self._detector_failed = True
                 self.close()
             raise PipelineError('STEP1_GATE_FAILED') from exc
+        if recovered is not None:
+            self.last_query_recovery = 'ISOLATED_PERSON_VERIFIED'
+            return PreparedQuery(text=recovered, tokens=set(PII.findall(recovered)), regions=set())
         if getattr(result, 'state', None) != 'LOCAL_PREPARED' or getattr(result, 'unlinked_mentions', ()):
             state = str(getattr(result, 'state', 'REVIEW_REQUIRED'))
             return state if state not in {'LOCAL_PREPARED', 'READY'} else 'REVIEW_REQUIRED'
@@ -185,6 +231,27 @@ class LivePipeline:
             raise PipelineError('INVALID_EMBEDDING')
         return '[' + ','.join(format(float(x), '.9g') for x in arr[0]) + ']'
 
+    def index_status(self) -> dict[str, Any]:
+        """Read-only index diagnostics; do not return any token or document text."""
+        import psycopg
+        from psycopg import sql
+        try:
+            with psycopg.connect(**self.db) as conn:
+                with conn.cursor() as cur:
+                    cur.execute('SET TRANSACTION READ ONLY')
+                    cur.execute(sql.SQL(
+                        'SELECT COUNT(*), COUNT(DISTINCT key_tag), MIN(key_tag) FROM {}'
+                    ).format(self.table))
+                    actual, distinct_tags, observed_tag = cur.fetchone()
+        except Exception as exc:
+            raise PipelineError(db_failure_code(exc)) from None
+        count_ok = actual >= self.expected_rows if self.index_mode == 'live' else actual == self.expected_rows
+        matching = (count_ok and distinct_tags == 1 and observed_tag == self.tag)
+        return {'status': 'READY' if matching else 'MISMATCH',
+                'table': self.table_name, 'index_mode': self.index_mode,
+                'rows': actual, 'expected_rows': self.expected_rows,
+                'key_matches': distinct_tags == 1 and observed_tag == self.tag}
+
     def retrieve(self, prepared: PreparedQuery, top_k: int | None = 5) -> list[dict[str, Any]]:
         import psycopg
         from psycopg import sql
@@ -195,10 +262,12 @@ class LivePipeline:
         try:
             with psycopg.connect(**self.db) as conn:
                 with conn.cursor() as cur:
-                    cur.execute('SET TRANSACTION READ ONLY')
+                    # Count and query must see the same index snapshot during incremental writes.
+                    cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
                     cur.execute(sql.SQL('SELECT COUNT(*), COUNT(DISTINCT key_tag) FROM {}').format(self.table))
                     num, tag_count = cur.fetchone()
-                    if num != self.expected_rows or tag_count != 1:
+                    count_ok = num >= self.expected_rows if self.index_mode == 'live' else num == self.expected_rows
+                    if not count_ok or tag_count != 1:
                         raise PipelineError('V6_DB_INDEX_INCOMPLETE')
                     cur.execute(sql.SQL('SELECT DISTINCT key_tag FROM {}').format(self.table))
                     if cur.fetchone()[0] != self.tag:
@@ -210,25 +279,32 @@ class LivePipeline:
         except PipelineError:
             raise
         except Exception as exc:
-            raise PipelineError('V6_DB_READ_ERROR') from exc
+            raise PipelineError(db_failure_code(exc)) from None
         self.timings['db_ms'] = (time.perf_counter() - start) * 1000
         start = time.perf_counter()
-        if len(raw_rows) != self.expected_rows or len({r[0] for r in raw_rows}) != self.expected_rows:
+        if len(raw_rows) != num or len({r[0] for r in raw_rows}) != num:
             raise PipelineError('V6_DB_RESULT_COUNT_ERROR')
         rows = [dict(doc_id=did, text=masked, tokens=tok or [], region_keys=reg or [],
                      dense_rank=i+1) for i, (did, masked, tok, reg) in enumerate(raw_rows)]
-        ranked = order_results(rows, prepared.tokens, prepared.regions)
+        # Manual domain synonym dictionary is experimental, not a generic default.
+        # Explicit opt-in only: AEGISRAG_TOPIC_BOOST=1
+        use_topic_boost = os.environ.get('AEGISRAG_TOPIC_BOOST', '0') == '1'
+        ranked = order_results(rows, prepared.tokens, prepared.regions,
+                               query_text=prepared.text, use_topic_boost=use_topic_boost)
         self.timings['rerank_ms'] = (time.perf_counter() - start) * 1000
         return ranked[:top_k]
 
     def ask_local(self, raw_question: str) -> tuple[str, PreparedQuery | None, list[dict]]:
         if not isinstance(raw_question, str) or not raw_question.strip() or len(raw_question) > 1000:
             raise PipelineError('INVALID_QUESTION')
+        self.last_query_recovery = None
         self.timings = dict.fromkeys(('step1_ms', 'step1_init_ms', 'step1_process_ms', 'step1_close_ms', 'embedding_ms', 'db_ms', 'rerank_ms', 'hcx_ms', 'total_ms'), 0.0)
         start = time.perf_counter()
         prepared = self.prepare(raw_question)
         self.timings['step1_ms'] = (time.perf_counter() - start) * 1000
         if isinstance(prepared, str):
+            self.timings['total_ms'] = (time.perf_counter() - start) * 1000
             return prepared, None, []
         rows = self.retrieve(prepared)
+        self.timings['total_ms'] = (time.perf_counter() - start) * 1000
         return 'READY', prepared, rows

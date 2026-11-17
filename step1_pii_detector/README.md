@@ -10,8 +10,8 @@ Step1은 금융 문서와 사용자 질의에서 개인정보의 **유형(label)
 | RESIDENT_REGISTRATION_NUMBER, ACCOUNT_NUMBER, CARD_NUMBER | A.X |
 | ADDRESS | Veil |
 
-- **A.X:** `junseokoh/pii-ax-mixed-v1` (PyTorch)
-- **Veil:** `junseokoh/pii-veil-mixed-v1` (ONNX Runtime)
+- **A.X:** `PII-detect/pii-ax-mixed-v1` (PyTorch)
+- **Veil:** `PII-detect/pii-veil-mixed-v1` (ONNX Runtime)
 - 고정 모델 revision 및 라벨별 담당 모델은 [model_manifest.json](src/pii_detector/model_manifest.json)을 확인하세요.
 - `detector.py`는 라벨별 결합·충돌 정리, 주소/우편번호 경계 검증, 긴 문서 처리, 실패 상태 처리를 담당합니다.
 - `structural_policy.py`는 명시적 성씨+직함 및 짧은 내선번호처럼 **Strict 평가 구간에서 제외해도 보호 구간에는 남겨야 하는 후보**를 다룹니다.

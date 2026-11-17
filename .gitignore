@@ -33,6 +33,9 @@ dist/
 .local_eval
 
 
+# Ignore both the directory and a symlink to the private local_eval directory.
+# A trailing slash matches only directories, not a symlink at this path.
+/step2_privacy_rag/local_eval
 /step2_privacy_rag/local_eval/embed_benchmark_private/
 
 # Private corpora, evaluation outputs and local configuration
