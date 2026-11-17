@@ -195,9 +195,12 @@ class LivePipeline:
                 self.close()
             raise PipelineError('STEP1_GATE_FAILED') from exc
         if recovered is not None:
+            self.last_query_issue_code = None
             self.last_query_recovery = 'ISOLATED_PERSON_VERIFIED'
             return PreparedQuery(text=recovered, tokens=set(PII.findall(recovered)), regions=set())
         if getattr(result, 'state', None) != 'LOCAL_PREPARED' or getattr(result, 'unlinked_mentions', ()):
+            code = getattr(result, 'safe_issue_code', None)
+            self.last_query_issue_code = code if isinstance(code, str) else None
             state = str(getattr(result, 'state', 'REVIEW_REQUIRED'))
             return state if state not in {'LOCAL_PREPARED', 'READY'} else 'REVIEW_REQUIRED'
         masked = getattr(result, 'sanitized_text', None)
@@ -298,6 +301,7 @@ class LivePipeline:
         if not isinstance(raw_question, str) or not raw_question.strip() or len(raw_question) > 1000:
             raise PipelineError('INVALID_QUESTION')
         self.last_query_recovery = None
+        self.last_query_issue_code = None
         self.timings = dict.fromkeys(('step1_ms', 'step1_init_ms', 'step1_process_ms', 'step1_close_ms', 'embedding_ms', 'db_ms', 'rerank_ms', 'hcx_ms', 'total_ms'), 0.0)
         start = time.perf_counter()
         prepared = self.prepare(raw_question)
