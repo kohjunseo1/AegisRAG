@@ -28,6 +28,7 @@ jobs:
       - run: python -m py_compile scripts/verify_v6_e2e.py step2_privacy_rag/app/metrics_retrieval.py step2_privacy_rag/app/live_index.py
       - run: python -m py_compile scripts/verify_release_http.py
       - run: python scripts/verify_release_http.py --help
+      - run: python scripts/aegisrag.py run-chat --local-only --help
       - run: python scripts/verify_v6_e2e.py --help
       - run: python -m py_compile scripts/diagnose_step1.py
       - run: python scripts/diagnose_step1.py --environment-only
