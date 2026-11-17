@@ -51,6 +51,46 @@ ID_NUMBER = re.compile(r'(?<!\d)\d{6}[- ]?[1-8]\d{6}(?!\d)')
 PROTECTED = re.compile(r'(<[A-Z][A-Z0-9_]*_[0-9a-f]{24}>)')
 MAX_DOC_CHARS = 1500
 MAX_TOTAL_CHARS = 8500
+# Baseline remains the default. Experimental modes never filter/reorder documents.
+EVIDENCE_MODES = frozenset({'baseline', 'metadata', 'metadata_guidance'})
+GUIDANCE = (
+    '\n[근거 활용 보조 규칙] 문서의 query_hmac_matches는 질문의 보호 토큰과 문서 보호 토큰이 '
+    '정확히 일치한 개수입니다. 0이면 해당 식별자를 직접 확인하는 근거로 간주하지 마세요. '
+    '단, 지역 키 일치 또는 일반 주제 검색에서는 0인 문서도 관련될 수 있습니다. '
+    '일치 개수 자체는 문서 내용의 정답 여부를 증명하지 않습니다. '
+    '식별자만 입력되면 그 식별자와 직접 관련된 문서 안내 요청으로 우선 해석하세요. '
+    '직접 일치하는 근거가 없으면 무관한 문서 내용을 대신 답하지 말고 '
+    '확인 가능한 범위만 밝히거나 한 가지를 질문하세요.'
+)
+
+
+def evidence_mode() -> str:
+    mode = os.environ.get('AEGISRAG_HCX_EVIDENCE_MODE', 'baseline')
+    if mode not in EVIDENCE_MODES:
+        raise OutboundError('HCX_EVIDENCE_MODE_INVALID')
+    return mode
+
+
+def attach_evidence_metadata(question: str, documents: list[dict]) -> list[dict]:
+    """Add bounded, exact token-identity annotations without changing candidate list.
+
+    No HMAC/token text is copied into new fields. A match is a canonical string
+    match, not a proof of natural-person identity or factual entailment.
+    """
+    query_tokens = set(PROTECTED.findall(question))
+    output = []
+    for d in documents:
+        doc_tokens = set(PROTECTED.findall(d['text']))
+        matches = query_tokens & doc_tokens
+        # Preserve the complete candidate text, order and existing metadata.
+        output.append({
+            **d,
+            'query_hmac_matches': len(matches),
+            'matched_entity_types': sorted({
+                token[1:token.rfind('_')] for token in matches
+            }),
+        })
+    return output
 
 
 class OutboundError(Exception):
@@ -164,10 +204,14 @@ def call_hcx(root: Path, prepared_question: str, evidence: list[dict], has_regio
     if not key or base != BASE:
         raise OutboundError('INVALID_LLM_SETTINGS')
     safe_question, documents, redactions = validate_outbound(prepared_question, evidence)
+    mode = evidence_mode()
+    if mode != 'baseline':
+        documents = attach_evidence_metadata(safe_question, documents)
+    system = SYSTEM + (GUIDANCE if mode == 'metadata_guidance' else '')
     payload = {
         'model': 'HCX-007',
         'messages': [
-            {'role': 'system', 'content': SYSTEM},
+            {'role': 'system', 'content': system},
             {'role': 'user', 'content': json.dumps({'question': safe_question, 'documents': documents}, ensure_ascii=False)},
         ],
         'temperature': 0,
