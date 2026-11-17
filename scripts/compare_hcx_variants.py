@@ -82,8 +82,17 @@ def compare(reference:dict[str,dict],experiment:dict[str,dict])->dict:
     var_hcx=[v.get("phase_timings_ms",{}).get("hcx_ms") for v in experiment.values()]
     ref_avg=avg([{"value":n} for n in ref_hcx if n is not None],"value")
     var_avg=avg([{"value":n} for n in var_hcx if n is not None],"value")
+    token_costs={}
+    for k in ("hcx_input_tokens","hcx_output_tokens"):
+        base=avg(list(reference.values()),k)
+        exp=avg(list(experiment.values()),k)
+        token_costs[k]={
+            "baseline_mean":base,"experiment_mean":exp,
+            "delta":round(exp-base,2) if base is not None and exp is not None else None,
+        }
     return {
         "cases":len(ids),"changes":dict(counts),
+        "token_costs":token_costs,
         "reference_mean_hcx_ms":ref_avg,"experiment_mean_hcx_ms":var_avg,
         "hcx_delta_ms":round(var_avg-ref_avg,2) if ref_avg is not None and var_avg is not None else None,
         "cases_for_manual_evidence_review":shifts,
