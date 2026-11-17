@@ -186,7 +186,9 @@ def evaluate(cases: list[dict], *, device='cpu', hcx_live=False, report_file: Pa
                     'question':case['question'],'expected_decision':case.get('expected_decision'),
                     'expected_answer':case.get('expected_answer_for_private_review'),
                     'hcx_answer':answer_text,'observed':row,
-                    'human_answer_correct':None,'human_citation_supported':None,'human_privacy_safe':None})
+                    'human_answer_correct':None,'human_citation_supported':None,'human_privacy_safe':None,
+                    'human_answer_complete':None,'human_temporal_correct':None,
+                    'human_decision_appropriate':None})
             print('MVP_CASE',json.dumps(row,ensure_ascii=False,sort_keys=True),flush=True)
         summary=metric_report(rows)
         print('MVP_EVALUATION_SUMMARY',json.dumps(summary,ensure_ascii=False,sort_keys=True),flush=True)
