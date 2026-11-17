@@ -111,7 +111,11 @@ def preflight() -> None:
                "--gold", str(GOLD), "--check-only"]
     completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
     if completed.returncode:
-        print("HOLDOUT_PREFLIGHT_FAILED", file=sys.stderr)
+        for line in completed.stderr.splitlines():
+            m = re.fullmatch(r"HOLDOUT_E2E_PREFLIGHT_FAILED ([A-Z][A-Z0-9_]+)", line.strip())
+            if m:
+                print("HOLDOUT_INPUT_ERROR_CODE", m.group(1), file=sys.stderr, flush=True)
+                break
         raise RuntimeError("HOLDOUT_PREFLIGHT_FAILED")
     for line in completed.stdout.splitlines():
         if line.startswith("HOLDOUT_E2E_PREFLIGHT "):
@@ -128,7 +132,12 @@ def _run_intake(args: list[str], label: str) -> None:
     cmd = [sys.executable, "scripts/dataset_intake.py", *args]
     completed = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True)
     if completed.returncode:
-        # Error messages from dependencies may include source data. Only code emitted.
+        # Forward ONLY existing, strictly validated static error codes.
+        for line in completed.stderr.splitlines():
+            m = re.fullmatch(r"INTAKE_FAILED (?:stage|status) ([A-Z][A-Z0-9_]+)", line.strip())
+            if m:
+                print("INTAKE_ERROR_CODE", m.group(1), file=sys.stderr, flush=True)
+                break
         raise RuntimeError(label + "_FAILED")
     found = False
     for line in completed.stdout.splitlines():
