@@ -84,7 +84,7 @@ def main():
             "qids":[x["case_id"] for x in chosen],
             "types":sorted(set(x["category"] for x in chosen)),
             "file":str(dest),"private":True,
-            "gold_used_for_sampling":False,
+            "reference_doc_ids_used_for_sampling":False,
             "gold_used_for_scoring_only":True
         },ensure_ascii=False,sort_keys=True),flush=True)
     except Exception as exc:
