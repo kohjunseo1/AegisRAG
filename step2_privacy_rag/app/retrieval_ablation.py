@@ -11,7 +11,7 @@ import math
 import re
 import unicodedata
 
-PROTECTED = re.compile(r"<[A-Z][A-Z0-9_]*_[0-9a-f]{24}>|\\[REDACTED[^\\]]*\\]")
+PROTECTED = re.compile(r"<[A-Z][A-Z0-9_]*_[0-9a-f]{24}>|\[REDACTED[A-Z0-9_]*\]")
 NON_WORD = re.compile(r"[^가-힣a-z0-9]+")
 
 
