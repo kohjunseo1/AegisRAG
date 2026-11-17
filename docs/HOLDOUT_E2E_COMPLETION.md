@@ -60,7 +60,7 @@ python scripts/holdout_finalizer.py query
 
 세 단계를 순서대로 한 번에 실행하려면 `python scripts/holdout_finalizer.py all` 사용. 실행 전에 실수로 운영 DB를 쓰지 않는지 걱정하지 않아도 되도록 **이 스크립트에는 DB 쓰기 및 HCX 기능을 의도적으로 구현하지 않았다.**
 
-**예상된 중단점:** 실제 문서 REVIEW/BLOCKED는 사람이 수정·재검증해야 하므로 스크립트가 임의 승인하지 않는다. 관리자 UI의 5544 격리 DB 커밋 및 HCX 전송은 별도의 명시적인 승인과 통과 기준이 필요하다. 따라서 `all` 성공은 자동 로컬 E2E 전반의 성공이며 전체 운영·HCX 성공을 뜻하지 않는다.
+**예상된 중단점:** 실제 문서 REVIEW/BLOCKED는 사람이 수정·재검증해야 하므로 스크립트가 임의 승인하지 않는다. 관리자 UI의 5544 격리 DB 커밋 및 HCX 전송은 별도의 명시적인 승인과 통과 기준이 필요하다. 따라서 `all` 성공은 **문서 staging과 기존 라이브 인덱스에 대한 로컬 질문 검색을 각각 검증한 것**이며, 새 staging 문서의 DB 적재·재검색·HCX 답변까지 이어진 단일 E2E 성공을 뜻하지 않는다.
 
 **주의:** 신규 문서 staging은 `holdoute2e__...` 형태의 불투명 문서 ID를 사용한다. 이는 기존 Holdout DB의 `H0001...` ID와 동일하지 않으며, Gold 문서 ID를 이 신규 staging의 성능 채점에 그대로 쓰면 안 된다. 이 평가는 기존 `rag.aegis_live_docs`에 대해서만 수행된다.
 
