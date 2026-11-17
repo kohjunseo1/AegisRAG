@@ -19,6 +19,9 @@ jobs:
       - run: python -m unittest discover -s step2_privacy_rag/tests -v
         env:
           PYTHONPATH: step2_privacy_rag/app
+      - run: python -m unittest discover -s tests -p 'test_*.py' -v
+        env:
+          PYTHONPATH: step2_privacy_rag/app
       - run: python scripts/holdout_finalizer.py policy
         env:
           PYTHONPATH: step2_privacy_rag/app
