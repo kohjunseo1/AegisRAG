@@ -19,7 +19,8 @@ from urllib.parse import urlparse
 
 from core import LivePipeline, PipelineError
 from hcx import call_hcx, OutboundError, redact_residual_pii
-from query_privacy_controller import unresolved_query_response, insufficient_evidence_response
+from query_privacy_controller import (unresolved_query_response,
+    insufficient_evidence_response, temporary_generation_failure_response)
 
 HERE = Path(__file__).resolve().parent
 ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
@@ -42,7 +43,7 @@ def respond(pipeline: LivePipeline, message: dict, allow_hcx: bool = True) -> di
     if prepared is None or not evidence:
         # REVIEW is a local clarification, not an admin approval or an HCX call.
         # Empty evidence must likewise return without outbound transport.
-        disposition = (unresolved_query_response(state) if prepared is None
+        disposition = (unresolved_query_response(state, getattr(pipeline, 'last_query_issue_code', None)) if prepared is None
                        else insufficient_evidence_response())
         timings = getattr(pipeline, 'timings', None)
         diagnostics = {'gate_state': state, 'retrieved_count': 0}
@@ -86,6 +87,16 @@ def respond(pipeline: LivePipeline, message: dict, allow_hcx: bool = True) -> di
                     'answer': '추가 개인정보 보호 검토가 필요하여 답변을 보류했습니다.',
                     'citations': [], 'sources': [],
                     'diagnostics': {'gate_state': 'OUTBOUND_REVIEW_REQUIRED'}, 'mode': 'hcx'}
+        # These are provider/transport failures, not missing evidence or a
+        # privacy failure. Return one safe client-visible response, no retry.
+        if str(exc) in {'HCX_TIMEOUT', 'HCX_CONNECTION_FAILED', 'HCX_HTTP_429',
+                        'HCX_HTTP_5XX', 'HCX_API_REQUEST_FAILED', 'HCX_INCOMPLETE',
+                        'HCX_EMPTY_CONTENT', 'HCX_INVALID_JSON'}:
+            return {**temporary_generation_failure_response(),
+                    'citations': [], 'sources': [],
+                    'diagnostics': {'gate_state': state,
+                                    'error_class': 'UPSTREAM_TEMPORARY'},
+                    'mode': 'local'}
         raise
     if isinstance(getattr(pipeline, 'timings', None), dict):
         pipeline.timings['hcx_ms'] = (time.perf_counter() - hcx_start) * 1000
