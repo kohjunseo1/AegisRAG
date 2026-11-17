@@ -64,6 +64,23 @@ python scripts/holdout_finalizer.py query
 
 **주의:** 신규 문서 staging은 `holdoute2e__...` 형태의 불투명 문서 ID를 사용한다. 이는 기존 Holdout DB의 `H0001...` ID와 동일하지 않으며, Gold 문서 ID를 이 신규 staging의 성능 채점에 그대로 쓰면 안 된다. 이 평가는 기존 `rag.aegis_live_docs`에 대해서만 수행된다.
 
+## REVIEW 37건 원인 집계 (read-only, 모델 재실행 없음)
+
+최신 로컬 stage 결과는 **150 READY / 37 REVIEW_PENDING / 0 BLOCKED**. 이전 인덱스 177+10은 당시의 승인 경로와 정책이 달랐을 수 있으므로 단순히 현재 자동 READY=177로 맞추지 않는다.
+
+```bash
+cd ~/AegisRAG-holdout-e2e
+git pull --ff-only
+python scripts/holdout_finalizer.py audit
+```
+
+- `HOLDOUT_STAGE_AUDIT`: 서명 검증된 stage의 사유별 집계만 출력. 문서·질의 원문이나 PII 토큰, HMAC 키, 행별 식별자를 출력하지 않음.
+- 단계별 원인 분리: Step1 REVIEW/감지기 누락, V5 name policy abstain, Privacy Gate unresolved, `UNLINKED_MENTIONS_REVIEW`, 최종 잔여 PII, pipeline failure.
+- **오버리뷰의 원인을 검증하기 전** 정책을 완화하거나 `REVIEW_PENDING`을 READY로 전환하지 않는다.
+- 검토자 UI로 교정한 문서는 동일 Step1/Gate를 다시 통과해야 한다.
+
+다음 격리 DB E2E는 기존 `step2_privacy_rag/local_eval/blind_v2/blind.env`의 5544 DB 상태를 **읽기 전용으로 먼저 확인**한 뒤, 빈 DB인 경우에만 approved 150개를 bootstrap할 수 있다. 기존 Blind 데이터가 이미 있으면 이를 삭제하거나 혼합하지 않는다. 새 문서는 기존 `H0001...`와 doc_id namespace가 달라져 해당 Gold를 그대로 활용할 수 없다.
+
 ## 2. 0단계 — 원본 입력·평가 Gold 검사 (외부 통신/DB/모델 없음)
 
 ```bash
