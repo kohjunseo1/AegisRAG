@@ -159,6 +159,8 @@ def evaluate(cases: list[dict], *, device='cpu', hcx_live=False, report_file: Pa
                 'gate_state':state,
                 'query_recovery':recovery,
                 'decision':decision,
+                'hcx_input_tokens':(result.get('diagnostics',{}).get('hcx_input_tokens') if hcx_live else None),
+                'hcx_output_tokens':(result.get('diagnostics',{}).get('hcx_output_tokens') if hcx_live else None),
                 'expected_decision':case.get('expected_decision'),
                 'split':case.get('split','unassigned'),
                 'non_gold_citations':len([c for c in cited if c not in refs]) if hcx_live and refs else (len(cited) if hcx_live and case.get('expected_decision')!='ANSWER' else 0),
