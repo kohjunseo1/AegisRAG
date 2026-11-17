@@ -1,6 +1,8 @@
 """Contract tests for guarded Holdout finalizer (no model/DB/HCX)."""
 import unittest
 
+import veil_person_policy
+
 from scripts.holdout_finalizer import (
     POLICY, corrected_policy_source, ROLE_ANCHOR, QUOTE_GUARD,
 )
@@ -15,7 +17,7 @@ class HoldoutFinalizerTests(unittest.TestCase):
         self.assertIn('(?:이라는|이란|라는|란)', fixed)
 
     def test_policy_classifies_attributive_title_quote_as_review(self):
-        namespace = {}
+        namespace = vars(veil_person_policy).copy()
         exec(compile(corrected_policy_source(POLICY.read_text(encoding="utf-8")),
                      str(POLICY), "exec"), namespace)
         classifier = namespace['classify_veil_only_person']
