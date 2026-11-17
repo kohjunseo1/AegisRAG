@@ -42,9 +42,9 @@ python scripts/verify_release_http.py \
   --queries ~/AegisRAG/step2_privacy_rag/local_eval/holdout_retrieval_queries.jsonl
 \`\`\`
 
-## HCX 16건 공정 비교 — 외부 전송 승인된 데이터에만
+## HCX 유형 균형 16건 + 식별자 오류 진단 1건 공정 비교 — 외부 전송 승인된 데이터에만
 
-**같은 브랜치·같은 모델·같은 16개 질문·같은 문서·같은 순위**에서 테스트해야 한다. 이전 구버전 Pilot을 이번 실험의 공정 Baseline으로 혼용하지 않는다. 다음 2회는 약 28번의 HCX 호출 비용이 발생할 수 있다. Gate 실패 2건은 호출되지 않는다.
+**같은 브랜치·같은 모델·같은 17개 질문·같은 문서·같은 순위**에서 테스트해야 한다. 이전 구버전 Pilot을 이번 실험의 공정 Baseline으로 혼용하지 않는다. 다음 2회는 약 30번의 HCX 호출 비용이 발생할 수 있다. Gate 실패 2건은 호출되지 않는다.
 
 \`\`\`bash
 cd ~/AegisRAG-hcx-ab
@@ -54,7 +54,11 @@ export AEGISRAG_LIVE_MIN_ROWS=187
 export AEGISRAG_TOPIC_BOOST=0
 export AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES
 
-CASE_FILE=~/AegisRAG/step2_privacy_rag/local_eval/e2e_pilot_16.jsonl
+python scripts/build_e2e_suite.py --size 16 --include-qids Q027 \
+  --queries ~/AegisRAG/step2_privacy_rag/local_eval/holdout_retrieval_queries.jsonl \
+  --gold ~/AegisRAG/step2_privacy_rag/local_eval/holdout_retrieval_queries_gold.jsonl \
+  --out step2_privacy_rag/local_eval/e2e_pilot_17.jsonl
+CASE_FILE=step2_privacy_rag/local_eval/e2e_pilot_17.jsonl
 
 AEGISRAG_HCX_EVIDENCE_MODE=baseline \
 python scripts/eval_chat_mvp.py --hcx-live --device cpu \
@@ -78,5 +82,5 @@ python scripts/compare_hcx_variants.py \
 - Q027·Q048·Q075 외의 기존 성공 사례에서도 회귀가 없는지 반드시 검수한다.
 - 개선 채택: 잘못된 대상 답변 감소, 정당한 답변 유지, 불필요한 거절 증가하지 않음, 허용 가능한 추가 토큰/지연. 골드 불완전성은 수동으로 보정해 판단.
 - \`metadata_guidance\`가 개선되면 \`metadata\` 단독을 동일 조건에서 추가 측정해 메타데이터 효과와 프롬프트 효과를 구분한다.
-- 16개가 개선되더라도 일반화는 검증되지 않음. 88개 기존 Holdout은 개발용이고 신규 Blind 질문이 별도 필요하다.
+- 17개가 개선되더라도 일반화는 검증되지 않음. 88개 기존 Holdout은 개발용이고 신규 Blind 질문이 별도 필요하다.
 - 정보가 부족하거나 신규 모델/DB 접근이 없으면 실측을 지어내지 않는다.
