@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "step2_privacy_rag" / "app"))
 
-from eval_hcx_confusion_sensitivity import build_audit_ab_conditions
+from eval_hcx_confusion_sensitivity import build_audit_ab_conditions, safe_candidate_signals
 from hcx import BASE, OutboundError
 from hcx_evidence_audit import (_review_checks, _checked_response,
                                 call_hcx_evidence_audit, SCHEMA, AUDIT_GUIDANCE)
@@ -23,6 +23,20 @@ def docs(*ids):
 
 
 class AuditPlan(unittest.TestCase):
+    def test_candidate_signals_do_not_expose_hmac_strings(self):
+        matched = "<PERSON_aaaaaaaaaaaaaaaaaaaaaaaa>"
+        other = "<PERSON_bbbbbbbbbbbbbbbbbbbbbbbb>"
+        result = safe_candidate_signals(
+            "해당 고객 " + matched + " 처리 내용",
+            [{"doc_id":"D11","text":"고객: " + matched,
+              "verified_region_match":True},
+             {"doc_id":"D22","text":"다른 사건: " + other,
+              "verified_region_match":None}])
+        self.assertEqual([r["query_hmac_matches"] for r in result],[1,0])
+        self.assertEqual([r["verified_region_match"] for r in result],[True,None])
+        self.assertNotIn(matched,str(result))
+        self.assertNotIn(other,str(result))
+
     def test_pair_and_top5_ab_modes_preserve_order(self):
         top = docs("D11", "D22", "D33", "D44", "D55")
         result = build_audit_ab_conditions(top, {"D11"}, set(), "D22")
