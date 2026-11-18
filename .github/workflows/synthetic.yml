@@ -38,3 +38,13 @@ jobs:
       - run: python scripts/verify_v6_e2e.py --synthetic-review --synthetic-only
       - run: python scripts/aegisrag.py smoke
       - run: python scripts/scan_git.py --history
+      - run: python -m unittest discover -s tests/unified_v1 -v
+        env:
+          PYTHONPATH: step2_privacy_rag/app
+          HF_HUB_OFFLINE: '1'
+          TRANSFORMERS_OFFLINE: '1'
+      - run: python -m unified_v1 --profile quality4 --synthetic-e2e
+        env:
+          PYTHONPATH: step2_privacy_rag/app
+          HF_HUB_OFFLINE: '1'
+          TRANSFORMERS_OFFLINE: '1'

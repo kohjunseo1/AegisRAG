@@ -1,0 +1,59 @@
+{
+  "date": "2026-11-19",
+  "interpreter": "existing_aegisrag_python_3.11.13",
+  "test_suites": [
+    {
+      "suite": "step1_pii_detector/tests",
+      "returncode": 0,
+      "summary": [
+        "Ran 31 tests in 0.224s",
+        "OK (skipped=1)"
+      ]
+    },
+    {
+      "suite": "step2_privacy_rag/tests",
+      "returncode": 0,
+      "summary": [
+        "Ran 183 tests in 7.005s",
+        "OK"
+      ]
+    },
+    {
+      "suite": "tests",
+      "returncode": 0,
+      "summary": [
+        "Ran 29 tests in 0.009s",
+        "OK"
+      ]
+    },
+    {
+      "suite": "tests/unified_v1",
+      "returncode": 0,
+      "summary": [
+        "Ran 41 tests in 0.324s",
+        "OK"
+      ]
+    }
+  ],
+  "syntax": "PASS",
+  "trailing_whitespace": "PASS",
+  "real_model_performance": "NOT_MEASURED",
+  "production_db": "NOT_ACCESSED",
+  "hcx_live": "NOT_RUN_BY_POLICY",
+  "p6": "NOT_RUN",
+  "new_file_pattern_scan": "PASS",
+  "git_history_security_scan": "PASS",
+  "existing_synthetic_smoke": "PASS",
+  "existing_synthetic_review": "PASS",
+  "existing_environment_probe": "PASS",
+  "cli_help_checks": {
+    "count": 5,
+    "status": "PASS"
+  },
+  "existing_v6_diff": "UNCHANGED",
+  "new_synthetic_profiles": {
+    "own2": "MOCK_PASS",
+    "team2": "MOCK_PASS",
+    "quality4": "MOCK_PASS"
+  }
+}
