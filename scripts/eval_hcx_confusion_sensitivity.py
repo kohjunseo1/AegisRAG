@@ -151,12 +151,47 @@ def build_single_addition_conditions(top5: list[dict], gold_ids: set[str],
     return conditions
 
 
+def build_audit_ab_conditions(top5: list[dict], gold_ids: set[str],
+                              confusable_ids: set[str], focus_doc_id: str
+                              ) -> list[dict]:
+    """Pair-vs-Top5, baseline-vs-audit: four calls without modifying retrieval.
+
+    The focus ID is a CLI diagnostic selection from the ACTUAL retrieved Top-5.
+    Gold/labels are NEVER included in the HCX payload. No special QID logic.
+    """
+    standard = build_conditions(top5, gold_ids, confusable_ids)
+    gold = standard[0]["docs"]
+    ids = {d["doc_id"] for d in top5}
+    if not gold or focus_doc_id not in ids or focus_doc_id in gold_ids:
+        raise ValueError("CONF_FOCUS_NOT_NON_GOLD_IN_TOP5")
+    pair = [d for d in top5
+            if d["doc_id"] in gold_ids or d["doc_id"] == focus_doc_id]
+    result = []
+    seen = {}
+    for group, docs in (("pair", pair), ("top5", list(top5))):
+        for mode in ("baseline", "audit"):
+            cond = {
+                "condition": group + "_" + mode,
+                "answer_mode": mode,
+                "docs": docs,
+                "skip_reason": None,
+            }
+            # Reuse only identical document subset AND same HCX prompt/schema.
+            key = (mode, tuple(d["doc_id"] for d in docs))
+            cond["duplicate_of"] = seen.get(key)
+            if key not in seen:
+                seen[key] = cond["condition"]
+            result.append(cond)
+    return result
+
+
 def safe_row(case: dict, cond: dict, relevant: set[str],
              confusable: set[str], trial: int) -> dict:
     ids = [d["doc_id"] for d in cond["docs"]]
     return {
         "case_id":case["case_id"],"category":case.get("category"),
         "trial":trial, "condition":cond["condition"],
+        "answer_mode":cond.get("answer_mode","baseline"),
         "document_ids":ids, "document_count":len(ids),
         "gold_included":sum(i in relevant for i in ids),
         "confusable_included":sum(i in confusable for i in ids),
@@ -172,6 +207,9 @@ def run(args: argparse.Namespace) -> None:
 
     if not 1 <= args.trials <= 3:
         raise ValueError("CONF_TRIALS_MUST_BE_1_TO_3")
+    if args.condition_set == "audit_ab":
+        if not isinstance(args.focus_doc_id,str) or not ID.fullmatch(args.focus_doc_id):
+            raise ValueError("CONF_FOCUS_ID_REQUIRED")
     if os.environ.get("AEGISRAG_HCX_EVIDENCE_MODE", "baseline") != "baseline":
         raise ValueError("CONF_REQUIRES_BASELINE_MODE")
     if args.live:
@@ -211,9 +249,13 @@ def run(args: argparse.Namespace) -> None:
                 continue
             gold = set(label["relevant_doc_ids"])
             confusable = set(label.get("confusable_doc_ids",[]))
-            conditions = (build_single_addition_conditions(top5,gold,confusable)
-                          if args.condition_set == "single_additions"
-                          else build_conditions(top5,gold,confusable))
+            if args.condition_set == "audit_ab":
+                conditions = build_audit_ab_conditions(
+                    top5,gold,confusable,args.focus_doc_id)
+            elif args.condition_set == "single_additions":
+                conditions = build_single_addition_conditions(top5,gold,confusable)
+            else:
+                conditions = build_conditions(top5,gold,confusable)
             prepared_work.append((case,label,prepared,gate,conditions))
             count += sum(c["skip_reason"] is None and c["duplicate_of"] is None
                          for c in conditions) * args.trials
@@ -222,6 +264,7 @@ def run(args: argparse.Namespace) -> None:
                 "confusable_in_top5":sum(d["doc_id"] in confusable for d in top5),
                 "conditions":[{
                     "name":c["condition"],
+                    "answer_mode":c.get("answer_mode","baseline"),
                     "ids":[d["doc_id"] for d in c["docs"]],
                     "skip":c["skip_reason"],"duplicate_of":c["duplicate_of"]
                 } for c in conditions]
@@ -230,6 +273,7 @@ def run(args: argparse.Namespace) -> None:
             "selected_cases":len(selected),"planned_hcx_calls":count,
             "trials":args.trials,"live":args.live,
             "condition_set":args.condition_set,
+            "focus_doc_id":args.focus_doc_id if args.condition_set == "audit_ab" else None,
             "gold_only_from_actual_top5":True,
             "gold_sent_to_hcx_as_label":False,
             "db_write":False
@@ -242,6 +286,7 @@ def run(args: argparse.Namespace) -> None:
         dest.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
         # No output content or raw question is ever written to stdout.
         from hcx import OutboundError, call_hcx, redact_residual_pii
+        from hcx_evidence_audit import call_hcx_evidence_audit
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         fd = os.open(dest, flags, 0o600)
         with os.fdopen(fd,"w",encoding="utf-8") as output:
@@ -273,8 +318,10 @@ def run(args: argparse.Namespace) -> None:
                             t = time.perf_counter()
                             row["reused"] = False
                             try:
-                                result,usage,_ = call_hcx(ROOT,prepared.text,cond["docs"],
-                                                          bool(prepared.regions))
+                                invoke = (call_hcx_evidence_audit if
+                                          cond.get("answer_mode") == "audit" else call_hcx)
+                                result,usage,_ = invoke(ROOT,prepared.text,cond["docs"],
+                                                        bool(prepared.regions))
                                 text,_ = redact_residual_pii(result["answer"])
                                 ids = result["citations"]
                                 row.update({
@@ -287,6 +334,9 @@ def run(args: argparse.Namespace) -> None:
                                                        i not in relevant and i not in confusable],
                                     "input_tokens":usage.get("prompt_tokens"),
                                     "output_tokens":usage.get("completion_tokens"),
+                                    "evidence_audit":result.get("evidence_audit"),
+                                    "citation_verdict_consistent":
+                                        result.get("citation_verdict_consistent"),
                                 })
                             except OutboundError as exc:
                                 code = str(exc)
@@ -303,12 +353,16 @@ def run(args: argparse.Namespace) -> None:
                         print("CONF_RESULT",json.dumps({
                             "case_id":row["case_id"],"condition":row["condition"],
                             "trial":trial,"decision":row.get("decision"),
+                            "answer_mode":row.get("answer_mode","baseline"),
                             "gold_citations":row.get("gold_citations",[]),
                             "confusable_citations":row.get("confusable_citations",[]),
                             "other_citations":row.get("other_citations",[]),
                             "error":row.get("error"),"reused":row.get("reused",False),
                             "skipped":row.get("skipped"),
-                            "rate_limit_diagnostics":row.get("rate_limit_diagnostics")
+                            "rate_limit_diagnostics":row.get("rate_limit_diagnostics"),
+                            "evidence_audit":row.get("evidence_audit"),
+                            "citation_verdict_consistent":
+                                row.get("citation_verdict_consistent")
                         },sort_keys=True),flush=True)
                         if row.get("error") == "HCX_HTTP_429":
                             print("CONF_RATE_LIMIT_STOP",json.dumps({
@@ -335,9 +389,11 @@ def main() -> None:
     ap.add_argument("--qids",nargs="+",default=list(DEFAULT_IDS))
     ap.add_argument("--device",choices=("cpu","mps"),default="cpu")
     ap.add_argument("--trials",type=int,default=1)
-    ap.add_argument("--condition-set",choices=("standard","single_additions"),
+    ap.add_argument("--condition-set",choices=("standard","single_additions","audit_ab"),
                     default="standard",
-                    help="single_additions: Gold-only + each single non-Gold + actual Top-5; diagnostic only")
+                    help="audit_ab: pair and Top-5, each under baseline and structured audit")
+    ap.add_argument("--focus-doc-id",default=None,
+                    help="Non-Gold Top-5 document for the audit_ab pair; diagnostic only")
     ap.add_argument("--live",action="store_true",
                     help="Actually call HCX; must explicitly approve external transfer")
     ap.add_argument("--out",type=Path,help="New, owner-only report in local_eval")
