@@ -29,6 +29,7 @@ PRIVATE = (ROOT / "step2_privacy_rag" / "local_eval").resolve()
 sys.path.insert(0, str(ROOT / "scripts"))
 
 ID = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
+MASKED_TOKEN = re.compile(r"<[A-Z][A-Z0-9_]*_[0-9a-f]{24}>")
 DEFAULT_IDS = ("Q052", "Q075", "Q027", "Q048", "Q062")
 CONDITIONS = ("gold_only", "gold_confusable", "actual_top5")
 
@@ -185,6 +186,17 @@ def build_audit_ab_conditions(top5: list[dict], gold_ids: set[str],
     return result
 
 
+def safe_candidate_signals(prepared_question: str, top5: list[dict]) -> list[dict]:
+    """Read-only metadata for local diagnosis; never print token strings or text."""
+    tokens = set(MASKED_TOKEN.findall(prepared_question))
+    return [{
+        "doc_id": d["doc_id"],
+        "query_hmac_matches": len(tokens & set(MASKED_TOKEN.findall(d["text"]))),
+        "verified_region_match": d.get("verified_region_match"),
+        "document_chars": len(d["text"]),
+    } for d in top5]
+
+
 def safe_row(case: dict, cond: dict, relevant: set[str],
              confusable: set[str], trial: int) -> dict:
     ids = [d["doc_id"] for d in cond["docs"]]
@@ -262,6 +274,8 @@ def run(args: argparse.Namespace) -> None:
             print("CONF_PLAN",json.dumps({
                 "case_id":case["case_id"], "gold_in_top5":sum(d["doc_id"] in gold for d in top5),
                 "confusable_in_top5":sum(d["doc_id"] in confusable for d in top5),
+                "candidate_signals": (safe_candidate_signals(prepared.text,top5)
+                                      if args.condition_set == "audit_ab" else None),
                 "conditions":[{
                     "name":c["condition"],
                     "answer_mode":c.get("answer_mode","baseline"),
