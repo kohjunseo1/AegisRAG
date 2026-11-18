@@ -66,6 +66,28 @@ The report is exclusive-created, private, and never overwritten. Results are app
 
 Review output for any remaining private information before sharing. Token and common PII redaction is defense-in-depth, not a certification of safety.
 
+## Rate-limit diagnosis / Fail-fast (2026-11-18)
+
+The HCX client retains the same model, system prompt, temperature and output budget. In this experiment branch:
+
+- HTTP 429 captures an allowlisted numeric provider subcode (if available) and safe rate-limit headers; no raw response body, query, document text or secrets are logged.
+- A 429 is flushed to the private JSONL report, then the experiment immediately stops with CONF_RATE_LIMIT_STOP; no retries.
+- rate_limit_diagnostics records request_bytes, question_chars, document_chars, document_count, max_completion_tokens, and optional provider_code / rate limit counters / reset times.
+- If the provider returns neither a subcode nor rate limit headers, the cause remains unknown.
+- The failed 15-call and 2-call runs have zero valid HCX answer observations. The separate successful short synthetic request does not establish the limit of larger requests.
+
+Offline tests (no HCX or DB):
+
+    python -m unittest discover -s tests -p 'test_hcx_confusion_sensitivity.py' -v
+
+Existing detached worktree: inspect local tracked changes before updating, never delete private local_eval files:
+
+    cd ~/AegisRAG-confusion
+    git status --short
+    git fetch origin experiment/confusion-sensitivity-20261117
+    git switch --detach origin/experiment/confusion-sensitivity-20261117
+
+If tracked edits exist, preserve them first. For a paid --live retry, use a new private report filename, and only after confirming authorization for the masked corpus. If a rate limit is encountered, inspect the safe diagnostics instead of retrying repeatedly.
 ## Interpretation
 
 - Gold-only correct, Gold+Confusable incorrect: likely confusable interference, but added length and positions might also matter.
