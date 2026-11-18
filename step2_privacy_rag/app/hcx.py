@@ -93,8 +93,65 @@ def attach_evidence_metadata(question: str, documents: list[dict]) -> list[dict]
     return output
 
 
+def _safe_429_diagnostics(exc: urllib.error.HTTPError, *, request_bytes: int,
+                          question_chars: int, document_chars: int,
+                          document_count: int, max_completion_tokens: int) -> dict:
+    """Only allowlisted numeric metadata; never retain or print error body/PII."""
+    info = {
+        'request_bytes': request_bytes,
+        'question_chars': question_chars,
+        'document_chars': document_chars,
+        'document_count': document_count,
+        'max_completion_tokens': max_completion_tokens,
+    }
+    names = {
+        'x-ratelimit-limit-requests': 'limit_requests',
+        'x-ratelimit-remaining-requests': 'remaining_requests',
+        'x-ratelimit-limit-tokens': 'limit_tokens',
+        'x-ratelimit-remaining-tokens': 'remaining_tokens',
+        'x-ratelimit-reset-requests': 'reset_requests',
+        'x-ratelimit-reset-tokens': 'reset_tokens',
+        'retry-after': 'retry_after',
+    }
+    for header_name, label in names.items():
+        value = (exc.headers.get(header_name) if exc.headers else None)
+        if value is None:
+            continue
+        value = str(value).strip()
+        if label.startswith('reset_'):
+            allowed = re.fullmatch(r'[0-9]{1,9}(?:ms|s|m|h)?', value)
+        else:
+            allowed = re.fullmatch(r'[0-9]{1,12}', value)
+        if allowed:
+            info[label] = value
+
+    # The provider may supply 42900/42901/42902 within JSON. Read only a
+    # bounded part of the body in memory; expose ONLY validated numeric codes.
+    try:
+        raw = exc.read(8192)
+        if len(raw) <= 8192:
+            parsed = json.loads(raw.decode('utf-8'))
+            nested = [parsed]
+            if isinstance(parsed, dict):
+                nested.extend(parsed.get(k) for k in ('error', 'status'))
+            for node in nested:
+                if not isinstance(node, dict):
+                    continue
+                for key in ('code', 'statusCode', 'status_code', 'errorCode', 'error_code'):
+                    code = node.get(key)
+                    if isinstance(code, (str, int)) and re.fullmatch(r'429[0-9]{2}', str(code)):
+                        info['provider_code'] = str(code)
+                        return info
+    except (ValueError, TypeError, UnicodeError, OSError, AttributeError):
+        pass
+    return info
+
+
 class OutboundError(Exception):
-    """Safe error code; never put response bodies, prompts, secrets in messages."""
+    """Safe code, with optional allowlisted metadata. Never attach source text."""
+    def __init__(self, code: str, *, diagnostics: dict | None = None):
+        super().__init__(code)
+        self.diagnostics = diagnostics or {}
 
 
 def redact_residual_pii(value: str) -> tuple[str, dict[str, int]]:
@@ -220,16 +277,27 @@ def call_hcx(root: Path, prepared_question: str, evidence: list[dict], has_regio
         'max_completion_tokens': 1024,
         'response_format': {'type': 'json_schema', 'json_schema': {'name': 'aegis_v6_live_evidence', 'schema': SCHEMA}},
     }
+    encoded_payload = json.dumps(payload, ensure_ascii=False).encode('utf-8')
     req = urllib.request.Request(base + '/chat/completions',
-          data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+          data=encoded_payload,
           headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}, method='POST')
     try:
         with urllib.request.urlopen(req, timeout=90) as response:
             reply = json.load(response)
     except urllib.error.HTTPError as exc:
-        # Do not read or print the response body: providers may echo prompts.
+        # Never print response bodies, raw headers, question text, or secrets.
         status = int(exc.code)
-        category = str(status) if status in {400, 401, 403, 404, 408, 413, 422, 429} else ('5XX' if 500 <= status < 600 else 'OTHER')
+        if status == 429:
+            details = _safe_429_diagnostics(
+                exc,
+                request_bytes=len(encoded_payload),
+                question_chars=len(safe_question),
+                document_chars=sum(len(d['text']) for d in documents),
+                document_count=len(documents),
+                max_completion_tokens=payload['max_completion_tokens'],
+            )
+            raise OutboundError('HCX_HTTP_429', diagnostics=details) from None
+        category = str(status) if status in {400, 401, 403, 404, 408, 413, 422} else ('5XX' if 500 <= status < 600 else 'OTHER')
         raise OutboundError('HCX_HTTP_' + category) from None
     except (TimeoutError, socket.timeout):
         raise OutboundError('HCX_TIMEOUT') from None
