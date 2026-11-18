@@ -117,7 +117,10 @@ def call_hcx_evidence_audit(root: Path, prepared_question: str,
     payload = {
         "model": "HCX-007",
         "messages": [
-            {"role": "system", "content": hcx.SYSTEM + AUDIT_GUIDANCE},
+            {"role": "system", "content": hcx.SYSTEM.replace(
+                "decision, answer, citations를 갖는 JSON 객체만 반환하세요.",
+                "decision, answer, citations, evidence_review를 갖는 JSON 객체만 반환하세요."
+            ) + AUDIT_GUIDANCE},
             {"role": "user", "content": json.dumps({
                 "question": question, "documents": documents,
             }, ensure_ascii=False)},
