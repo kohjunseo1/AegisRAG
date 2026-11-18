@@ -65,7 +65,7 @@ class RawAdapter:
             c = Candidate(self.source_id, self.revision, row['label'], row['start'], row['end'],
                           fingerprint(text), confidence_raw=row.get('prob'),
                           confidence_semantics='uncalibrated_span_mean' if row.get('prob') is not None else None,
-                          evidence_codes=('RAW_MODEL',), window_id=row.get('window_id'))
+                          evidence_codes=('RAW_MODEL',)+tuple(row.get('evidence_codes',())), window_id=row.get('window_id'))
             output.append(c.validate(text))
         return tuple(output)
 
@@ -126,7 +126,9 @@ class LocalHFPredictor:
                 batch = {k: torch.tensor([v[wi]]) for k, v in enc.items()
                          if k in {'input_ids', 'attention_mask', 'token_type_ids'} and k in self.allowed
                          and not (k == 'token_type_ids' and getattr(self.model.config, 'type_vocab_size', 2) <= 1)}
-                ids = self.model(**batch).logits[0].argmax(-1).tolist()
+                output=self.model(**batch)
+                logits=output.logits if hasattr(output,'logits') else output[0]
+                ids = logits[0].argmax(-1).tolist()
                 tags = [self.model.config.id2label[i] for i in ids]
                 out.extend(decode_window(text, offsets, tags, self.ignore_labels, str(wi)))
         return out
@@ -243,3 +245,81 @@ class DetectionEngine:
                 status[source], raw[source] = 'ERROR', ()
         return DetectionEvidence(input_kind, request_id or uuid.uuid4().hex, raw, status, (),
                                  self.configuration_hash, fingerprint(text), self.profile)
+
+
+class PersistentPredictor(SubprocessPredictor):
+    """One resident offline worker, serialized framed requests; faults never retry."""
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self._process=None
+        self._request_lock=threading.Lock()
+        self._faulted=False
+        self.last_metrics={}
+
+    def _stop(self):
+        if self._process is not None:
+            if self._process.poll() is None:self._process.kill()
+            self._process.wait()
+            for stream in [self._process.stdin,self._process.stdout]:
+                if stream:stream.close()
+            self._process=None
+
+    def close(self):
+        with self._request_lock:
+            self._faulted=True
+            self._stop()
+
+    def __enter__(self):return self
+    def __exit__(self,*args):self.close()
+
+    def __call__(self,text, *, sources=None):
+        import selectors
+        import time
+        rid=uuid.uuid4().hex
+        req=dict(request_id=rid,text=text,fingerprint=fingerprint(text),config_hash=self.configuration_hash)
+        if sources is not None:req['sources']=list(sources)
+        data=json.dumps(req).encode()+b'\n'
+        if len(data)>self.max_bytes:raise ContractError('IPC_REQUEST_TOO_LARGE')
+        if not self._request_lock.acquire(timeout=self.timeout):raise ContractError('MODEL_TIMEOUT')
+        try:
+            if self._faulted:raise ContractError('WORKER_FAULTED')
+            if self._process is None:
+                env={k:v for k,v in os.environ.items() if k in {'PATH','SYSTEMROOT','TMPDIR'}}
+                env.update(HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',TOKENIZERS_PARALLELISM='false')
+                self._process=subprocess.Popen(self.command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+                                                stderr=subprocess.DEVNULL,env=env,bufsize=0)
+            deadline=time.monotonic()+self.timeout
+            # Nonblocking writes avoid hanging on a full pipe when a worker faults.
+            output=bytearray();sent=0
+            with selectors.DefaultSelector() as selector:
+                os.set_blocking(self._process.stdin.fileno(),False)
+                selector.register(self._process.stdin,selectors.EVENT_WRITE)
+                selector.register(self._process.stdout,selectors.EVENT_READ)
+                while b'\n' not in output:
+                    remaining=deadline-time.monotonic()
+                    if remaining<=0:raise ContractError('MODEL_TIMEOUT')
+                    events=selector.select(remaining)
+                    if not events:raise ContractError('MODEL_TIMEOUT')
+                    for key,mask in events:
+                        if mask & selectors.EVENT_WRITE:
+                            n=os.write(key.fd,data[sent:sent+65536]);sent+=n
+                            if sent==len(data):selector.unregister(self._process.stdin)
+                        else:
+                            part=os.read(key.fd,min(65536,self.max_bytes+1-len(output)))
+                            if not part:raise ContractError('WORKER_EXITED')
+                            output.extend(part)
+                            if len(output)>self.max_bytes:raise ContractError('IPC_RESPONSE_TOO_LARGE')
+            obj=json.loads(output)
+            if (obj['request_id']!=rid or obj['fingerprint']!=req['fingerprint']
+                    or obj['config_hash']!=self.configuration_hash):
+                raise ContractError('IPC_RESPONSE_MISMATCH')
+            if obj.get('error'):
+                code=obj['error']
+                raise ContractError(code if code in {'MODEL_MISSING','MODEL_TIMEOUT','MODEL_ARTIFACT_MISMATCH'} else 'WORKER_MODEL_FAILED')
+            self.last_metrics=dict(obj.get('metrics',{}))
+            return obj['candidates']
+        except Exception as error:
+            self._faulted=True;self._stop()
+            if isinstance(error,ContractError):raise
+            raise ContractError('IPC_FAILED') from None
+        finally:self._request_lock.release()

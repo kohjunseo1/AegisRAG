@@ -19,9 +19,21 @@ class IsolatedMigration:
                 "tokens text[] NOT NULL, region_keys text[] NOT NULL, key_tag text NOT NULL, "
                 "policy_version text NOT NULL, index_version text NOT NULL, "
                 "approval_state text NOT NULL CHECK (approval_state IN ('HUMAN_APPROVED', 'AUTO_APPROVED')), "
-                'embedding real[] CHECK (array_length(embedding, 1) = 1024))',
-                f'CREATE INDEX ON "{s}".documents USING GIN(tokens)')
+                'embedding vector(1024) NOT NULL)',
+                f'CREATE INDEX ON "{s}".documents USING GIN(tokens)',
+                f'CREATE INDEX ON "{s}".documents USING GIN(region_keys)')
 
     def execute(self,*args,**kwargs):
         # No verified disposable PostgreSQL environment in this autonomous run.
         raise ContractError('DATABASE_INTEGRATION_BLOCKED_NO_VERIFIED_ISOLATION')
+
+    def execute_isolated(self,conn, *, expected_database,production_database,confirm):
+        if (not expected_database or not production_database or expected_database==production_database
+                or confirm!=self.namespace):
+            raise ContractError('ISOLATED_DATABASE_CONFIRMATION_REQUIRED')
+        with conn.cursor() as cur:
+            cur.execute('SELECT current_database()')
+            if cur.fetchone()[0]!=expected_database:raise ContractError('DATABASE_TARGET_FORBIDDEN')
+            cur.execute("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='vector')")
+            if not cur.fetchone()[0]:raise ContractError('PGVECTOR_REQUIRED')
+            for statement in self.statements():cur.execute(statement)

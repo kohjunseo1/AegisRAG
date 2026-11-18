@@ -10,6 +10,7 @@ from .contracts import ContractError, PreparationResult, RetrievedEvidence, fing
 TOKEN = re.compile(r'<(?:PERSON|PHONE_NUMBER|EMAIL|ADDRESS|RESIDENT_REGISTRATION_NUMBER|ACCOUNT_NUMBER|CARD_NUMBER)_[0-9a-f]{24}>')
 REGION = re.compile(r'region_v1_[0-9a-f]{24}\Z')
 ENTITY = re.compile(r'e_[0-9a-f]{24}\Z')
+NAME_LOOKUP = re.compile(r'n_[0-9a-f]{24}\Z')
 DOCID = re.compile(r'[A-Za-z0-9_-]{1,60}\Z')
 
 @dataclass(frozen=True, repr=False)
@@ -59,6 +60,7 @@ class IndexedDocument:
     regions: tuple[str, ...] = ()
     entity_ids: tuple[str, ...] = ()
     chunk_id: str | None = None
+    name_lookup_keys: tuple[str, ...] = ()
 
 @dataclass(frozen=True, repr=False)
 class QuerySpec:
@@ -67,6 +69,8 @@ class QuerySpec:
     regions: tuple[str, ...] = ()
     entity_ids: tuple[str, ...] = ()
     identity_unresolved: bool = False
+    lookup_only: bool = False
+    name_lookup_keys: tuple[str, ...] = ()
 
 class DenseScorer(Protocol):
     def __call__(self, masked_query: str, documents: tuple[IndexedDocument,...]) -> dict[str,float]: ...
@@ -77,14 +81,15 @@ class InMemoryIndex:
         self.index_version=index_version
         self._docs={}
 
-    def _metadata(self,regions,entities):
+    def _metadata(self,regions,entities,name_lookup_keys=()):
         if any(not REGION.fullmatch(r) for r in regions) or any(not ENTITY.fullmatch(e) for e in entities):
             raise ContractError('INVALID_REGION_OR_ENTITY_KEY')
+        if any(not NAME_LOOKUP.fullmatch(k) for k in name_lookup_keys):raise ContractError('INVALID_NAME_LOOKUP_KEY')
 
     def add(self,doc: IndexedDocument):
         if not DOCID.fullmatch(doc.doc_id) or doc.chunk_id is not None:
             raise ContractError('INVALID_DOCUMENT_ID_OR_UNSUPPORTED_CHUNK_MODE')
-        self._metadata(doc.regions,doc.entity_ids)
+        self._metadata(doc.regions,doc.entity_ids,doc.name_lookup_keys)
         validate_receipt(doc.preparation,doc.approval,key_tag=self.key_tag,policy_version=self.policy_version,
                          input_kind='document',corpus_id=self.corpus_id)
         if doc.doc_id in self._docs and self._docs[doc.doc_id] != doc:
@@ -99,7 +104,7 @@ class InMemoryIndex:
     def index_fingerprint(self):
         return config_hash({'index_version':self.index_version,'key_tag':self.key_tag,
                             'policy':self.policy_version,'corpus':self.corpus_id,
-                            'docs':[(did,fingerprint(d.preparation.sanitized_text),d.regions,d.entity_ids)
+                            'docs':[(did,fingerprint(d.preparation.sanitized_text),d.regions,d.entity_ids,d.name_lookup_keys)
                                     for did,d in sorted(self._docs.items())]})
 
     def retrieve(self,query: QuerySpec, *, profile='hybrid_v1', top_k=5, dense_scorer=None):
@@ -107,7 +112,7 @@ class InMemoryIndex:
             raise ContractError('INVALID_RETRIEVAL_PROFILE_OR_LIMIT')
         if query.identity_unresolved:
             raise ContractError('CLARIFY_UNRESOLVED_IDENTITY')
-        self._metadata(query.regions,query.entity_ids)
+        self._metadata(query.regions,query.entity_ids,query.name_lookup_keys)
         validate_receipt(query.preparation,query.approval,key_tag=self.key_tag,policy_version=self.policy_version,
                          input_kind='query',corpus_id=self.corpus_id)
         qtext=query.preparation.sanitized_text
@@ -124,45 +129,53 @@ class InMemoryIndex:
                     raise ValueError
             except Exception:
                 raise ContractError('DENSE_SCORING_FAILED') from None
-        dense_sorted=sorted(scores,key=lambda did:(-scores[did],did))
-        dense_rank={did:i for i,did in enumerate(dense_sorted,1)}
-        dense_pool=set(dense_sorted[:max(50,top_k*3)])
-        pool=[]
-        for doc in docs:
-            tokens=set(TOKEN.findall(doc.preparation.sanitized_text))
-            count=len(qtokens & tokens)
-            region=bool(set(query.regions)&set(doc.regions))
-            allhit=bool(qtokens) and qtokens<=tokens
-            identity=('exact' if set(query.entity_ids)&set(doc.entity_ids) else
-                      'conflict' if query.entity_ids and doc.entity_ids else
-                      'weak' if count else 'none')
-            # Explicit entity conflicts are excluded from every comparison profile.
-            if identity=='conflict':continue
-            if not (count or region or doc.doc_id in dense_pool or identity=='exact'):continue
-            reasons=[]
-            if allhit:reasons.append('TOKEN_ALL')
-            if count:reasons.append('TOKEN_ANY')
-            if region:reasons.append('REGION')
-            if doc.doc_id in dense_pool:reasons.append('DENSE')
-            if identity=='exact':reasons.append('EXACT_ENTITY')
-            score=scores.get(doc.doc_id,float('-inf'))
-            if profile=='own_v6':
-                # V6 semantic baseline: dense candidate pool, token->region->dense sort.
-                if doc.doc_id not in dense_pool:continue
-                order=(-count,-int(region),-score,doc.doc_id)
-            elif profile=='team_v3':
-                group=0 if allhit and region else 1 if allhit else 2 if count else 3 if region else 4
-                order=(group,-score,doc.doc_id)
-            else:
-                order=(-int(identity=='exact'),-count,-int(region),-score,doc.doc_id)
-            row=RetrievedEvidence(doc.doc_id,doc.preparation.sanitized_text,identity,count,region,
-                                  dense_rank.get(doc.doc_id,0),tuple(reasons),self.index_version,
-                                  self.key_tag,self.policy_version,doc.preparation.approval_state)
-            pool.append((order,row))
-        return tuple(row for _,row in sorted(pool,key=lambda x:x[0])[:top_k])
+        return rank_documents(query,docs,scores,profile=profile,top_k=top_k,index_version=self.index_version,
+                              key_tag=self.key_tag,policy_version=self.policy_version)
+
+def rank_documents(query, docs, scores, *, profile,top_k,index_version,key_tag,policy_version,dense_pool_limit=None):
+    qtokens=set(TOKEN.findall(query.preparation.sanitized_text))
+    dense_sorted=sorted(scores,key=lambda did:(-scores[did],did))
+    dense_rank={did:i for i,did in enumerate(dense_sorted,1)}
+    dense_pool=set(dense_sorted[:dense_pool_limit or max(50,top_k*3)])
+    pool=[]
+    for doc in docs:
+        tokens=set(TOKEN.findall(doc.preparation.sanitized_text))
+        count=len(qtokens & tokens)
+        region=bool(set(query.regions)&set(doc.regions))
+        allhit=bool(qtokens) and qtokens<=tokens
+        identity=('exact' if set(query.entity_ids)&set(doc.entity_ids) else
+                  'conflict' if query.entity_ids and doc.entity_ids else
+                  'weak' if count else 'none')
+        # Explicit entity conflicts are excluded from every comparison profile.
+        if identity=='conflict':continue
+        lookup=bool(set(query.name_lookup_keys)&set(doc.name_lookup_keys))
+        if not (count or region or doc.doc_id in dense_pool or identity=='exact' or lookup):continue
+        reasons=[]
+        if lookup:reasons.append('NAME_LOOKUP_CANDIDATE_ONLY')
+        if allhit:reasons.append('TOKEN_ALL')
+        if count:reasons.append('TOKEN_ANY')
+        if region:reasons.append('REGION')
+        if doc.doc_id in dense_pool:reasons.append('DENSE')
+        if identity=='exact':reasons.append('EXACT_ENTITY')
+        score=scores.get(doc.doc_id,float('-inf'))
+        if profile=='own_v6':
+            # V6 semantic baseline: dense candidate pool, token->region->dense sort.
+            if doc.doc_id not in dense_pool:continue
+            order=(-count,-int(region),-score,doc.doc_id)
+        elif profile=='team_v3':
+            group=0 if allhit and region else 1 if allhit else 2 if count else 3 if region else 4
+            order=(group,-score,doc.doc_id)
+        else:
+            order=(-int(identity=='exact'),-count,-int(region),-score,doc.doc_id)
+        row=RetrievedEvidence(doc.doc_id,doc.preparation.sanitized_text,identity,count,region,
+                              dense_rank.get(doc.doc_id,0),tuple(reasons),index_version,
+                              key_tag,policy_version,doc.preparation.approval_state,entity_ids=doc.entity_ids)
+        pool.append((order,row))
+    return tuple(row for _,row in sorted(pool,key=lambda x:x[0])[:top_k])
 
 
-def evaluate_rankings(index, queries, gold, rankings, query_states):
+
+def evaluate_rankings(index, queries, gold, rankings, query_states, *, dataset_role='synthetic',real_model_metrics=False):
     """Use frozen scorer; retain full-set and eligible denominators and actual IDs.
 
     Queries are opaque qids + readiness marker only, no question text is exported.
@@ -173,9 +186,9 @@ def evaluate_rankings(index, queries, gold, rankings, query_states):
         raise ContractError('QUERY_STATE_MISMATCH')
     safe_queries=[{'qid':q['qid'],'text':'APPROVED' if query_states[q['qid']]=='READY' else None} for q in queries]
     result=summarize_score(safe_queries,gold,set(index.ids),rankings)
-    result.update(dataset_role='synthetic',neutral_policy='scoring_only; actual top5 unchanged',
+    result.update(dataset_role=dataset_role,neutral_policy='scoring_only; actual top5 unchanged',
                   query_gate_counts={s:sum(v==s for v in query_states.values()) for s in ['READY','REVIEW','BLOCKED']},
                   actual_top5={q['qid']:rankings.get(q['qid'],[])[:5] for q in queries},
                   metrics_definition_version='v6_common_v1',index_fingerprint=index.index_fingerprint,
-                  real_model_metrics=False)
+                  real_model_metrics=real_model_metrics)
     return result

@@ -78,7 +78,8 @@ class V6GateAdapter:
     def plan(self,text,evidence):
         return fuse(text,evidence,self.check(text))
 
-def fuse(text: str, evidence: DetectionEvidence, baseline_gate: dict) -> ProtectionPlan:
+def fuse(text: str, evidence: DetectionEvidence, baseline_gate: dict, *, policy='evidence_v1') -> ProtectionPlan:
+    if policy not in {'evidence_v1','evidence_v2'}:raise ContractError('UNKNOWN_FUSION_POLICY')
     reasons = []
     if (evidence.input_kind not in {'document','query'} or not evidence.request_id
             or evidence.original_input_fingerprint != fingerprint(text)
@@ -87,7 +88,7 @@ def fuse(text: str, evidence: DetectionEvidence, baseline_gate: dict) -> Protect
     if not evidence.ready:
         reasons.append('REQUIRED_MODEL_UNAVAILABLE_OR_FAILED')
     if baseline_gate.get('decision') != READY:
-        reasons.append('BASELINE_GATE_NOT_READY')
+        reasons.append('BASELINE_GATE_BLOCKED' if policy=='evidence_v2' and baseline_gate.get('decision')=='BLOCKED' else 'BASELINE_GATE_NOT_READY')
     masks = [(s['start'],s['end']) for s in baseline_gate.get('mask_intervals',[])]
     masks += [(s['start'],s['end']) for s in baseline_gate.get('proposed_protection',[])]
     redactions = tuple((s['start'],s['end']) for s in baseline_gate.get('redaction_intervals',[]))
@@ -117,6 +118,32 @@ def fuse(text: str, evidence: DetectionEvidence, baseline_gate: dict) -> Protect
             # Even consensus does not validate canonical value/label; preserve protection and review.
             unresolved.append(c)
             reasons.append('UNCONFIRMED_CANDIDATE')
+    pending=[]
+    if policy=='evidence_v2':
+        reasons=[r for r in reasons if r!='UNCONFIRMED_CANDIDATE']
+        for c in unresolved:
+            label_conflict=any(overlap(c,d) and c.label!=d.label for d in all_candidates+hmac_entities)
+            boundary_conflict=any(overlap(c,d) and (c.start,c.end)!=(d.start,d.end)
+                                  and not (d.start<=c.start<c.end<=d.end)
+                                  for d in hmac_entities)
+            if label_conflict:reasons.append('LABEL_CONFLICT')
+            elif boundary_conflict:reasons.append('UNCERTAIN_HMAC_BOUNDARY')
+            else:pending.append((c.start,c.end))
+        # Whole phone/email formats are typed only with exact canonical validation.
+        from local_pseudonymizer import canonicalize
+        confirmed=[]
+        for c in unresolved:
+            if c.label not in {'phone_number','email'} or (c.start,c.end) not in pending:continue
+            value=text[c.start:c.end]
+            valid=(bool(re.fullmatch(r'01[016789][- ]?\d{3,4}[- ]?\d{4}',value)) if c.label=='phone_number'
+                   else bool(re.fullmatch(r'[^\s@]+@[^\s@]+\.[A-Za-z]{2,}',value)))
+            if valid and not any(overlap(c,d) and (c.label,c.start,c.end)!=(d.label,d.start,d.end)
+                                 for d in all_candidates+hmac_entities):
+                canonicalize(c.label,value)
+                if not any((d.label,d.start,d.end)==(c.label,c.start,c.end) for d in confirmed):confirmed.append(c)
+        hmac_entities.extend(confirmed);strict.extend(confirmed)
+        unresolved=[c for c in unresolved if not any((c.label,c.start,c.end)==(d.label,d.start,d.end) for d in confirmed)]
+        pending=[(c.start,c.end) for c in unresolved if (c.start,c.end) in pending]
     for i,c in enumerate(hmac_entities):
         if any(overlap(c,e) for e in hmac_entities[i+1:]):
             reasons.append('HMAC_BOUNDARY_CONFLICT')
@@ -127,7 +154,8 @@ def fuse(text: str, evidence: DetectionEvidence, baseline_gate: dict) -> Protect
     if any(not covers((e.start,e.end),final_masks) for e in strict+hmac_entities):
         raise ContractError('HMAC_NOT_COVERED')
     return ProtectionPlan(tuple(strict),tuple(hmac_entities),final_masks,redactions,tuple(unresolved),
-                          tuple(sorted(set(reasons))),evidence.detector_profile,POLICY,fingerprint(text),evidence.input_kind)
+                          tuple(sorted(set(reasons))),evidence.detector_profile,policy,fingerprint(text),evidence.input_kind,
+                          merge_intervals(pending,len(text)) if pending else ())
 
 def prepare(text, plan, *, input_kind, hmac_key, key_tag):
     if (input_kind not in {'document','query'} or input_kind != plan.input_kind
@@ -136,7 +164,7 @@ def prepare(text, plan, *, input_kind, hmac_key, key_tag):
     if type(hmac_key) is not bytes or len(hmac_key) < 32 or key_tag != frozen_key_tag(hmac_key):
         raise ContractError('HMAC_KEY_TAG_MISMATCH')
     if plan.review_reason_codes:
-        blocked = 'REQUIRED_MODEL_UNAVAILABLE_OR_FAILED' in plan.review_reason_codes
+        blocked = plan.protection_status=='BLOCKED'
         return PreparationResult('BLOCKED' if blocked else 'REVIEW','NONE','NOT_APPROVED',None,
                                  key_tag,plan.policy_version,input_kind,plan.review_reason_codes)
     gate = {'decision':READY, 'entities':[dict(label=c.label,start=c.start,end=c.end) for c in plan.strict_entities],

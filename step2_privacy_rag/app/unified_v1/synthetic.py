@@ -34,7 +34,7 @@ def run_synthetic(profile='own2'):
     independent=PrivacyRecheck(DetectionEngine('own2',{'ax':AxAdapter('independent-mock-v1',baseline.raw),
                                                       'veil':VeilAdapter('independent-mock-v1',baseline.raw)}))
     key=b'unified-synthetic-only-key-00000000';tag=key_tag(key)
-    pipeline=LocalPipeline(engine,baseline,hmac_key=key,key_tag=tag)
+    pipeline=LocalPipeline(engine,baseline,hmac_key=key,key_tag=tag,reuse_raw=False)
     text='고객명: 금재원\n전화: 010-0000-0000\n이메일: synthetic@example.invalid\n합성 정책은 승인 절차를 거칩니다.'
     question='고객명: 금재원\n전화: 010-0000-0000\n이메일: synthetic@example.invalid\n정책 안내'
     def forbidden(*args,**kwargs):raise AssertionError('SYNTHETIC_NETWORK_FORBIDDEN')

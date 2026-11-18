@@ -10,7 +10,8 @@ from types import MappingProxyType
 LABELS = frozenset({'person', 'phone_number', 'email', 'address',
                     'resident_registration_number', 'account_number', 'card_number'})
 SOURCES = frozenset({'ax', 'veil', 'klue', 'koelectra', 'structural', 'contextual'})
-PROFILES = {'own2': ('ax', 'veil'), 'team2': ('klue', 'koelectra'),
+PROFILES = {'own2': ('ax', 'veil'), 'quality3': ('ax', 'veil', 'klue'),
+            'ax_klue': ('ax', 'klue'), 'veil_klue': ('veil', 'klue'), 'team2': ('klue', 'koelectra'),
             'quality4': ('ax', 'veil', 'klue', 'koelectra')}
 for _source in PROFILES['quality4']:
     PROFILES['drop_' + _source] = tuple(s for s in PROFILES['quality4'] if s != _source)
@@ -98,6 +99,15 @@ class ProtectionPlan:
     policy_version: str = 'evidence_v1'
     original_input_fingerprint: str = ''
     input_kind: str = 'document'
+    pending_mask_intervals: tuple[tuple[int,int], ...] = ()
+
+    @property
+    def protection_status(self):
+        if any(r in self.review_reason_codes for r in ('REQUIRED_MODEL_UNAVAILABLE_OR_FAILED','BASELINE_GATE_BLOCKED')):
+            return 'BLOCKED'
+        if self.review_reason_codes:return 'REVIEW'
+        if self.pending_mask_intervals:return 'LOCAL_MASK_ONLY_PENDING_APPROVAL'
+        return 'CONFIRMED_HMAC'
 
 @dataclass(frozen=True, repr=False)
 class PreparationResult:
@@ -143,6 +153,7 @@ class RetrievedEvidence:
     policy_version: str
     approval_state: str
     chunk_id: str | None = None
+    entity_ids: tuple[str, ...] = ()
 
 @dataclass(frozen=True)
 class Config:
