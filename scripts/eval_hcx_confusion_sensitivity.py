@@ -114,6 +114,43 @@ def build_conditions(top5: list[dict], gold_ids: set[str],
     return result
 
 
+def build_single_addition_conditions(top5: list[dict], gold_ids: set[str],
+                                     confusable_ids: set[str]) -> list[dict]:
+    """Diagnostic-only: Gold-in-Top5 vs adding each non-Gold document once.
+
+    No QID/doc-ID special cases. Each subset preserves the ACTUAL Top-5 order.
+    A non-Gold candidate need not be annotated as confusable: that is precisely
+    the failure mode this ablation is designed to investigate. No runtime
+    retrieval or document filtering is changed.
+    """
+    baseline = build_conditions(top5, gold_ids, confusable_ids)
+    gold_only, actual_top5 = baseline[0], baseline[2]
+    gold_present = gold_only["skip_reason"] is None
+    conditions = [dict(gold_only)]
+    for d in top5:
+        did = d["doc_id"]
+        if did in gold_ids:
+            continue
+        subset = [item for item in top5
+                  if item["doc_id"] in gold_ids or item["doc_id"] == did]
+        conditions.append({
+            "condition": "gold_plus_" + did,
+            "docs": subset,
+            "skip_reason": None if gold_present else "NO_GOLD_IN_ACTUAL_TOP5",
+        })
+    conditions.append(dict(actual_top5))
+    seen = {}
+    for cond in conditions:
+        if cond["skip_reason"] is not None:
+            cond["duplicate_of"] = None
+            continue
+        ids = tuple(d["doc_id"] for d in cond["docs"])
+        cond["duplicate_of"] = seen.get(ids)
+        if ids not in seen:
+            seen[ids] = cond["condition"]
+    return conditions
+
+
 def safe_row(case: dict, cond: dict, relevant: set[str],
              confusable: set[str], trial: int) -> dict:
     ids = [d["doc_id"] for d in cond["docs"]]
@@ -174,7 +211,9 @@ def run(args: argparse.Namespace) -> None:
                 continue
             gold = set(label["relevant_doc_ids"])
             confusable = set(label.get("confusable_doc_ids",[]))
-            conditions = build_conditions(top5,gold,confusable)
+            conditions = (build_single_addition_conditions(top5,gold,confusable)
+                          if args.condition_set == "single_additions"
+                          else build_conditions(top5,gold,confusable))
             prepared_work.append((case,label,prepared,gate,conditions))
             count += sum(c["skip_reason"] is None and c["duplicate_of"] is None
                          for c in conditions) * args.trials
@@ -190,6 +229,7 @@ def run(args: argparse.Namespace) -> None:
         print("CONF_PREFLIGHT",json.dumps({
             "selected_cases":len(selected),"planned_hcx_calls":count,
             "trials":args.trials,"live":args.live,
+            "condition_set":args.condition_set,
             "gold_only_from_actual_top5":True,
             "gold_sent_to_hcx_as_label":False,
             "db_write":False
@@ -295,6 +335,9 @@ def main() -> None:
     ap.add_argument("--qids",nargs="+",default=list(DEFAULT_IDS))
     ap.add_argument("--device",choices=("cpu","mps"),default="cpu")
     ap.add_argument("--trials",type=int,default=1)
+    ap.add_argument("--condition-set",choices=("standard","single_additions"),
+                    default="standard",
+                    help="single_additions: Gold-only + each single non-Gold + actual Top-5; diagnostic only")
     ap.add_argument("--live",action="store_true",
                     help="Actually call HCX; must explicitly approve external transfer")
     ap.add_argument("--out",type=Path,help="New, owner-only report in local_eval")
