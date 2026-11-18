@@ -66,9 +66,25 @@ def summary(records:list[dict])->dict:
             group["confusable_cited"]+=1
         if row.get("other_citations"):
             group["other_cited"]+=1
+        audit = row.get("evidence_audit")
+        if isinstance(audit,list):
+            group["audit_observations"]+=1
+            group["audit_supports"]+=sum(
+                a.get("verdict")=="SUPPORTS" for a in audit if isinstance(a,dict))
+            group["audit_wrong_task"]+=sum(
+                a.get("verdict")=="WRONG_TASK" for a in audit if isinstance(a,dict))
+            group["audit_invalid_quotes"]+=sum(
+                a.get("verdict")=="SUPPORTS" and a.get("quote_valid") is not True
+                for a in audit if isinstance(a,dict))
+            if row.get("citation_verdict_consistent") is True:
+                group["citation_verdict_consistent"]+=1
         by_case[row["case_id"]].append({
             "trial":row["trial"],"condition":row["condition"],
+            "answer_mode":row.get("answer_mode","baseline"),
             "decision":row.get("decision"),"citations":row.get("citations",[]),
+            "evidence_audit":audit,
+            "citation_verdict_consistent":
+                row.get("citation_verdict_consistent"),
             "confusable_citations":row.get("confusable_citations",[]),
             "gold_citations":row.get("gold_citations",[]),
             "answer_length":len(row.get("answer") or ""),
