@@ -1,11 +1,18 @@
 """Offline, synthetic unit tests for Gold-only/Confusable/Top-5 planning."""
+import io
+import json
+import os
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"scripts"))
 from eval_hcx_confusion_sensitivity import build_conditions,choose_cases,safe_row
+sys.path.insert(0,str(ROOT/"step2_privacy_rag/app"))
+from hcx import BASE, OutboundError, _safe_429_diagnostics, call_hcx
 
 
 def doc(name):
@@ -63,6 +70,70 @@ class ConfusionPlan(unittest.TestCase):
         self.assertNotIn("Synthetic evidence",str(row))
         self.assertEqual(row["confusable_included"],1)
 
+
+
+class RateLimitDiagnosis(unittest.TestCase):
+    def test_safe_provider_code_and_allowlisted_headers_only(self):
+        response = json.dumps({"error":{"code":"42901",
+                                        "message":"never echo PRIVATE_DOCUMENT or API_KEY"}})
+        error = urllib.error.HTTPError(
+            BASE,429,"rate limited",
+            {"x-ratelimit-remaining-requests":"0",
+             "x-ratelimit-remaining-tokens":"123",
+             "x-ratelimit-reset-requests":"23s",
+             "x-ratelimit-reset-tokens":"33s",
+             "retry-after":"2",
+             "Authorization":"Bearer API_KEY"},
+            io.BytesIO(response.encode("utf-8")))
+        diagnostics = _safe_429_diagnostics(
+            error,request_bytes=400,question_chars=11,document_chars=25,
+            document_count=1,max_completion_tokens=1024)
+        self.assertEqual(diagnostics["provider_code"],"42901")
+        self.assertEqual(diagnostics["remaining_requests"],"0")
+        self.assertEqual(diagnostics["reset_requests"],"23s")
+        self.assertEqual(diagnostics["max_completion_tokens"],1024)
+        self.assertNotIn("PRIVATE_DOCUMENT",str(diagnostics))
+        self.assertNotIn("API_KEY",str(diagnostics))
+        self.assertNotIn("Authorization",str(diagnostics))
+
+    def test_malformed_body_or_header_never_leaks(self):
+        error = urllib.error.HTTPError(
+            BASE,429,"test",
+            {"x-ratelimit-reset-requests":"PRIVATE_DOCUMENT",
+             "retry-after":"PRIVATE_DOCUMENT",
+             "x-ratelimit-remaining-tokens":"0 more PRIVATE_DOCUMENT"},
+            io.BytesIO(b'{"message":"PRIVATE_DOCUMENT","code":"NOT_A_NUMBER"}'))
+        diagnostics = _safe_429_diagnostics(
+            error,request_bytes=100,question_chars=3,document_chars=10,
+            document_count=1,max_completion_tokens=1024)
+        self.assertNotIn("provider_code",diagnostics)
+        self.assertNotIn("reset_requests",diagnostics)
+        self.assertNotIn("retry_after",diagnostics)
+        self.assertNotIn("remaining_tokens",diagnostics)
+        self.assertNotIn("PRIVATE_DOCUMENT",str(diagnostics))
+
+    def test_call_hcx_429_keeps_safe_code_and_payload_size(self):
+        response = json.dumps({"status":{"code":"42902","message":"PRIVATE_DOCUMENT"}})
+        error = urllib.error.HTTPError(
+            BASE,429,"rate limited",
+            {"x-ratelimit-remaining-requests":"0"},
+            io.BytesIO(response.encode("utf-8")))
+        with patch.dict(os.environ,{
+            "AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED":"YES",
+            "LLM_API_KEY":"synthetic-not-real",
+            "LLM_API_BASE":BASE,
+            "AEGISRAG_HCX_EVIDENCE_MODE":"baseline",
+        }):
+            with patch("hcx.urllib.request.urlopen",side_effect=error):
+                with self.assertRaises(OutboundError) as caught:
+                    call_hcx(ROOT,"합성 테스트 질문",[{
+                        "doc_id":"TEST001","text":"공개 합성 문서의 처리 상태: 완료"
+                    }],False)
+        self.assertEqual(str(caught.exception),"HCX_HTTP_429")
+        self.assertEqual(caught.exception.diagnostics["provider_code"],"42902")
+        self.assertGreater(caught.exception.diagnostics["request_bytes"],100)
+        self.assertEqual(caught.exception.diagnostics["document_count"],1)
+        self.assertNotIn("PRIVATE_DOCUMENT",str(caught.exception.diagnostics))
 
 if __name__=="__main__":
     unittest.main()
