@@ -116,6 +116,57 @@ Plan only, without outbound calls:
 Live execution is optional and **requires explicit approval of masked source material** as well as the provider cost budget. Use `--live` plus a new unique private `--out` path and `AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES`; there can be six API requests for Q027. On HTTP 429 it stops after the first failure. Do not overwrite earlier reports.
 
 The primary metric is Gold doc citation vs non-Gold citation **for identical question/system settings**. A change in citation choice is evidence of sensitivity, but does not prove what causal mechanism changed (document order, length or interaction can also matter). Inspect the locally stored answer text and claims before declaring semantic correctness.
+## Structured Evidence Audit A/B (isolated, 2026-11-18)
+
+**Purpose.** Q027's retrieved Top-5 contains H0167 (Gold) as rank 1, but HCX has cited H0059 for an unrelated VOC question. In the 6-condition single-addition experiment, adding H0059 to H0167 resulted in INSUFFICIENT_EVIDENCE; other individual additions still cited H0167. This establishes **input sensitivity in observed responses**, not reliable causality or stable failure frequency. H0059 was *not* annotated confusable in the Gold: it is a newly discovered interfering **non-Gold** document.
+
+The A/B mode compares four conditions with the SAME original Top-5 and HMAC/Gate/retrieval pipeline:
+
+| Condition | Documents | HCX prompt/schema |
+|---|---|---|
+| pair_baseline | Gold found in actual Top-5 + CLI-selected non-Gold doc | Current baseline |
+| pair_audit | Identical pair | Structured evidence review + answer in **one** call |
+| top5_baseline | Actual Top-5 original ranking | Current baseline |
+| top5_audit | Identical actual Top-5 | Structured evidence review + answer in **one** call |
+
+IMPORTANT: H0059 is passed by CLI for Q027; **no special doc IDs, names, financial-event types, or Gold labels are hardcoded into model logic**. Gold only creates a counterfactual diagnostic document subset and stays local. HCX-007, temperature 0, reasoning_effort none, output cap 1024, and original masked documents/order are retained. The audit condition adds a prompt and JSON schema; that extra structure can itself affect cost, latency, and output behavior.
+
+Audit output has the normal decision/answer/citations plus per-document verdict (SUPPORTS, WRONG_TASK, WRONG_ENTITY, WRONG_TIME, INSUFFICIENT) and a short supporting_quote for SUPPORTS. Locally, the code checks each quote is an exact substring of the **transmitted masked document** and that the model's citations agree with its own SUPPORTS labels. **No quote text is written to diagnostic JSONL or console**; only IDs, verdict, quote_valid and consistency flags. A matching quote is necessary but not sufficient for factual relevance; verdicts are model guesses, NOT the model's faithful internal reasoning.
+
+Update existing detached worktree after preserving tracked edits:
+
+    cd ~/AegisRAG-confusion
+    git status --short
+    git fetch origin experiment/confusion-sensitivity-20261117
+    git switch --detach origin/experiment/confusion-sensitivity-20261117
+
+Offline tests (NO HCX calls):
+
+    python -m unittest discover -s tests -p 'test_hcx_confusion_sensitivity.py' -v
+    python -m unittest discover -s tests -p 'test_hcx_evidence_audit.py' -v
+
+Plan-only Q027 (NO HCX calls; 4 planned calls):
+
+    python scripts/eval_hcx_confusion_sensitivity.py \
+      --cases ~/AegisRAG-hcx-ab/step2_privacy_rag/local_eval/e2e_pilot_17.jsonl \
+      --gold ~/AegisRAG/step2_privacy_rag/local_eval/holdout_retrieval_queries_gold.jsonl \
+      --qids Q027 --trials 1 --condition-set audit_ab --focus-doc-id H0059
+
+Optional paid live call only after authorization for the masked corpus and confirming the shared token budget:
+
+    export AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES
+    python scripts/eval_hcx_confusion_sensitivity.py \
+      --cases ~/AegisRAG-hcx-ab/step2_privacy_rag/local_eval/e2e_pilot_17.jsonl \
+      --gold ~/AegisRAG/step2_privacy_rag/local_eval/holdout_retrieval_queries_gold.jsonl \
+      --qids Q027 --trials 1 --condition-set audit_ab --focus-doc-id H0059 \
+      --live --out step2_privacy_rag/local_eval/q027_evidence_audit_ab_v1.jsonl
+
+Use a fresh report filename each run. The script stops at the first 429 and preserves partial results. Store output locally, do not share raw private answers. The existing review script summarizes decisions and cited IDs:
+
+    python scripts/review_hcx_confusion.py \
+      --report step2_privacy_rag/local_eval/q027_evidence_audit_ab_v1.jsonl
+
+**Interpretation:** Compare Gold citations, wrong-task answers, false abstention, quote_valid flags, citation_verdict_consistent and actual claims in privately stored masked answers. A single successful A/B does not justify release. Replicate on Q075/Q048 and a predeclared untouched evaluation set; check added latency and tokens before considering adoption.
 ## Interpretation
 
 - Gold-only correct, Gold+Confusable incorrect: likely confusable interference, but added length and positions might also matter.
