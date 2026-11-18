@@ -10,7 +10,9 @@ from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"scripts"))
-from eval_hcx_confusion_sensitivity import build_conditions,choose_cases,safe_row
+from eval_hcx_confusion_sensitivity import (
+    build_conditions, build_single_addition_conditions, choose_cases, safe_row
+)
 sys.path.insert(0,str(ROOT/"step2_privacy_rag/app"))
 from hcx import BASE, OutboundError, _safe_429_diagnostics, call_hcx
 
@@ -20,6 +22,44 @@ def doc(name):
 
 
 class ConfusionPlan(unittest.TestCase):
+    def test_single_additions_q027_unannotated_docs_not_ignored(self):
+        ids=["H0167","H0059","H0159","H0010","H0060"]
+        conditions=build_single_addition_conditions(
+            [doc(d) for d in ids],{"H0167"},set())
+        self.assertEqual([c["condition"] for c in conditions],[
+            "gold_only","gold_plus_H0059","gold_plus_H0159",
+            "gold_plus_H0010","gold_plus_H0060","actual_top5"])
+        self.assertEqual([[d["doc_id"] for d in c["docs"]] for c in conditions],[
+            ["H0167"],["H0167","H0059"],["H0167","H0159"],
+            ["H0167","H0010"],["H0167","H0060"],ids])
+        self.assertTrue(all(c["skip_reason"] is None for c in conditions))
+        self.assertTrue(all(c["duplicate_of"] is None for c in conditions))
+
+    def test_single_addition_deduplicates_full_top5(self):
+        top=[doc("H0167"),doc("H0059")]
+        conditions=build_single_addition_conditions(top,{"H0167"},set())
+        self.assertEqual([x["condition"] for x in conditions],
+                         ["gold_only","gold_plus_H0059","actual_top5"])
+        self.assertEqual(conditions[2]["duplicate_of"],"gold_plus_H0059")
+
+    def test_single_addition_skips_without_gold_in_actual_top5(self):
+        top=[doc("H0059"),doc("H0159")]
+        conditions=build_single_addition_conditions(top,{"H0167"},set())
+        self.assertEqual([x["skip_reason"] for x in conditions],[
+            "NO_GOLD_IN_ACTUAL_TOP5",
+            "NO_GOLD_IN_ACTUAL_TOP5",
+            "NO_GOLD_IN_ACTUAL_TOP5",None])
+        self.assertEqual(conditions[-1]["condition"],"actual_top5")
+
+    def test_single_addition_preserves_ranking_when_gold_not_first(self):
+        ids=["H0059","H0167","H0159","H0010","H0060"]
+        conditions=build_single_addition_conditions(
+            [doc(d) for d in ids],{"H0167"},set())
+        self.assertEqual([d["doc_id"] for d in conditions[1]["docs"]],
+                         ["H0059","H0167"])
+        self.assertEqual([d["doc_id"] for d in conditions[2]["docs"]],
+                         ["H0167","H0159"])
+
     def test_q075_gold_confusable_top5(self):
         top=[doc(x) for x in ["H0147","H0102","H0161","H0059","H0092"]]
         conditions=build_conditions(top,{"H0147"},{"H0102"})
