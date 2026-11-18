@@ -252,6 +252,8 @@ def run(args: argparse.Namespace) -> None:
                                 code = str(exc)
                                 row["error"] = (code if re.fullmatch(r"[A-Z0-9_]{1,80}",code)
                                                 else "HCX_OUTBOUND_ERROR")
+                                if row["error"] == "HCX_HTTP_429":
+                                    row["rate_limit_diagnostics"] = exc.diagnostics
                                 row["decision"] = None
                                 row["answer"] = None
                             row["hcx_ms"] = round((time.perf_counter()-t)*1000,2)
@@ -265,8 +267,18 @@ def run(args: argparse.Namespace) -> None:
                             "confusable_citations":row.get("confusable_citations",[]),
                             "other_citations":row.get("other_citations",[]),
                             "error":row.get("error"),"reused":row.get("reused",False),
-                            "skipped":row.get("skipped")
+                            "skipped":row.get("skipped"),
+                            "rate_limit_diagnostics":row.get("rate_limit_diagnostics")
                         },sort_keys=True),flush=True)
+                        if row.get("error") == "HCX_HTTP_429":
+                            print("CONF_RATE_LIMIT_STOP",json.dumps({
+                                "case_id":row["case_id"],
+                                "condition":row["condition"],
+                                "trial":trial,
+                                "report":str(dest),
+                                "rate_limit_diagnostics":row.get("rate_limit_diagnostics",{})
+                            },sort_keys=True),flush=True)
+                            return
         print("CONF_DONE",json.dumps({"report":str(dest),
             "note":"Citation overlap is not factual correctness. Compare private answers with source evidence.",
             "no_db_writes":True},sort_keys=True),flush=True)
