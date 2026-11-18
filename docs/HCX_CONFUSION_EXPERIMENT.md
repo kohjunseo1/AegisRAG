@@ -88,6 +88,34 @@ Existing detached worktree: inspect local tracked changes before updating, never
     git switch --detach origin/experiment/confusion-sensitivity-20261117
 
 If tracked edits exist, preserve them first. For a paid --live retry, use a new private report filename, and only after confirming authorization for the masked corpus. If a rate limit is encountered, inspect the safe diagnostics instead of retrying repeatedly.
+## Single-document addition ablation (diagnostic only)
+
+When the Gold document is retrieved but HCX cites non-Gold documents, use the generic `single_additions` condition set. This is **not a production ranking rule**; Gold is used only to create offline counterfactuals, and Gold labels are never sent to HCX.
+
+For Q027, with its current actual Top-5, the plan is:
+
+| Condition | Documents |
+|---|---|
+| gold_only | H0167 |
+| gold_plus_H0059 | H0167, H0059 |
+| gold_plus_H0159 | H0167, H0159 |
+| gold_plus_H0010 | H0167, H0010 |
+| gold_plus_H0060 | H0167, H0060 |
+| actual_top5 | H0167, H0059, H0159, H0010, H0060 |
+
+This exact list is an **example from Q027's current Top-5**, not a hardcoded case. The implementation generates additions for every non-Gold Top-5 document, whether or not it was annotated confusable. Original ranking order is preserved within each condition. Duplicate document subsets are reused, not called twice.
+
+Plan only, without outbound calls:
+
+    cd ~/AegisRAG-confusion
+    python scripts/eval_hcx_confusion_sensitivity.py \
+      --cases ~/AegisRAG-hcx-ab/step2_privacy_rag/local_eval/e2e_pilot_17.jsonl \
+      --gold ~/AegisRAG/step2_privacy_rag/local_eval/holdout_retrieval_queries_gold.jsonl \
+      --qids Q027 --trials 1 --condition-set single_additions
+
+Live execution is optional and **requires explicit approval of masked source material** as well as the provider cost budget. Use `--live` plus a new unique private `--out` path and `AEGISRAG_V6_EXTERNAL_TRANSFER_APPROVED=YES`; there can be six API requests for Q027. On HTTP 429 it stops after the first failure. Do not overwrite earlier reports.
+
+The primary metric is Gold doc citation vs non-Gold citation **for identical question/system settings**. A change in citation choice is evidence of sensitivity, but does not prove what causal mechanism changed (document order, length or interaction can also matter). Inspect the locally stored answer text and claims before declaring semantic correctness.
 ## Interpretation
 
 - Gold-only correct, Gold+Confusable incorrect: likely confusable interference, but added length and positions might also matter.
