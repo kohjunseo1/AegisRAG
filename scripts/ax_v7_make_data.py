@@ -88,6 +88,12 @@ DEV_NAME_TEMPLATES = (
     "이전 신청서의 신청인 이름은 [{PII}]로 기재되어 있습니다.",
     "상담 명단 / 대상자 성명: {PII}\n상태: 검토 중",
     "주문 관련 개인 수령인: ({PII}) / 처리 완료",
+    "개인 정보 확인표 / 예금주 성명: [{PII}]",
+    "계약 정보 / 실제 계약자 이름: ({PII}) / 수정 여부: 없음",
+    "인적사항 등록 / 본인 성명: {PII}\n대기 중",
+    "수급 대상자 이름: [{PII}] / 서류 접수 내역",
+    "예약 문서의 방문자 성명: {PII}; 참석 확인 대기",
+    "민원 접수서에는 민원인 이름: ({PII}) / 문의 사항 기재",
 )
 # The first name occurrence is unambiguous due to its explicit named field;
 # the second occurrence tests morphological boundaries while referencing the
