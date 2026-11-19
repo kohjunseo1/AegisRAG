@@ -23,8 +23,8 @@ from dataset_preparation import fixed_key
 ENV=Path('/Users/gojunseo/AegisRAG/.env')
 ARTIFACT=DATA/'koe5_v6_private/sanitized_eval.json'
 
-def pure_reference(filename,function):
-    tree=ast.parse((REFERENCE/'starter'/filename).read_text());ns={}
+def pure_reference(filename,function, *, reference=None):
+    tree=ast.parse(((REFERENCE if reference is None else Path(reference))/'starter'/filename).read_text());ns={}
     nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name==function]
     assert len(nodes)==1
     exec(compile(ast.Module(body=nodes,type_ignores=[]),filename,'exec'),ns)

@@ -1,0 +1,15 @@
+source,label,additional_exact_tp,additional_fp,boundary_alternatives,oracle_recoverable_boundary_tp,scope
+veil,account_number,0,6,0,0,oracle_diagnostic_not_runtime_selection
+veil,address,3,2,4,3,oracle_diagnostic_not_runtime_selection
+veil,card_number,0,0,0,0,oracle_diagnostic_not_runtime_selection
+veil,email,0,0,0,0,oracle_diagnostic_not_runtime_selection
+veil,person,0,34,7,0,oracle_diagnostic_not_runtime_selection
+veil,phone_number,0,0,0,0,oracle_diagnostic_not_runtime_selection
+veil,resident_registration_number,0,0,0,0,oracle_diagnostic_not_runtime_selection
+koelectra,account_number,0,0,0,0,oracle_diagnostic_not_runtime_selection
+koelectra,address,3,6,4,3,oracle_diagnostic_not_runtime_selection
+koelectra,card_number,0,1,0,0,oracle_diagnostic_not_runtime_selection
+koelectra,email,0,0,0,0,oracle_diagnostic_not_runtime_selection
+koelectra,person,0,44,2,0,oracle_diagnostic_not_runtime_selection
+koelectra,phone_number,0,4,0,0,oracle_diagnostic_not_runtime_selection
+koelectra,resident_registration_number,0,0,0,0,oracle_diagnostic_not_runtime_selection

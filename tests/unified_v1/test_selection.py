@@ -86,7 +86,8 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual((c['hit1'],c['online_hit1'],c['hit5'],c['mrr10'],c['confusable5']),(1,0,1,1,1))
 
     def test_reference_chunk_merge_deduplicates_and_never_splits_token(self):
-        split=pure_reference('ingest.py','chunk');merge=pure_reference('search.py','_merge')
+        fixture=Path(__file__).parent/'fixtures/reference'
+        split=pure_reference('ingest.py','chunk',reference=fixture);merge=pure_reference('search.py','_merge',reference=fixture)
         token='<PERSON_'+'a'*24+'>'
         self.assertEqual(split(token+'\n'+token,40),[token,token])
         self.assertEqual([r['doc_id'] for r in merge([[dict(doc_id='a'),dict(doc_id='a')],[dict(doc_id='b')]],2)],['a','b'])
