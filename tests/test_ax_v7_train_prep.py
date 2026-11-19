@@ -151,22 +151,42 @@ class V7DataContracts(unittest.TestCase):
         name_by_split=[]
         for rows in (train,dev):
             names=set()
+            families={}
             self.assertTrue(all(x.get("quality_tier") == "high_confidence" for x in rows))
+            self.assertEqual(len({r["text"] for r in rows}), len(rows))
             for row in rows:
+                family=row["case_family"]
+                families[family]=families.get(family,0)+1
+                self.assertTrue(row["label_policy"].startswith("v7_explicit_person"))
                 for ent in row["entities"]:
                     value=row["text"][ent["start"]:ent["end"]]
                     if ent["label"] == "person":
                         compact=value.replace(" ","")
-                        self.assertGreaterEqual(len(compact),3)
-                        self.assertLessEqual(len(compact),4)
+                        self.assertGreaterEqual(len(compact), 1)
+                        self.assertLessEqual(len(compact), 4)
                         self.assertTrue(re.fullmatch(r"[가-힣 ]+",value))
                         self.assertTrue(any(t in row["text"] for t in
                             ("성명", "이름", "신청인", "수령인")))
+                        if family=="single_name_explicit":
+                            self.assertEqual(len(compact),1)
+                        elif family in ("short_full_name","given_only_explicit"):
+                            self.assertEqual(len(compact),2)
                         names.add(compact)
                     elif ent["label"] == "address":
                         self.assertTrue(any(district in value for _,district in maker.REGION_DISTRICTS))
                         self.assertRegex(value,r"\d")
                         self.assertNotRegex(value,r"\(\d{5}\)")
+                if family=="repeated_name_particle":
+                    self.assertEqual(len(row["entities"]),2)
+                    e1,e2=row["entities"]
+                    self.assertEqual(row["text"][e1["start"]:e1["end"]],
+                                     row["text"][e2["start"]:e2["end"]])
+                if family=="negative_common_noun":
+                    self.assertEqual(row["entities"],[])
+            for required in ("single_name_explicit","short_full_name","given_only_explicit",
+                             "repeated_name_particle","address_road","address_lot",
+                             "address_detail","negative_common_noun"):
+                self.assertIn(required, families)
             name_by_split.append(names)
         self.assertFalse(name_by_split[0] & name_by_split[1])
 
@@ -180,6 +200,19 @@ class V7DataContracts(unittest.TestCase):
             self.assertEqual(row["text"][region["start"]:region["end"]],region["text"])
             self.assertTrue(any(prefix in row["text"] for prefix in
                 ("항목", "열 제목", "부서", "상품", "제품", "문서", "메뉴")))
+
+
+    def test_contextual_contrast_same_surface_not_same_label(self):
+        # A word can be a name in a filled name field and a common noun
+        # in a natural sentence. Those are compatible, contextual labels.
+        rows=maker.generate(111, 800, "train")
+        negatives=[r for r in rows if r["case_family"]=="negative_common_noun"]
+        self.assertTrue(any("하늘이 맑습니다" in r["text"] for r in negatives))
+        for row in negatives:
+            for region in row["verified_o_spans"]:
+                self.assertTrue(row["text"][region["start"]:region["end"]]
+                                in {"하늘","별","꽃"})
+                self.assertEqual(row["entities"],[])
 
 
 if __name__=="__main__":
