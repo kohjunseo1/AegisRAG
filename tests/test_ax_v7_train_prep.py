@@ -144,5 +144,43 @@ class V7DataContracts(unittest.TestCase):
                                 names, o_id, 384)
 
 
+    def test_high_confidence_only_generator_policy(self):
+        import re
+        train=maker.generate(1234, 800, "train")
+        dev=maker.generate(21171, 150, "dev")
+        name_by_split=[]
+        for rows in (train,dev):
+            names=set()
+            self.assertTrue(all(x.get("quality_tier") == "high_confidence" for x in rows))
+            for row in rows:
+                for ent in row["entities"]:
+                    value=row["text"][ent["start"]:ent["end"]]
+                    if ent["label"] == "person":
+                        compact=value.replace(" ","")
+                        self.assertGreaterEqual(len(compact),3)
+                        self.assertLessEqual(len(compact),4)
+                        self.assertTrue(re.fullmatch(r"[가-힣 ]+",value))
+                        self.assertTrue(any(t in row["text"] for t in
+                            ("성명", "이름", "신청인", "수령인")))
+                        names.add(compact)
+                    elif ent["label"] == "address":
+                        self.assertTrue(any(district in value for _,district in maker.REGION_DISTRICTS))
+                        self.assertRegex(value,r"\d")
+                        self.assertNotRegex(value,r"\(\d{5}\)")
+            name_by_split.append(names)
+        self.assertFalse(name_by_split[0] & name_by_split[1])
+
+    def test_high_confidence_negative_regions_have_explicit_context(self):
+        rows=maker.generate(42, 100, "train")
+        negatives=[r for r in rows if r.get("verified_o_spans")]
+        self.assertTrue(negatives)
+        for row in negatives:
+            self.assertEqual(row["entities"],[])
+            region=row["verified_o_spans"][0]
+            self.assertEqual(row["text"][region["start"]:region["end"]],region["text"])
+            self.assertTrue(any(prefix in row["text"] for prefix in
+                ("항목", "열 제목", "부서", "상품", "제품", "문서", "메뉴")))
+
+
 if __name__=="__main__":
     unittest.main()
