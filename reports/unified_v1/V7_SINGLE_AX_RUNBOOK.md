@@ -30,6 +30,22 @@ The aggregate shape taxonomy alone is insufficient to decide whether a one/two-c
 
 This file contains original PII snippets and is not suitable for GitHub, HF, ChatGPT or external LLMs. It is permission 0600, stored under gitignored local_eval. Audit labels and then write **new independent synthetic template families**; do not train on the error-window examples themselves.
 
+## 2-2. Curated training target (updated after taxonomy review)
+
+The generated new-positive data are **unambiguous by context**:
+- `full_name`: full 3–4-character surnamed name in an explicit name field.
+- `short_full_name`: 2-character *full* name (surname + one-character given) in a name field.
+- `given_only_explicit`: 2-character given name **explicitly written as a person's name**, not inferred from a bare occurrence.
+- `single_name_explicit`: one-character **explicit name field**, not an isolated surname/ordinary noun.
+- `repeated_name_particle`: two occurrences of the same confirmed full name, both labeled PERSON, suffix particles excluded from Gold.
+- `address_road`, `address_lot`, `address_detail`: complete personal delivery or residence address with well-defined numeric location.
+
+Negatives have an explicitly verified non-PII substring, including business headings/product/organization names and an **unambiguous natural non-person context** such as a weather sentence containing the noun `하늘`. These are prevention/contrast examples, **not** proof that V6 has made that exact false positive.
+
+**Still excluded:** bare surname + title (e.g. `박 부장님` is a protected ROLE_REFERENCE, not an automatically identity-linked PERSON label), out-of-context one-character words, ambiguous names without field/document identity support, city-only location references, ZIP inside ADDRESS span until that exact Gold policy is fixed, and the original disputed hard403 sentences.
+
+This generator is a **bounded synthetic pilot** with hashed train/dev PERSON value partitions, disjoint train/dev templates and a per-case report, not a full scale unseen external validation set. It is intentionally *not* augmented with literal 43 sampled errors. Later model decisions require novel templates, verified labels and true independent holdout.
+
 ## 3. Build bootstrap data and prepare old Dev replay
 
 Run from repository root:
