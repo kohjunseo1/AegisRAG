@@ -29,7 +29,11 @@ GIVEN_NAMES = (
     "윤서", "태윤", "서우", "승민", "가윤", "민준", "소윤", "지안",
     "하늘", "보라", "한결", "가람", "나래",
 )
-ONE_SYLLABLE_GIVEN = ("솔", "린", "봄", "별", "온", "율", "담", "결", "빛", "찬", "민", "현", "수")
+ONE_SYLLABLE_GIVEN = (
+    "솔", "린", "봄", "별", "온", "율", "담", "결", "빛", "찬",
+    "민", "현", "수", "서", "주", "리", "윤", "진", "예", "희",
+    "영", "아", "해", "미", "빈",
+)
 SURNAMES = ("김", "박", "이", "최", "정", "조", "강", "윤", "임", "한", "신", "오", "권")
 COMPOUND_SURNAMES = ("남궁", "황보")
 REGION_DISTRICTS = (
@@ -88,15 +92,6 @@ DEV_NAME_TEMPLATES = (
 # The first name occurrence is unambiguous due to its explicit named field;
 # the second occurrence tests morphological boundaries while referencing the
 # same confirmed individual. Both spans are annotated PERSON, particles are NOT.
-TRAIN_REPEATED_TEMPLATES = (
-    "고객 성명: {PII}\n동일 고객 {PII}이 서류를 제출했습니다.",
-    "신청인 이름: {PII}\n기록상 {PII}에게 안내했습니다.",
-    "계약자 성명: {PII}\n이후 {PII}은 정보를 수정했습니다.",
-)
-DEV_REPEATED_TEMPLATES = (
-    "수령인 이름: {PII}\n이전 안내에서 {PII}의 서명을 확인했습니다.",
-    "본인 성명: {PII}\n확인 과정에서 {PII}을 다시 호출했습니다.",
-)
 # The grammatical attachment is annotated *outside* PERSON. For names ending
 # without final consonant, some forms are awkward, so use neutral endings:
 # "에게", "의" are safe after almost any Korean full name.
