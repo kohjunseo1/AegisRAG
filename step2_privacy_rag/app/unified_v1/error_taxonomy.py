@@ -183,9 +183,11 @@ def main():
     for mode in summary:
         for label in LABELS:
             c = summary[mode][label]
-            print(f"{mode:17} {label:8} "
+            gold_total = sum(c[k] for k in (
+                "exact", "boundary_only", "wrong_label_overlap", "no_overlap"))
+            print(f"{mode:17} {label:8} {gold_total} "
                   + " ".join(str(c[k]) for k in (
-                      "exact", "exact", "boundary_only", "wrong_label_overlap",
+                      "exact", "boundary_only", "wrong_label_overlap",
                       "no_overlap", "mask_covered", "mask_partial",
                       "mask_uncovered")))
         print("FP_ERROR_TYPES", mode,
