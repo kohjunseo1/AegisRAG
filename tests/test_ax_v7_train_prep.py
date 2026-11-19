@@ -1,9 +1,9 @@
-"""CPU-only unit checks for V7 data preparation (no HF, torch, model or uploads)."""
+"""CPU-only unittest checks for V7 preparation without HF, torch or credentials."""
 import json
 import sys
+import tempfile
+import unittest
 from pathlib import Path
-
-import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -11,67 +11,79 @@ import ax_v7_make_data as maker
 import ax_v7_train as tr
 
 
-def test_bootstrap_offsets_and_disjoint_templates(tmp_path):
-    train=maker.generate(123,100,"train")
-    dev=maker.generate(124,30,"dev")
-    a=tmp_path/"train.jsonl"
-    b=tmp_path/"dev.jsonl"
-    for path,rows in ((a,train),(b,dev)):
-        path.write_text("".join(json.dumps(x,ensure_ascii=False)+"\n" for x in rows),encoding="utf8")
-    da=tr.load_rows(a,role="train")
-    db=tr.load_rows(b,role="dev")
-    tr.check_splits({"train":da,"dev":db})
-    for row in train+dev:
-        for ent in row["entities"]:
-            assert 0<=ent["start"]<ent["end"]<=len(row["text"])
-            assert ent["annotation_scope"] if "annotation_scope" in ent else row["annotation_scope"]=="seven_only"
+class V7DataContracts(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.folder = Path(self.tmp.name)
+
+    def dump(self, name, rows):
+        path = self.folder / name
+        path.write_text(
+            "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_bootstrap_offsets_and_disjoint_templates(self):
+        train = maker.generate(123, 100, "train")
+        dev = maker.generate(124, 30, "dev")
+        da = tr.load_rows(self.dump("train.jsonl", train), role="train")
+        db = tr.load_rows(self.dump("dev.jsonl", dev), role="dev")
+        tr.check_splits({"train": da, "dev": db})
+        for row in train + dev:
+            self.assertEqual(row["annotation_scope"], "seven_only")
+            for ent in row["entities"]:
+                self.assertTrue(0 <= ent["start"] < ent["end"] <= len(row["text"]))
+
+    def test_gold_overlap_rejected(self):
+        row = {"id":"1","text":"가나다라마바사","annotation_scope":"seven_only",
+               "entities":[{"label":"person","start":1,"end":4},
+                           {"label":"address","start":3,"end":6}]}
+        with self.assertRaisesRegex(ValueError, "overlapping"):
+            tr.load_rows(self.dump("train.jsonl", [row]), role="train")
+
+    def test_test_data_rejected_as_training(self):
+        row={"id":"t","text":"가나다","entities":[],"annotation_scope":"seven_only"}
+        with self.assertRaisesRegex(ValueError, "withheld"):
+            tr.load_rows(self.dump("official_test.jsonl", [row]), role="train")
+
+    def test_previous_val_rejected_as_fresh_dev(self):
+        row={"id":"v","text":"가나다","entities":[],"annotation_scope":"seven_only"}
+        with self.assertRaisesRegex(ValueError, "DEV_LEAKAGE"):
+            tr.load_rows(self.dump("generated_val.jsonl", [row]), role="dev")
+
+    def test_37_label_alignment_for_partial_data(self):
+        types = ["PERSON","PHONE","EMAIL","ADDRESS","RRN","ACCOUNT","CARD"]
+        types.extend(f"OTHER_{i}" for i in range(11))
+        labs = ["O"] + [f"{part}-{typ}" for typ in types for part in ("B","I")]
+        folder = self.folder / "best_model"
+        folder.mkdir()
+        (folder/"config.json").write_text(
+            json.dumps({"id2label":{str(i): lab for i,lab in enumerate(labs)}}),
+            encoding="utf-8",
+        )
+        idx,labels,names,o_id = tr.read_labels(folder)
+        self.assertEqual(len(idx),37)
+        self.assertEqual(len(names),7)
+        self.assertEqual(o_id,0)
+
+        class StubTokenizer:
+            def __call__(self,text,**kwargs):
+                if text!="가나다":
+                    raise ValueError("unknown test text")
+                return {"input_ids":[10,11,12,13,14],
+                        "attention_mask":[1]*5,
+                        "offset_mapping":[(0,0),(0,1),(1,2),(2,3),(0,0)]}
+
+        row={"id":"x","text":"가나다","annotation_scope":"seven_only",
+             "entities":[{"label":"person","start":0,"end":2}]}
+        aligned=tr.create_alignment([row],StubTokenizer(),idx,labels,names,o_id,32)
+        self.assertEqual(
+            aligned[0]["labels"],
+            [-100,names["person"][0],names["person"][1],-100,-100],
+        )
 
 
-def test_golds_cannot_overlap(tmp_path):
-    p=tmp_path/"train.jsonl"
-    row={"id":"1","text":"가나다라마바사","annotation_scope":"seven_only",
-         "entities":[{"label":"person","start":1,"end":4},
-                     {"label":"address","start":3,"end":6}]}
-    p.write_text(json.dumps(row,ensure_ascii=False)+"\n",encoding="utf8")
-    with pytest.raises(ValueError,match="overlapping"):
-        tr.load_rows(p,role="train")
-
-
-def test_test_data_blocked_from_training(tmp_path):
-    p=tmp_path/"official_test.jsonl"
-    p.write_text(json.dumps({"id":"t","text":"가나다","entities":[],
-                             "annotation_scope":"seven_only"},ensure_ascii=False)+"\n")
-    with pytest.raises(ValueError,match="withheld"):
-        tr.load_rows(p,role="train")
-
-
-def test_previous_model_selection_dev_blocked(tmp_path):
-    p=tmp_path/"generated_val.jsonl"
-    p.write_text(json.dumps({"id":"v","text":"가나다","entities":[],
-                             "annotation_scope":"seven_only"},ensure_ascii=False)+"\n")
-    with pytest.raises(ValueError,match="DEV_LEAKAGE"):
-        tr.load_rows(p,role="dev")
-
-
-def test_label_head_37_preserved(tmp_path):
-    # One O + B/I for 18 entity types, seven target classes mapping one-to-one.
-    types=["PERSON","PHONE","EMAIL","ADDRESS","RRN","ACCOUNT","CARD"]
-    types.extend(f"OTHER_{i}" for i in range(11))
-    labs=["O"]+[f"{part}-{lab}" for lab in types for part in ("B","I")]
-    folder=tmp_path/"best_model"
-    folder.mkdir()
-    (folder/"config.json").write_text(json.dumps(
-        {"id2label":{str(i):l for i,l in enumerate(labs)}},ensure_ascii=False))
-    idx,labels,names,o=tr.read_labels(folder)
-    assert len(idx)==37 and len(names)==7 and o==0
-    class Stub:
-        def __call__(self,text,**kw):
-            # three 1-char tokens plus CLS/SEP with offset=(0,0)
-            assert text=="가나다"
-            return {"input_ids":[10,11,12,13,14],
-                    "attention_mask":[1]*5,
-                    "offset_mapping":[(0,0),(0,1),(1,2),(2,3),(0,0)]}
-    row={"id":"x","text":"가나다","annotation_scope":"seven_only",
-         "entities":[{"label":"person","start":0,"end":2}]}
-    x=tr.create_alignment([row],Stub(),idx,labels,names,o,32)[0]
-    assert x["labels"]==[-100,names["person"][0],names["person"][1],-100,-100]
+if __name__=="__main__":
+    unittest.main()
