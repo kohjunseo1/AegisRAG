@@ -62,7 +62,10 @@ class SnapshotGateAdapter:
         with SnapshotDetector(text,evidence) as detector:
             result=detector.detect(text)
             gate=check_privacy_gate(detector,text)
-            if gate.get('decision')!='READY_FOR_LOCAL_PSEUDONYMIZATION':return gate
+            if gate.get('decision')!='READY_FOR_LOCAL_PSEUDONYMIZATION':
+                gate=dict(gate)
+                gate['proposed_protection']=list(gate.get('proposed_protection',[]))+list(result.get('mask_intervals',[]))
+                return gate
             # Reuse V6 name-policy protection too, without re-inference or ID heuristics.
             from name_protection_policy import decide
             from name_boundary_policy import propose
@@ -73,7 +76,7 @@ class SnapshotGateAdapter:
                 gate,counts=_protection_plan(text,result,gate,decision,propose(text,result))
                 if counts.get('malformed_typed_count'):gate['decision']='REVIEW_REQUIRED'
             except Exception:
-                return dict(decision='BLOCKED',reason='v6_policy_failed')
+                return dict(decision='BLOCKED',reason='v6_policy_failed',proposed_protection=list(result.get('mask_intervals',[]))+list(gate.get('mask_intervals',[])))
             return gate
 
     def plan(self,text,evidence):

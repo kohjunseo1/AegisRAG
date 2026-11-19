@@ -21,10 +21,16 @@ class KoE5Encoder:
         self.model,self.cfg,self._lock=model,dict(cfg),threading.Lock()
 
     def encode_query(self,prepared):
+        return self._encode_prepared(prepared,'query')
+
+    def encode_passage(self,prepared):
+        return self._encode_prepared(prepared,'document')
+
+    def _encode_prepared(self,prepared,kind):
         # Before local embedding, require explicit prepared/approved-only input.
-        prepared.require_approved(key_tag=prepared.key_tag,policy_version=prepared.policy_version,input_kind='query')
+        prepared.require_approved(key_tag=prepared.key_tag,policy_version=prepared.policy_version,input_kind=kind)
         with self._lock:
-            rows=self.model.encode([self.cfg['query_prefix']+prepared.sanitized_text],normalize_embeddings=True,
+            rows=self.model.encode([self.cfg['query_prefix' if kind=='query' else 'passage_prefix']+prepared.sanitized_text],normalize_embeddings=True,
                                    convert_to_numpy=True,show_progress_bar=False,batch_size=1)
         if len(rows)!=1 or len(rows[0])!=1024:raise ContractError('INVALID_EMBEDDING')
         values=tuple(float(v) for v in rows[0])

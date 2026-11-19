@@ -6,7 +6,7 @@ from privacy_gate import check_privacy_gate
 from dataset_preparation import key_tag as frozen_key_tag
 from local_pseudonymizer import pseudonymize_local
 from .contracts import (Candidate, ContractError, DetectionEvidence, PreparationResult,
-                        ProtectionPlan, fingerprint, PROFILES)
+                        ProtectionPlan, fingerprint, PROFILES, EXTRA_LABELS)
 
 POLICY = 'evidence_v1'
 READY = 'READY_FOR_LOCAL_PSEUDONYMIZATION'
@@ -108,6 +108,10 @@ def fuse(text: str, evidence: DetectionEvidence, baseline_gate: dict, *, policy=
     for c in all_candidates:
         c.validate(text)
         masks.append((c.start,c.end))
+        if c.label in EXTRA_LABELS:
+            reasons.append('EXTRA_SENSITIVE_REQUIRES_REVIEW')
+            unresolved.append(c)
+            continue
         exact = any(c.label == e.label and c.start == e.start and c.end == e.end for e in hmac_entities)
         compatible_coverage = any(c.label == e.label and e.start <= c.start < c.end <= e.end for e in hmac_entities)
         conflicting = any(overlap(c,e) and c.label != e.label for e in hmac_entities)

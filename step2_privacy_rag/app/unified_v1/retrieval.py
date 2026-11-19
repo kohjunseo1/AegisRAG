@@ -141,7 +141,8 @@ def rank_documents(query, docs, scores, *, profile,top_k,index_version,key_tag,p
     for doc in docs:
         tokens=set(TOKEN.findall(doc.preparation.sanitized_text))
         count=len(qtokens & tokens)
-        region=bool(set(query.regions)&set(doc.regions))
+        region_count=len(set(query.regions)&set(doc.regions))
+        region=bool(region_count)
         allhit=bool(qtokens) and qtokens<=tokens
         identity=('exact' if set(query.entity_ids)&set(doc.entity_ids) else
                   'conflict' if query.entity_ids and doc.entity_ids else
@@ -150,6 +151,7 @@ def rank_documents(query, docs, scores, *, profile,top_k,index_version,key_tag,p
         if identity=='conflict':continue
         lookup=bool(set(query.name_lookup_keys)&set(doc.name_lookup_keys))
         if not (count or region or doc.doc_id in dense_pool or identity=='exact' or lookup):continue
+        if lookup and identity=='none':identity='weak'
         reasons=[]
         if lookup:reasons.append('NAME_LOOKUP_CANDIDATE_ONLY')
         if allhit:reasons.append('TOKEN_ALL')
@@ -161,12 +163,12 @@ def rank_documents(query, docs, scores, *, profile,top_k,index_version,key_tag,p
         if profile=='own_v6':
             # V6 semantic baseline: dense candidate pool, token->region->dense sort.
             if doc.doc_id not in dense_pool:continue
-            order=(-count,-int(region),-score,doc.doc_id)
+            order=(-count,-region_count,-score,doc.doc_id)
         elif profile=='team_v3':
-            group=0 if allhit and region else 1 if allhit else 2 if count else 3 if region else 4
+            group=0 if allhit and query.regions and set(query.regions)<=set(doc.regions) else 1 if allhit else 2 if count or lookup else 3 if region else 4
             order=(group,-score,doc.doc_id)
         else:
-            order=(-int(identity=='exact'),-count,-int(region),-score,doc.doc_id)
+            order=(-int(identity=='exact'),-int(lookup),-count,-int(region),-score,doc.doc_id)
         row=RetrievedEvidence(doc.doc_id,doc.preparation.sanitized_text,identity,count,region,
                               dense_rank.get(doc.doc_id,0),tuple(reasons),index_version,
                               key_tag,policy_version,doc.preparation.approval_state,entity_ids=doc.entity_ids)

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 from .adapters import PersistentPredictor
-from .contracts import config_hash, PROFILES, DetectionEvidence
+from .contracts import config_hash, PROFILES, DetectionEvidence, ContractError
 from .runtime import KLUE_HASHES, build_engine, benchmark_predictor, profile_status
 from .replay import SnapshotGateAdapter
 
@@ -82,6 +82,7 @@ def run_db_smoke(env_file):
     old.db=reader._db;old.table=table_identifier('rag.aegis_live_docs');old.tag=reader.key_tag
     old.index_mode='live';old.expected_rows=187;old.timings={}
     legacy=[r['doc_id'] for r in old.retrieve(PreparedQuery(query.sanitized_text,set(),set()))]
+    if rankings['own_v6']!=legacy:raise ContractError('LEGACY_TOP5_PARITY_FAILED')
     after=reader.metadata()
     if before['row_fingerprint']!=after['row_fingerprint']:raise RuntimeError('DB_CHANGED')
     return dict(status='DB_READ_ONLY_SEARCH_PASS',rows=before['rows'],key_matches=True,

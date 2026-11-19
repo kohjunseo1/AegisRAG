@@ -12,6 +12,12 @@ KLUE_HASHES={
  'tokenizer.json':'200c2fd5a65daf3b67aa532740d3a26736deceaa8b28e82826038aede9377cf0',
  'tokenizer_config.json':'fd172592aef04c3c1c5be31fa2072c27ae81bdc4192b4e919ea0db6b43407913'}
 
+KOELECTRA_HASHES={
+ 'config.json':'6eb2b024f6144b5df04be1304997765aa8518420998ab1f3151a50f570ba0f91',
+ 'model.safetensors':'fd2a89454ef29acac263ce3ea3629ee6b5eb513216d46f599462e5b179922abc',
+ 'tokenizer.json':'6234fb96e9031ec5e6a83b27ba1ade973e823d5e34a62a49c8d00a20f49e09eb',
+ 'tokenizer_config.json':'8a4a9ae2d88ba2638f862c7df7564b38ac4b2849f24c850752a72b9a1e3908b8'}
+
 def load_own_predictors(cache_dir=None):
     from .replay import FrozenWindowPredictor
     from pii_detector.backends import load_backends
@@ -46,7 +52,7 @@ class ReusableDetectionEngine(DetectionEngine):
             finally:
                 if self.own_session:self.own_session.end()
 
-def build_engine(profile, *, own_worker=None, klue_worker=None):
+def build_engine(profile, *, own_worker=None, klue_worker=None,koelectra_worker=None):
     if profile not in PROFILES:raise ContractError('UNKNOWN_PROFILE')
     adapters={};session=None
     if own_worker is not None:
@@ -57,11 +63,13 @@ def build_engine(profile, *, own_worker=None, klue_worker=None):
                 adapters[source]=cls(manifest[source]['revision'],lambda t,s=source:session.predict(s,t))
     if klue_worker is not None and 'klue' in PROFILES[profile]:
         adapters['klue']=KlueAdapter(config_hash(KLUE_HASHES),klue_worker)
+    if koelectra_worker is not None and 'koelectra' in PROFILES[profile]:
+        adapters['koelectra']=KoElectraAdapter(config_hash(KOELECTRA_HASHES),koelectra_worker)
     return ReusableDetectionEngine(profile,adapters,own_session=session)
 
 def profile_status(profile, validated_sources):
     required=PROFILES[profile]
-    if 'koelectra' in required:return 'MISSING'
+    if 'koelectra' in required and validated_sources.get('koelectra') not in {'LOCAL_MODEL_PASS','MOCK_ONLY'}:return 'MISSING'
     return 'REAL_READY' if all(validated_sources.get(s)=='LOCAL_MODEL_PASS' for s in required) else 'BLOCKED'
 
 def benchmark_predictor(predictor,text, *, repeats=30):

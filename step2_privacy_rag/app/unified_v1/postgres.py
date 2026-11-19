@@ -1,6 +1,6 @@
 """Read-only legacy 187-row index reuse. No migration/re-ingest/DDL/DML API."""
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass,replace
 from pathlib import Path
 from types import SimpleNamespace
 import math
@@ -35,6 +35,7 @@ class ExistingIndexReader:
         self.key_tag=expected_key_tag or key_tag(fixed_key(env_file))
         self.expected_rows=expected_rows;self.policy_version=policy_version;self.corpus_id=corpus_id
         self.index_version='legacy_v6_readonly_koe5';self._fingerprint=None
+        self.sidecar_entries={}
         self.entity_ids_by_doc=dict(entity_ids_by_doc or {})
         if any(not DOCID.fullmatch(did) or any(not ENTITY.fullmatch(e) for e in ids)
                for did,ids in self.entity_ids_by_doc.items()):raise ContractError('INVALID_ENTITY_SIDECAR')
@@ -72,6 +73,21 @@ class ExistingIndexReader:
         with self._cursor() as cur:result=self._validate(cur)
         self._fingerprint=result['row_fingerprint']
         return result
+
+    def snapshot_documents(self):
+        with self._cursor() as cur:
+            meta=self._validate(cur)
+            cur.execute('SELECT doc_id,masked_text FROM rag.aegis_live_docs ORDER BY doc_id')
+            rows=[dict(doc_id=did,masked_text=text) for did,text in cur.fetchall()]
+        self._fingerprint=meta['row_fingerprint']
+        return rows
+
+    def attach_sidecar(self,sidecar,key):
+        from .sidecar import validate_sidecar
+        if self._fingerprint is None:self.metadata()
+        payload=validate_sidecar(sidecar,index_fingerprint=self._fingerprint,key=key,key_tag=self.key_tag)
+        self.sidecar_entries=payload['entries']
+        self.entity_ids_by_doc={d:tuple(r['entity_ids']) for d,r in self.sidecar_entries.items()}
 
     @property
     def ids(self):
@@ -121,7 +137,10 @@ class ExistingIndexReader:
                     or not math.isfinite(float(distance))):raise ContractError('INVALID_LEGACY_ROW')
             # Local read permission does not fabricate remote corpus approval.
             prep=SimpleNamespace(sanitized_text=text,approval_state='LEGACY_READ_ONLY')
-            docs.append(LegacyDocument(did,prep,tuple(reg),tuple(self.entity_ids_by_doc.get(did,()))))
+            side=self.sidecar_entries.get(did,{})
+            if side and side['masked_fingerprint']!=__import__('hashlib').sha256(text.encode()).hexdigest():raise ContractError('SIDECAR_CONTENT_MISMATCH')
+            docs.append(LegacyDocument(did,prep,tuple(reg),tuple(self.entity_ids_by_doc.get(did,())),tuple(side.get('name_lookup_keys',()))))
             scores[did]=-float(distance)
-        return rank_documents(query,docs,scores,profile=profile,top_k=top_k,index_version=self.index_version,
+        ranked=rank_documents(query,docs,scores,profile=profile,top_k=top_k,index_version=self.index_version,
                               key_tag=self.key_tag,policy_version=self.policy_version,dense_pool_limit=self.expected_rows)
+        return tuple(replace(row,index_protection_policy='legacy_v6',query_protection_policy=self.policy_version) for row in ranked)

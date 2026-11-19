@@ -38,7 +38,8 @@ def main():
                     else:
                         predictor=LocalHFPredictor(manifest['model_dir'],manifest['trusted_root'],manifest['hashes'],
                                                   ignore_labels=manifest.get('ignore_labels',()),
-                                                  max_length=manifest.get('max_length',512),stride=manifest.get('stride',64))
+                                                  max_length=manifest.get('max_length',512),stride=manifest.get('stride',64),
+                                                  label_policy='koelectra59' if manifest['source_id']=='koelectra' else 'core7')
                     cold_ms=(time.perf_counter()-started)*1000
                 started=time.perf_counter()
                 if isinstance(predictor,dict):
@@ -47,11 +48,17 @@ def main():
                     rows={source:predictor[source](request['text']) for source in requested}
                 else:rows=predictor(request['text'])
                 inference_ms=(time.perf_counter()-started)*1000
+                diagnostics={}
+                if request.get('diagnostic_legacy'):
+                    if not isinstance(predictor,dict):return 2
+                    from unified_v1.experiments import legacy_diagnostic
+                    diagnostics=legacy_diagnostic(predictor,request['text'],request.get('input_kind','document'))
             rss=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
             metrics=dict(cold_load_ms=cold_ms,inference_ms=inference_ms,
-                         peak_rss_mb=rss/(1024**2 if sys.platform=='darwin' else 1024))
+                         peak_rss_mb=rss/(1024**2 if sys.platform=='darwin' else 1024),
+                         ignored_label_token_counts=getattr(predictor,'ignored_label_counts',{}))
             response=dict(request_id=request['request_id'],fingerprint=request['fingerprint'],
-                          config_hash=request['config_hash'],candidates=rows,metrics=metrics)
+                          config_hash=request['config_hash'],candidates=rows,metrics=metrics,diagnostics=diagnostics)
             output=json.dumps(response).encode()+b'\n'
             if len(output)>MAX_BYTES:return 2
             sys.stdout.buffer.write(output);sys.stdout.buffer.flush()

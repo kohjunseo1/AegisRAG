@@ -9,7 +9,7 @@ import re
 import subprocess
 import threading
 import uuid
-from .contracts import Candidate, ContractError, DetectionEvidence, LABELS, PROFILES, fingerprint, config_hash
+from .contracts import Candidate, ContractError, DetectionEvidence, LABELS, PROFILES, fingerprint, config_hash, EXTRA_SENSITIVE_TYPES, EXTRA_LABELS
 
 ALIASES = {'NAME': 'person', 'PERSON': 'person', 'PHONE': 'phone_number',
            'EMAIL': 'email', 'ADDRESS': 'address', 'ZIPCODE': 'address',
@@ -91,7 +91,7 @@ class LocalHFPredictor:
     This new raw decoder intentionally excludes team post-filtering/merging.
     Real-model legacy parity remains a separate gate, never inferred from mocks.
     """
-    def __init__(self, path, trusted_root, hashes, *, ignore_labels=(), max_length=512, stride=64):
+    def __init__(self, path, trusted_root, hashes, *, ignore_labels=(), max_length=512, stride=64, label_policy='core7'):
         path = validate_assets(path, trusted_root, hashes)
         if not 8 <= max_length <= 512 or not 0 <= stride < max_length - 2:
             raise ContractError('INVALID_WINDOW_CONFIG')
@@ -102,11 +102,15 @@ class LocalHFPredictor:
         if not self.tok.is_fast:
             raise ContractError('FAST_TOKENIZER_REQUIRED')
         self.ignore_labels, self.max_length, self.stride = tuple(ignore_labels), max_length, stride
+        if label_policy not in {'core7','koelectra59'}:raise ContractError('UNKNOWN_LABEL_POLICY')
+        self.label_policy=label_policy
+        self.ignored_label_counts={}
         cfg = self.model.config
         if any(label in ALIASES for label in self.ignore_labels):
             raise ContractError('CANNOT_IGNORE_IN_SCOPE_LABEL')
-        self.mapping = {int(k): map_label(v, self.ignore_labels) for k, v in cfg.id2label.items()}
-        if set(self.mapping.values()) - {None} != LABELS:
+        mapper=koelectra_label if label_policy=='koelectra59' else lambda tag:map_label(tag,self.ignore_labels)
+        self.mapping = {int(k):mapper(v) for k, v in cfg.id2label.items()}
+        if not LABELS<=set(self.mapping.values()) or (label_policy=='core7' and set(self.mapping.values())-{None}!=LABELS):
             raise ContractError('MISSING_REQUIRED_LABEL_MAPPING')
         if any(cfg.label2id.get(tag) != int(i) for i,tag in cfg.id2label.items()):
             raise ContractError('INCONSISTENT_LABEL2ID')
@@ -121,6 +125,7 @@ class LocalHFPredictor:
         enc = self.tok(text, return_offsets_mapping=True, return_overflowing_tokens=True,
                        truncation=True, max_length=self.max_length, stride=self.stride, padding=False)
         out = []
+        self.ignored_label_counts={}
         with torch.inference_mode():
             for wi, offsets in enumerate(enc['offset_mapping']):
                 batch = {k: torch.tensor([v[wi]]) for k, v in enc.items()
@@ -130,7 +135,12 @@ class LocalHFPredictor:
                 logits=output.logits if hasattr(output,'logits') else output[0]
                 ids = logits[0].argmax(-1).tolist()
                 tags = [self.model.config.id2label[i] for i in ids]
-                out.extend(decode_window(text, offsets, tags, self.ignore_labels, str(wi)))
+                if self.label_policy=='koelectra59':
+                    for tag in tags:
+                        kind=re.sub(r'^[BIESLU][-_]','',tag).upper()
+                        if kind in KOELECTRA_NON_SENSITIVE:self.ignored_label_counts[kind]=self.ignored_label_counts.get(kind,0)+1
+                    out.extend(decode_koelectra_window(text,offsets,tags,str(wi)))
+                else:out.extend(decode_window(text, offsets, tags, self.ignore_labels, str(wi)))
         return out
 
 def decode_window(text, offsets, tags, ignore=(), window_id='0'):
@@ -256,9 +266,14 @@ class PersistentPredictor(SubprocessPredictor):
         self._faulted=False
         self.last_metrics={}
 
-    def _stop(self):
+    def _stop(self,graceful=False):
         if self._process is not None:
-            if self._process.poll() is None:self._process.kill()
+            if self._process.poll() is None:
+                if graceful:
+                    self._process.stdin.close()
+                    try:self._process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:self._process.kill()
+                else:self._process.kill()
             self._process.wait()
             for stream in [self._process.stdin,self._process.stdout]:
                 if stream:stream.close()
@@ -267,17 +282,18 @@ class PersistentPredictor(SubprocessPredictor):
     def close(self):
         with self._request_lock:
             self._faulted=True
-            self._stop()
+            self._stop(graceful=True)
 
     def __enter__(self):return self
     def __exit__(self,*args):self.close()
 
-    def __call__(self,text, *, sources=None):
+    def __call__(self,text, *, sources=None,diagnostic_legacy=False,input_kind='document'):
         import selectors
         import time
         rid=uuid.uuid4().hex
         req=dict(request_id=rid,text=text,fingerprint=fingerprint(text),config_hash=self.configuration_hash)
         if sources is not None:req['sources']=list(sources)
+        if diagnostic_legacy:req.update(diagnostic_legacy=True,input_kind=input_kind)
         data=json.dumps(req).encode()+b'\n'
         if len(data)>self.max_bytes:raise ContractError('IPC_REQUEST_TOO_LARGE')
         if not self._request_lock.acquire(timeout=self.timeout):raise ContractError('MODEL_TIMEOUT')
@@ -317,9 +333,45 @@ class PersistentPredictor(SubprocessPredictor):
                 code=obj['error']
                 raise ContractError(code if code in {'MODEL_MISSING','MODEL_TIMEOUT','MODEL_ARTIFACT_MISMATCH'} else 'WORKER_MODEL_FAILED')
             self.last_metrics=dict(obj.get('metrics',{}))
+            self.last_diagnostics=dict(obj.get('diagnostics',{}))
             return obj['candidates']
         except Exception as error:
             self._faulted=True;self._stop()
             if isinstance(error,ContractError):raise
             raise ContractError('IPC_FAILED') from None
         finally:self._request_lock.release()
+
+
+# Out-of-scope organizational/temporal/quantity labels are diagnosed, not silently unknown.
+KOELECTRA_NON_SENSITIVE=frozenset({'DATE','TIME','QUANTITY','POSITION','DEPARTMENT','ORGANIZATION'})
+KOELECTRA_CORE={'NAME':'person','PHONE':'phone_number','EMAIL':'email','ADDRESS':'address','ZIPCODE':'address',
+                'RRN':'resident_registration_number','CARD_NUMBER':'card_number','ACCOUNT_NUMBER':'account_number'}
+
+def koelectra_label(tag):
+    if tag=='O':return None
+    kind=re.sub(r'^[BIESLU][-_]','',tag).upper()
+    if kind in KOELECTRA_CORE:return KOELECTRA_CORE[kind]
+    if kind in EXTRA_SENSITIVE_TYPES:return 'extra_sensitive:'+kind
+    if kind in KOELECTRA_NON_SENSITIVE:return None
+    raise ContractError('UNKNOWN_KOELECTRA_LABEL')
+
+def decode_koelectra_window(text,offsets,tags,window_id='0'):
+    """Match team raw BIO decoder, before merge_adjacent/to_ours/trim policy."""
+    if len(offsets)!=len(tags):raise ContractError('DECODE_LENGTH_MISMATCH')
+    out=[];cur=None
+    for (start,end),tag in zip(offsets,tags):
+        if start==end:continue
+        if not 0<=start<end<=len(text):raise ContractError('INVALID_OFFSET')
+        while start<end and text[start].isspace():start+=1
+        if start==end:continue
+        label=koelectra_label(tag)
+        if label is None:cur=None;continue
+        kind=re.sub(r'^[BIESLU][-_]','',tag).upper()
+        pre=tag[0] if re.match(r'^[BIESLU][-_]',tag) else 'I'
+        if cur and cur['_kind']==kind and pre not in {'B','S','U'}:cur['end']=end
+        else:
+            cur=dict(label=label,start=start,end=end,window_id=window_id,_kind=kind,
+                     evidence_codes=('ORIGINAL_LABEL_'+kind,)+(('EXTRA_SENSITIVE_CANDIDATE',) if label in EXTRA_LABELS else ()))
+            out.append(cur)
+        if pre in {'E','S','L','U'}:cur=None
+    return [{k:v for k,v in row.items() if k!='_kind'} for row in out]

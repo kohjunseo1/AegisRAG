@@ -25,6 +25,9 @@ class PrivacyRecheck:
         if allowed_tokens is not None and not tokens<=set(allowed_tokens):
             raise ContractError('UNAUTHORIZED_OUTPUT_TOKEN')
         blank=TOKEN.sub(lambda m:' '*len(m[0]),text)
+        # Frozen V6 replacement literals are public control syntax, not source PII.
+        blank=re.sub(r'\[(?:ROLE_REFERENCE|REDACTED_UNCLASSIFIED|REDACTED_EMAIL|REDACTED_PHONE|REDACTED_ID_NUMBER)\]',
+                     lambda m:' '*len(m[0]),blank)
         # Prevent short/unknown-label tokens from escaping independent checks.
         if re.search(r'<[A-Za-z_]+_',blank):
             raise ContractError('MALFORMED_OR_UNKNOWN_TOKEN')
@@ -59,8 +62,9 @@ class Context:
     has_region: bool
 
 class ContextBuilder:
-    def __init__(self,guard, *, key_tag,policy_version,index_version,corpus_id):
+    def __init__(self,guard, *, key_tag,policy_version,index_version,corpus_id,local_read_only=False):
         self.guard=guard
+        self.local_read_only=local_read_only
         self.key_tag,self.policy_version,self.index_version,self.corpus_id=key_tag,policy_version,index_version,corpus_id
 
     def build(self,query, evidence):
@@ -77,7 +81,7 @@ class ContextBuilder:
         for row in evidence:
             if (not isinstance(row,RetrievedEvidence) or not DOCID.fullmatch(row.doc_id)
                     or row.doc_id in seen or row.identity_match=='conflict'
-                    or row.approval_state not in {'HUMAN_APPROVED','AUTO_APPROVED'}
+                    or row.approval_state not in ({'HUMAN_APPROVED','AUTO_APPROVED','LEGACY_READ_ONLY'} if self.local_read_only else {'HUMAN_APPROVED','AUTO_APPROVED'})
                     or row.key_tag!=self.key_tag or row.policy_version!=self.policy_version
                     or row.index_version!=self.index_version):
                 raise ContractError('CONTEXT_UNAPPROVED_OR_VERSION_MISMATCH')
@@ -164,7 +168,7 @@ class LivePermit:
             budget=Decimal(str(self.total_budget));reserve=Decimal(str(self.reserved_cost_per_call))
         except (InvalidOperation,ValueError):raise ContractError('INVALID_LIVE_BUDGET') from None
         if (self.enabled is not True or self.dataset_role!='synthetic' or type(self.max_calls) is not int
-                or self.max_calls<1 or not budget.is_finite() or not reserve.is_finite()
+                or not 1<=self.max_calls<=2 or not budget.is_finite() or not reserve.is_finite()
                 or reserve<=0 or budget<reserve or not re.fullmatch(r'[0-9a-f]{64}',self.context_fingerprint)):
             raise ContractError('LIVE_OPT_IN_AND_SYNTHETIC_BUDGET_REQUIRED')
         return budget,reserve
@@ -225,6 +229,7 @@ class GuardedGenerator(MockGenerator):
     def generate(self,query,evidence):
         from dataclasses import replace
         if type(self.transport) is LiveTransport:
+            if self.builder.local_read_only:raise ContractError('LOCAL_READ_ONLY_CONTEXT_CANNOT_GO_LIVE')
             if not (self.builder.corpus_id=='synthetic' or self.builder.corpus_id.startswith('synthetic_')):
                 raise ContractError('PRIVATE_CORPUS_EXTERNAL_TRANSFER_FORBIDDEN')
             if any(row.index_version.startswith('legacy_') for row in evidence):

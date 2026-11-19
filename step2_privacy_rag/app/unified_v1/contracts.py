@@ -9,6 +9,8 @@ from types import MappingProxyType
 
 LABELS = frozenset({'person', 'phone_number', 'email', 'address',
                     'resident_registration_number', 'account_number', 'card_number'})
+EXTRA_SENSITIVE_TYPES=frozenset({'ALIEN_ID','ATTRIBUTE','BIRTHDATE','CARD_EXPIRY','CVC','DRIVER_LICENSE','GENERIC_ID','IPIN','IP_ADDRESS','PASSPORT','PLACE','SECRET','URL','USER_ID','VEHICLE_NUMBER'})
+EXTRA_LABELS=frozenset('extra_sensitive:'+s for s in EXTRA_SENSITIVE_TYPES)
 SOURCES = frozenset({'ax', 'veil', 'klue', 'koelectra', 'structural', 'contextual'})
 PROFILES = {'own2': ('ax', 'veil'), 'quality3': ('ax', 'veil', 'klue'),
             'ax_klue': ('ax', 'klue'), 'veil_klue': ('veil', 'klue'), 'team2': ('klue', 'koelectra'),
@@ -42,7 +44,7 @@ class Candidate:
     window_id: str | None = None
 
     def validate(self, text: str):
-        if self.source_id not in SOURCES or not self.source_revision or self.label not in LABELS:
+        if self.source_id not in SOURCES or not self.source_revision or self.label not in LABELS|EXTRA_LABELS:
             raise ContractError('INVALID_CANDIDATE_SOURCE_OR_LABEL')
         if (type(self.start) is not int or type(self.end) is not int
                 or not 0 <= self.start < self.end <= len(text)
@@ -107,6 +109,8 @@ class ProtectionPlan:
             return 'BLOCKED'
         if self.review_reason_codes:return 'REVIEW'
         if self.pending_mask_intervals:return 'LOCAL_MASK_ONLY_PENDING_APPROVAL'
+        if not self.mask_intervals:return 'NO_PII_CANDIDATES'
+        if not self.entities_for_hmac:return 'LOCAL_MASK_ONLY_PENDING_APPROVAL'
         return 'CONFIRMED_HMAC'
 
 @dataclass(frozen=True, repr=False)
@@ -154,6 +158,8 @@ class RetrievedEvidence:
     approval_state: str
     chunk_id: str | None = None
     entity_ids: tuple[str, ...] = ()
+    index_protection_policy: str = 'unspecified'
+    query_protection_policy: str = 'unspecified'
 
 @dataclass(frozen=True)
 class Config:
