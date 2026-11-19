@@ -85,5 +85,64 @@ class V7DataContracts(unittest.TestCase):
         )
 
 
+    def test_verified_o_token_supervision_not_whole_document(self):
+        train = maker.generate(234, 100, "train")
+        negatives = [x for x in train if x.get("verified_o_spans")]
+        self.assertTrue(negatives)
+        row = negatives[0]
+        r = row["verified_o_spans"][0]
+        self.assertEqual(row["text"][r["start"]:r["end"]], r["text"])
+        path = self.dump("train.jsonl", [row])
+        tr.load_rows(path, role="train")
+        # Unknown tokens outside the explicit O interval must stay -100.
+        types = ["PERSON","PHONE","EMAIL","ADDRESS","RRN","ACCOUNT","CARD"]
+        types.extend(f"OTHER_{i}" for i in range(11))
+        tagset = ["O"] + [f"{prefix}-{t}" for t in types for prefix in ("B","I")]
+        folder = self.folder / "negative_model"
+        folder.mkdir()
+        (folder/"config.json").write_text(json.dumps({
+            "id2label": {str(i): tag for i,tag in enumerate(tagset)}
+        }), encoding="utf-8")
+        idx, labels, names, o_id = tr.read_labels(folder)
+        class CharTokenizer:
+            def __call__(self, text, **kw):
+                return {
+                    "input_ids": list(range(1, len(text)+3)),
+                    "attention_mask": [1]*(len(text)+2),
+                    "offset_mapping": [(0,0)]+[(i,i+1) for i in range(len(text))]+[(0,0)],
+                }
+        labels_out = tr.create_alignment([row], CharTokenizer(),
+                                          idx, labels, names, o_id, 512)[0]["labels"]
+        for i in range(len(row["text"])):
+            self.assertEqual(labels_out[i+1], o_id if r["start"] <= i < r["end"] else -100)
+
+    def test_verified_o_cannot_overlap_gold(self):
+        row={"id":"x", "text":"고객 김민수에게", "annotation_scope":"seven_only",
+             "entities":[{"label":"person","start":3,"end":6}],
+             "verified_o_spans":[{"start":4,"end":5,"text":"민"}]}
+        with self.assertRaisesRegex(ValueError, "verified O overlaps"):
+            tr.load_rows(self.dump("train.jsonl", [row]),role="train")
+
+    def test_positive_token_straddling_boundary_is_rejected(self):
+        row={"id":"x", "text":"가나다", "annotation_scope":"seven_only",
+             "entities":[{"label":"person","start":0,"end":2}]}
+        types=["PERSON","PHONE","EMAIL","ADDRESS","RRN","ACCOUNT","CARD"]
+        types.extend(f"OTHER_{i}" for i in range(11))
+        ids=["O"]+[f"{tag}-{typ}" for typ in types for tag in ("B","I")]
+        folder = self.folder / "boundary_model"
+        folder.mkdir()
+        (folder/"config.json").write_text(json.dumps({
+            "id2label":{str(i):v for i,v in enumerate(ids)}
+        }),encoding="utf-8")
+        idx,labels,names,o_id = tr.read_labels(folder)
+        class CombinedTokenizer:
+            def __call__(self, text, **kw):
+                return {"input_ids":[0,1,2],"attention_mask":[1,1,1],
+                        "offset_mapping":[(0,0),(0,3),(0,0)]}
+        with self.assertRaisesRegex(ValueError, "ENTITY_TOKEN_BOUNDARY_MISMATCH"):
+            tr.create_alignment([row], CombinedTokenizer(), idx, labels,
+                                names, o_id, 384)
+
+
 if __name__=="__main__":
     unittest.main()
