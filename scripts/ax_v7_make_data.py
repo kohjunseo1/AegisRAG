@@ -212,7 +212,7 @@ def entry(doc_id, template, value, family):
         raise ValueError("INVALID_UNICODE_OFFSET")
     return {"id":doc_id,"text":text,"entities":ents,
             "annotation_scope":"seven_only","quality_tier":"high_confidence",
-            "case_family":family,"label_policy":"v7_explicit_person_or_full_address_v2"}
+            "case_family":family,"label_policy":"v7_explicit_person_or_full_address_v3"}
 
 
 # Four of every ten positives are full addresses; of the six PERSON cases,
@@ -283,7 +283,7 @@ def generate(seed, n, split):
                      "entities":[],"annotation_scope":"seven_only",
                      "quality_tier":"high_confidence",
                      "case_family":"negative_"+kind,
-                     "label_policy":"v7_explicit_person_or_full_address_v2",
+                     "label_policy":"v7_explicit_person_or_full_address_v3",
                      "verified_o_spans":[{"start":start,"end":start+len(term),"text":term}]})
     rng.shuffle(rows)
     return rows
