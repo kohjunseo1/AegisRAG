@@ -22,7 +22,7 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from ax_v7_train import ALIASES, read_labels
+from ax_v7_train import ALIASES, read_labels, load_fast_tokenizer
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"step2_privacy_rag"/"app"))
 
@@ -91,7 +91,7 @@ def predictor(checkpoint, device):
     import torch
     from transformers import AutoModelForTokenClassification,AutoTokenizer
     model=AutoModelForTokenClassification.from_pretrained(str(checkpoint),local_files_only=True)
-    tok=AutoTokenizer.from_pretrained(str(checkpoint),use_fast=True,local_files_only=True)
+    tok=load_fast_tokenizer(checkpoint)
     if model.config.num_labels!=37 or not tok.is_fast:
         raise ValueError("INVALID_V7_MODEL_OR_TOKENIZER")
     model.eval().to(device)
