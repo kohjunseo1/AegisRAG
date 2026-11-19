@@ -9,7 +9,7 @@ from local_pseudonymizer import canonicalize, make_hmac_token
 from dataset_preparation import key_tag as frozen_key_tag
 from .contracts import ContractError, PersonMention, ProtectionPlan, fingerprint
 
-IDENTITY_POLICY = 'anchor_conservative_v1'
+IDENTITY_POLICY = 'anchor_conservative_v2_token_lookup'
 
 @dataclass(frozen=True, repr=False)
 class OwnedAnchor:
@@ -65,7 +65,8 @@ def extract_owned_fields(text, plan: ProtectionPlan, *, doc_id, hmac_key, key_ta
                    'resident_registration_number':{'주민번호','주민등록번호'},'account_number':{'계좌','계좌번호'}}
     for number,name in enumerate(names):
         mid='m_'+_opaque_key(hmac_key,'mention',f'{doc_id}:{name.start}:{name.end}')
-        lookup='n_'+_opaque_key(hmac_key,'name_lookup',canonicalize('person',text[name.start:name.end]))
+        from .sidecar import legacy_lookup_key
+        lookup=legacy_lookup_key(hmac_key,pseudonym_token(hmac_key,'person',text[name.start:name.end]))
         owned=[]
         line_start=text.rfind('\n',0,name.start)+1
         line_end=text.find('\n',name.end)

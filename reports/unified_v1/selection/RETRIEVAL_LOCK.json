@@ -1,0 +1,8 @@
+{
+  "chunk_sizes": [
+    600,
+    200
+  ],
+  "threshold_tuning": false,
+  "reason": "reference default 600 does not split these documents; fixed 200 line-based ablation provides an actual split, without Gold-based chunking"
+}

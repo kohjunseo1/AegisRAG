@@ -1,0 +1,41 @@
+{
+  "corpus_worker_timing": {
+    "own2": {
+      "n": 187,
+      "p50_ms": 356.6069270018488,
+      "p95_ms": 511.0276280029211
+    },
+    "klue": {
+      "n": 187,
+      "p50_ms": 66.61149099818431,
+      "p95_ms": 109.21607501222752
+    },
+    "koelectra": {
+      "n": 187,
+      "p50_ms": 33.71511198929511,
+      "p95_ms": 53.343022998888046
+    }
+  },
+  "agreement": {
+    "ax_unique_tp_vs_other3": 0,
+    "ax_additional_tp_vs_own2": 0,
+    "ax_additional_fp_vs_own2": 0,
+    "veil_unique_tp_vs_other3": 0,
+    "veil_additional_tp_vs_own2": 0,
+    "veil_additional_fp_vs_own2": 0,
+    "klue_unique_tp_vs_other3": 0,
+    "klue_additional_tp_vs_own2": 0,
+    "klue_additional_fp_vs_own2": 158,
+    "koelectra_unique_tp_vs_other3": 0,
+    "koelectra_additional_tp_vs_own2": 0,
+    "koelectra_additional_fp_vs_own2": 51,
+    "ax+veil_exact_agreement": 907,
+    "ax+klue_exact_agreement": 810,
+    "ax+koelectra_exact_agreement": 912,
+    "veil+klue_exact_agreement": 794,
+    "veil+koelectra_exact_agreement": 905,
+    "klue+koelectra_exact_agreement": 807
+  },
+  "snapshot_cache_hits": 1,
+  "notes": "own2 worker measures AX+Veil jointly; union replay costs exclude model inference; first request includes load only in wall_ms"
+}

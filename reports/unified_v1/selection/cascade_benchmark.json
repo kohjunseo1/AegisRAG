@@ -1,0 +1,29 @@
+{
+  "mode": "REAL_MODELS_INTERLEAVED_CORPUS",
+  "documents": 187,
+  "counts": {
+    "triggered": 18,
+    "parity_mismatches": 0
+  },
+  "profiles": {
+    "F5": {
+      "n": 187,
+      "p50_ms": 392.0151140191592,
+      "p95_ms": 556.6917019896209,
+      "documents_per_second": 2.4992067608992707
+    },
+    "always_quality4": {
+      "n": 187,
+      "p50_ms": 495.4123850038741,
+      "p95_ms": 734.9924389855005,
+      "documents_per_second": 1.937330069390435
+    },
+    "F0": {
+      "n": 187,
+      "p50_ms": 378.9705320086796,
+      "p95_ms": 547.8110330004711,
+      "documents_per_second": 2.5673336642964344
+    }
+  },
+  "scope": "additional benchmark runs, not original P1 snapshots; cold excluded, all workers resident, order rotated per document"
+}

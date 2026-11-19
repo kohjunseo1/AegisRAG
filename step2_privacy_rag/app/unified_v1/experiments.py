@@ -345,7 +345,10 @@ def e2e_local(python,env_file, *, queries_path=None,limit=10,profile='quality4',
                 if prep.state!='LOCAL_PREPARED':
                     counters[prep.state]+=1;continue
                 approved,receipt=local_approve(prep,guard,reader.corpus_id)
-                query=QuerySpec(approved,receipt,tuple(keys_from_query(raw,key)))
+                from .identity import extract_owned_fields
+                from .pipeline import query_from_mentions
+                identity=extract_owned_fields(raw,plan,doc_id=qid,hmac_key=key,key_tag=reader.key_tag)
+                query=query_from_mentions(approved,receipt,identity.mentions,regions=tuple(keys_from_query(raw,key)))
                 rows=reader.retrieve(query,encoder=encoder,profile=retrieval_profile)
                 top5[case['qid']]=[r.doc_id for r in rows]
                 transport=MockTransport(dict(decision='ANSWER',answer='로컬 검색 문서를 확인했습니다.',citations=[rows[0].doc_id])) if rows else MockTransport(dict(decision='INSUFFICIENT_EVIDENCE',answer='근거 부족',citations=[]))
@@ -445,6 +448,9 @@ def e2e_compare(python,env_file,queries_path,artifact, *, limit=None):
     ids={q['qid'] for q in cases};gold=[g for g in data['gold_for_evaluation_only'] if g['qid'] in ids]
     if {g['qid'] for g in gold}!=ids:raise ContractError('GOLD_QID_MISMATCH')
     reader=ExistingIndexReader(env_file);before=reader.metadata();encoder=KoE5Encoder();key=fixed_key(Path(env_file))
+    from .sidecar import create_sidecar
+    side=create_sidecar(reader.snapshot_documents(),index_fingerprint=before['row_fingerprint'],key=key,key_tag=reader.key_tag)
+    reader.attach_sidecar(side,key)
     if data['hmac_key_tag']!=reader.key_tag:raise ContractError('LEGACY_ARTIFACT_KEY_MISMATCH')
     groups={p:{r:dict(counts=collections.Counter(),failures=collections.Counter(),ranked={},states={})
                   for r in ['own_v6','team_v3','hybrid_v1']} for p in ['own2','quality3','quality4']}

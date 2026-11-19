@@ -1,0 +1,28 @@
+{
+  "mode": "REAL_MODEL_REAL_KOE5_REAL_DB_MOCK_HCX",
+  "queries": 88,
+  "stages": {
+    "gate": 3,
+    "context_recheck": 71,
+    "complete": 10,
+    "local_query_recheck": 4
+  },
+  "document_reprocess": {
+    "LOCAL_PREPARED": 177,
+    "compared_to_existing": 177,
+    "same_masked_text": 177,
+    "REVIEW": 10
+  },
+  "paid_calls": 0,
+  "external_private_transfers": 0,
+  "row_fingerprint_unchanged": true,
+  "factuality": "NOT_MEASURED_MOCK_ONLY",
+  "false_positive_manual_review": "PENDING; no unproved whitelist added",
+  "leak_review": "NOT_MEASURED on real documents; guard remains fail-closed",
+  "identity": "unified token-derived lookup; no legacy entity ownership invented",
+  "latency": {
+    "n": 88,
+    "p50_ms": 463.9647000003606,
+    "p95_ms": 2018.9937880204525
+  }
+}

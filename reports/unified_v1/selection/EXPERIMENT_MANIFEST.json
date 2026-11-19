@@ -1,0 +1,207 @@
+{
+  "version": "selection-v1-20261119",
+  "code_head": "01313ab6c68874fee1fd7e4d689a6399ae993e66",
+  "reference_head": "242543bf0eae91aa3d655227a747aa128707368e",
+  "datasets": {
+    "A": {
+      "path": "/Users/gojunseo/AegisRAG/step2_privacy_rag/local_eval/holdout_labeled.jsonl",
+      "sha256": "7ccf27589971ed0911756e527faf475144ab996f6d06416b4a167bda51fda822",
+      "documents": 187,
+      "gold": 912,
+      "labels": {
+        "person": 560,
+        "phone_number": 147,
+        "resident_registration_number": 43,
+        "card_number": 26,
+        "address": 52,
+        "email": 43,
+        "account_number": 41
+      },
+      "duplicate_texts": 1,
+      "length_min": 140,
+      "length_median": 199,
+      "length_max": 373,
+      "role": "seen_dev",
+      "normalized_duplicate_texts": 1
+    },
+    "B": {
+      "path": "/Users/gojunseo/Downloads/blind_eval.jsonl",
+      "sha256": "52bca604b38cf06d1445c57b9e48ad96a7654fed73dfcd0734a8eaa5df58b42f",
+      "documents": 171,
+      "gold": 1439,
+      "labels": {
+        "person": 854,
+        "phone_number": 186,
+        "account_number": 92,
+        "resident_registration_number": 54,
+        "address": 123,
+        "email": 64,
+        "card_number": 66
+      },
+      "duplicate_texts": 0,
+      "length_min": 313,
+      "length_median": 644,
+      "length_max": 1570,
+      "role": "previously_exposed_distribution_shift_validation",
+      "normalized_duplicate_texts": 0
+    },
+    "C": {
+      "queries": 88,
+      "documents": 187,
+      "queries_sha256": "f3a33802fb5cac7d8df19cff371cc495c6ca69469bfe040073d8df3137763e29",
+      "gold_sha256": "6a9bfe57ed21f69a7c24e7fbbf3b4ab389aae661bc973a30c84cf2fd3b69284f",
+      "artifact_sha256": "dba63605cce6dcba4173ef23bdb354c45eab32270da834a3e80e290455f34098"
+    }
+  },
+  "cross_dataset_exact_overlap": 0,
+  "environment": {
+    "torch": "2.2.2",
+    "transformers": "4.55.4",
+    "tokenizers": "0.21.4",
+    "huggingface-hub": "0.36.2",
+    "numpy": "1.26.4",
+    "kiwipiepy": "0.22.2"
+  },
+  "model_hashes": {
+    "klue": {
+      "config.json": "d8d486cc3d59fec1ff109eaf6a60e22b53dc451d4dccb14f94e4b93fcf0b07ac",
+      "model.safetensors": "05dd28640e2c884007b7c7668ad1e2f770ac2cabe0d31cc9cfe6ac02d2b69b4f",
+      "tokenizer.json": "200c2fd5a65daf3b67aa532740d3a26736deceaa8b28e82826038aede9377cf0",
+      "tokenizer_config.json": "fd172592aef04c3c1c5be31fa2072c27ae81bdc4192b4e919ea0db6b43407913"
+    },
+    "koelectra": {
+      "config.json": "6eb2b024f6144b5df04be1304997765aa8518420998ab1f3151a50f570ba0f91",
+      "model.safetensors": "fd2a89454ef29acac263ce3ea3629ee6b5eb513216d46f599462e5b179922abc",
+      "tokenizer.json": "6234fb96e9031ec5e6a83b27ba1ade973e823d5e34a62a49c8d00a20f49e09eb",
+      "tokenizer_config.json": "8a4a9ae2d88ba2638f862c7df7564b38ac4b2849f24c850752a72b9a1e3908b8"
+    }
+  },
+  "scorer_sha256": "8be2ce4c7d8a17476ca410aa96adb7d284822d26c21863002d64ac7124f82a5f",
+  "scorer": "micro exact label+Unicode[start,end); set union; whole-entity mask coverage separately",
+  "ablation_thresholds": {
+    "tau_accept": 0.9,
+    "tau_review": 0.5,
+    "tau_span": 0.35,
+    "tau_cand": 0.15
+  },
+  "gold_is_evaluation_only": true,
+  "paid_calls": 0,
+  "sql_writes": 0,
+  "historical_results": "final_summary.json is exposed prior evidence, not an independent blind result",
+  "own_frozen_model_manifest": {
+    "ax": {
+      "repo": "PII-detect/pii-ax-mixed-v1",
+      "revision": "c0f99b1dc113befefeff1a3091087d50bc3ea635"
+    },
+    "veil": {
+      "repo": "PII-detect/pii-veil-mixed-v1",
+      "revision": "e6e7d20fa9baa43a938f5f6cc780d3f2c9650fb9"
+    },
+    "labels": [
+      "person",
+      "phone_number",
+      "email",
+      "address",
+      "resident_registration_number",
+      "account_number",
+      "card_number"
+    ],
+    "owner": {
+      "person": "ax",
+      "phone_number": "ax",
+      "email": "ax",
+      "address": "veil",
+      "resident_registration_number": "ax",
+      "account_number": "ax",
+      "card_number": "ax"
+    },
+    "source_stage": "06D_FINAL_RELEASE_VALIDATION",
+    "detector_module_sha256": "7068847cf7cd673acee07a48eeb80c79d012400a4ad710ee212590f8280abee0",
+    "frozen_routing": {
+      "person": "ax",
+      "phone_number": "ax",
+      "email": "ax",
+      "address": "veil",
+      "resident_registration_number": "ax",
+      "account_number": "ax",
+      "card_number": "ax"
+    },
+    "baseline_detector_module_sha256": "c1ba75c57cae037927e6b048e733da66bb8e5d5644ebc57ce5c9d5155b62fe48",
+    "structural_policy_sha256": "5cbd304e1a14fc2756c1b3d120a91a9a632214485fe4002d806e86183bb12872",
+    "policy_version": "aegis_core_v1"
+  },
+  "evaluation_code_final_sha256": "f2c418d2e0891bd6dcfa1f5b6c254ee533b70eff18736beb9fdeb975917669ab",
+  "final_workspace_source_sha256": {
+    "step2_privacy_rag/app/unified_v1/__init__.py": "f1cd27ce7c2da45eb4e1b2e0904a5f47115a427e282da3c2241cb9b01d4bfda1",
+    "step2_privacy_rag/app/unified_v1/__main__.py": "4406f0be1390f7e7dd9852aa087db19f2e2de9805bcac15599e4e1daa75ccbb3",
+    "step2_privacy_rag/app/unified_v1/adapters.py": "0a81841fcadea57e4b334f043f687b3dbea134808d3c23dfd5bb05e5035e1ca6",
+    "step2_privacy_rag/app/unified_v1/contracts.py": "a63acec5320da853846ba30a1c4a67cc3b3ad3acb04e396aec65bf6cada3e9c4",
+    "step2_privacy_rag/app/unified_v1/database.py": "f00e9f90051c61ab4d751c6d69b406dd6f617b7d9ea6a7815a8fb55bdabd7b82",
+    "step2_privacy_rag/app/unified_v1/embeddings.py": "201b4bea290ba846168a4d8517b50a7ec68a8a56dbc409c3bb8f0435d20580e1",
+    "step2_privacy_rag/app/unified_v1/evaluation.py": "fe8984751d8c2737540bf55c0c9ce943d7ce6843531b6f0391d2531aeadefb09",
+    "step2_privacy_rag/app/unified_v1/experiment.py": "ff164c718fc8818cf449247140e0b6223d9508609c243578949c49f6ae5724bd",
+    "step2_privacy_rag/app/unified_v1/experiments.py": "19a6dfaf10310f5c4b6d342516d7fe1e81d242c165d743bdbb2cb40044ea41fd",
+    "step2_privacy_rag/app/unified_v1/generation.py": "d0b630261862e1cc8c521b5784c6e8878a5b5f8d21a1553b12deff32ad705a14",
+    "step2_privacy_rag/app/unified_v1/identity.py": "05b76a427c2a92df67cba1dd9cc93837e41db0e4532d6f9a1da6dc4b2739c8e0",
+    "step2_privacy_rag/app/unified_v1/local_validation.py": "f7ced1ce9761541884a02ec952439c51b523f7508cde3b35d15f3cca995b5569",
+    "step2_privacy_rag/app/unified_v1/pipeline.py": "7b69281fb9bc9a3faaabe920a6dc3400e4ecbf0edd4fae70260db061e8939ea7",
+    "step2_privacy_rag/app/unified_v1/postgres.py": "9a23864d64149ad37e39ff9be7d9bb2742a7b19158b5d3acd5a48aad78053fac",
+    "step2_privacy_rag/app/unified_v1/protection.py": "be26b652a02d85673577d59535ff681ae1503b06c6617fcd9e4e2703b29ceded",
+    "step2_privacy_rag/app/unified_v1/replay.py": "024149cd7190130668d2c6dd1755c8f69036058b862e50dddd91710d6d97ff57",
+    "step2_privacy_rag/app/unified_v1/retrieval.py": "0bfd7d14629df5e6c8bb90bf5732b9fbe926e1399456a03bbe3cabf27b78b1d5",
+    "step2_privacy_rag/app/unified_v1/runtime.py": "6c7054cf74f54d2692dee445712cf9724ad1fb1b1ae8731b2e87d2a848658846",
+    "step2_privacy_rag/app/unified_v1/selection.py": "993e75138e8b014175ffe85c3c15cd67d16dd1ae8297d0bde9dfadad557e711a",
+    "step2_privacy_rag/app/unified_v1/selection_report.py": "f7bcdc49971b2edfd9d84fd2ad0964388d7275b9da3490b07754182ab590fe9a",
+    "step2_privacy_rag/app/unified_v1/selection_retrieval.py": "fdfd2f55d44f23efb42958aee3d5c5ef7c01fab6792645b36f5b7ef47b9db0ab",
+    "step2_privacy_rag/app/unified_v1/selection_teacher.py": "26ff0e9078cd35997fb2b148ee27e19ffb9b35c58db733846b8627f38742c706",
+    "step2_privacy_rag/app/unified_v1/sidecar.py": "2caaf56a42d6eeb55616a82184f056f5eaa02e3b815480c5e68c0e7e554b1327",
+    "step2_privacy_rag/app/unified_v1/synthetic.py": "3c5bfdb64aa53ca66c27ae8a405b4716e1b699cef83429e9475add35c9b88039",
+    "step2_privacy_rag/app/unified_v1/worker.py": "46b67efcad1c6f2c29c8adf0a30b03c37c08a13cf78c52d47774e8a972a66701"
+  },
+  "platform": {
+    "system": "Darwin",
+    "machine": "x86_64",
+    "python": "3.11.13",
+    "processor": "i386"
+  },
+  "embedding_hcx_pins": {
+    "koe5": {
+      "repo": "nlpai-lab/KoE5",
+      "revision": "237b580aea358e3042fcf5baf78124c33c3afd16",
+      "dimension": 1024,
+      "max_seq_length": 512,
+      "query_prefix": "query: ",
+      "passage_prefix": "passage: ",
+      "normalize_embeddings": true
+    },
+    "hcx": {
+      "model": "HCX-007",
+      "temperature": 0,
+      "reasoning_effort": "none",
+      "max_completion_tokens": 1024
+    },
+    "step1_manifest": "step1_pii_detector/src/pii_detector/model_manifest.json"
+  },
+  "db_frozen_conditions": {
+    "rows": 187,
+    "key_matches": true,
+    "schema_matches": true,
+    "row_fingerprint": "10c6ee54c842a9cbf4bcd59295b00664",
+    "token_gin_present": false,
+    "configured_embedding_revision": "237b580aea358e3042fcf5baf78124c33c3afd16",
+    "embedding_provenance": "LEGACY_V6_MANIFEST_DECLARED_NOT_DB_ATTESTED",
+    "read_only": true
+  },
+  "cross_dataset_NFC_whitespace_normalized_overlap": 0,
+  "measurement_correction": "B intermediate Gate REVIEW vs final prepare BLOCKED: 2 cases; original prepare authoritative, no detector/threshold/selection changes; lock retained",
+  "worker_option_contract": {
+    "reference_kiwi_default": false,
+    "kiwi_ablation": true,
+    "return_container_shim": "torchscript=False;return_dict=True; logits parity verified",
+    "original_hybrid_hmac_used": false,
+    "raw_worker_max_length": 512,
+    "stride": 64,
+    "reference_chunk_chars": 350
+  },
+  "timing_scope": "P1 187-row weighted metadata from 186 unique snapshots; original Hybrid actual timing uses stored non-replay entries only; extra benchmark runs are separate"
+}

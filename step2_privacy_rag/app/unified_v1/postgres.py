@@ -7,7 +7,7 @@ import math
 from settings import db_config,MANIFEST
 from dataset_preparation import fixed_key,key_tag
 from .contracts import ContractError,PreparationResult
-from .retrieval import TOKEN,REGION,ENTITY,DOCID,validate_receipt,rank_documents
+from .retrieval import TOKEN,REGION,ENTITY,NAME_LOOKUP,DOCID,validate_receipt,rank_documents
 
 TABLE='rag.aegis_live_docs'
 REQUIRED={'doc_id':'text','masked_text':'text','tokens':'text[]','region_keys':'text[]',
@@ -102,10 +102,13 @@ class ExistingIndexReader:
     def index_fingerprint(self):return self._fingerprint
 
     def retrieve(self,query, *, encoder,profile='hybrid_v1',top_k=5):
-        if profile not in {'own_v6','team_v3','hybrid_v1'} or type(top_k) is not int or not 1<=top_k<=5:raise ContractError('INVALID_RETRIEVAL_PROFILE_OR_LIMIT')
+        if profile not in {'own_v6','team_v3','hybrid_v1'} or type(top_k) is not int or not 1<=top_k<=10:raise ContractError('INVALID_RETRIEVAL_PROFILE_OR_LIMIT')
         if query.identity_unresolved:raise ContractError('CLARIFY_UNRESOLVED_IDENTITY')
         validate_receipt(query.preparation,query.approval,key_tag=self.key_tag,policy_version=self.policy_version,
                          input_kind='query',corpus_id=self.corpus_id)
+        if (any(not isinstance(k,str) or not NAME_LOOKUP.fullmatch(k) for k in query.name_lookup_keys)
+                or any(not isinstance(k,str) or not ENTITY.fullmatch(k) for k in query.entity_ids)):
+            raise ContractError('INVALID_IDENTITY_METADATA')
         vector=encoder.encode_query(query.preparation)
         if len(vector)!=1024 or any(not math.isfinite(float(v)) for v in vector):raise ContractError('INVALID_EMBEDDING')
         vec='['+','.join(format(float(v),'.9g') for v in vector)+']'

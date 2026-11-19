@@ -1,0 +1,9 @@
+option,whole_gold,review_candidates,gold
+default,910,17,912
+no_ensemble,910,17,912
+no_boost,896,17,912
+drop_unagreed,910,17,912
+num_union,910,17,912
+name_loose,910,25,912
+name_none,910,26,912
+with_kiwi,910,16,912

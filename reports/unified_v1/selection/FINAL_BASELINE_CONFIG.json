@@ -1,0 +1,14 @@
+{
+  "detector": "own2",
+  "fusion": "F0_frozen_V6",
+  "hmac": "original_96bit_label_scoped",
+  "embedding": "KoE5@237b580aea358e3042fcf5baf78124c33c3afd16",
+  "retriever": "own_v6",
+  "transport": "MOCK_ONLY",
+  "selected_candidates": 1,
+  "production_transition": false,
+  "existing_index": "187_rows_READ_ONLY",
+  "new_ingestion": "NOT_AUTHORIZED; independent guard and identity evidence required",
+  "independent_guard": "quality4 diagnostics retained fail-closed; no unreviewed false-positive whitelist",
+  "identity_policy": "anchor_conservative_v2_token_lookup; name equality is not an entity proof"
+}

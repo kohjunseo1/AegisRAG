@@ -1,0 +1,69 @@
+{
+  "actual_frozen_parity": {
+    "documents": 187,
+    "state_mismatches": 0,
+    "hmac_compared": 177,
+    "hmac_mismatches": 0
+  },
+  "warm_fixed_synthetic": {
+    "ax": {
+      "n": 30,
+      "p50_ms": 51.15393850428518,
+      "p95_ms": 60.509247006848454,
+      "throughput_per_second": 19.452430221832252
+    },
+    "veil": {
+      "n": 30,
+      "p50_ms": 14.130434006801806,
+      "p95_ms": 15.436941990628839,
+      "throughput_per_second": 70.3806331285583
+    },
+    "klue": {
+      "n": 30,
+      "p50_ms": 16.4224180043675,
+      "p95_ms": 23.047961003612727,
+      "throughput_per_second": 58.52299878274375
+    },
+    "koelectra": {
+      "n": 30,
+      "p50_ms": 10.57334800134413,
+      "p95_ms": 12.513602996477857,
+      "throughput_per_second": 93.82680017220365
+    }
+  },
+  "worker_resources": {
+    "ax": {
+      "cold_load_ms": 21099.89767699153,
+      "inference_ms": 50.30180100584403,
+      "peak_rss_mb": 1929.26953125,
+      "ignored_label_token_counts": {}
+    },
+    "veil": {
+      "cold_load_ms": 21099.89767699153,
+      "inference_ms": 13.008556008571759,
+      "peak_rss_mb": 1929.26953125,
+      "ignored_label_token_counts": {}
+    },
+    "klue": {
+      "cold_load_ms": 9258.2633929851,
+      "inference_ms": 24.790382012724876,
+      "peak_rss_mb": 489.8125,
+      "ignored_label_token_counts": {}
+    },
+    "koelectra": {
+      "cold_load_ms": 8653.670836996753,
+      "inference_ms": 8.968393987743184,
+      "peak_rss_mb": 365.3203125,
+      "ignored_label_token_counts": {}
+    }
+  },
+  "quality4_corpus_wall": {
+    "n": 187,
+    "p50_ms": 463.1357750040479,
+    "p95_ms": 664.6246029995382
+  },
+  "shared_resident_workers": true,
+  "benchmark_scope": "30 warm requests/source, isolated single-source calls; corpus inference on A separately",
+  "cold_load": "worker_resources cold_load_ms; cold path includes full own2 loader for AX and Veil",
+  "cascade_cost": "NOT_MEASURED actual conditional scheduling; F5 protection is replay only"
+}

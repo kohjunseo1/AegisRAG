@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "mode": "REAL_MODEL_FROZEN_V6_REAL_KOE5_ISOLATED_MEMORY_MOCK_HCX",
+  "counts": {
+    "indexed": 3,
+    "mock_calls": 1,
+    "mock_pass": 1
+  },
+  "selected_detector": "F0",
+  "selected_retriever": "own_v6",
+  "paid_calls": 0,
+  "sql_writes": 0,
+  "factuality": "NOT_MEASURED_MOCK_ONLY"
+}

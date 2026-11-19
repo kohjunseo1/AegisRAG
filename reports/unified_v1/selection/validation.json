@@ -1,0 +1,50 @@
+{
+  "passed": 327,
+  "skipped": 1,
+  "failed": 0,
+  "suites": [
+    {
+      "name": "Step1",
+      "run": 31,
+      "passed": 30,
+      "skipped": 1
+    },
+    {
+      "name": "Step2",
+      "run": 183,
+      "passed": 183,
+      "skipped": 0
+    },
+    {
+      "name": "root",
+      "run": 29,
+      "passed": 29,
+      "skipped": 0
+    },
+    {
+      "name": "Unified",
+      "run": 85,
+      "passed": 85,
+      "skipped": 0
+    }
+  ],
+  "skip_reason": "Original release notebook is unavailable",
+  "resolved_failures": [
+    "Step1 initial import error: added step1_pii_detector to PYTHONPATH",
+    "B status counter: 2 REVIEW vs final BLOCKED, corrected to original prepare authoritative state"
+  ],
+  "commands": [
+    "PYTHONPATH=step2_privacy_rag/app:step1_pii_detector/src:step1_pii_detector python -m unittest discover -s step1_pii_detector/tests -q",
+    "PYTHONPATH=step2_privacy_rag/app:step1_pii_detector/src python -m unittest discover -s step2_privacy_rag/tests -q",
+    "PYTHONPATH=step2_privacy_rag/app:step1_pii_detector/src python -m unittest discover -s tests -q",
+    "PYTHONPATH=step2_privacy_rag/app:tests/unified_v1 python -m unittest discover -s tests/unified_v1 -q"
+  ],
+  "security_checks": {
+    "sensitive_value_file_matches": 0,
+    "private_file_permission_errors": 0,
+    "nonsecret_table_name_match_excluded": true,
+    "git_pushes": 0,
+    "sql_writes": 0,
+    "paid_hcx_calls": 0
+  }
+}

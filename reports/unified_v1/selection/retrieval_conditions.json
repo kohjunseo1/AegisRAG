@@ -1,0 +1,70 @@
+{
+  "before": {
+    "rows": 187,
+    "key_matches": true,
+    "schema_matches": true,
+    "row_fingerprint": "10c6ee54c842a9cbf4bcd59295b00664",
+    "token_gin_present": false,
+    "configured_embedding_revision": "237b580aea358e3042fcf5baf78124c33c3afd16",
+    "embedding_provenance": "LEGACY_V6_MANIFEST_DECLARED_NOT_DB_ATTESTED",
+    "read_only": true
+  },
+  "after": {
+    "rows": 187,
+    "key_matches": true,
+    "schema_matches": true,
+    "row_fingerprint": "10c6ee54c842a9cbf4bcd59295b00664",
+    "token_gin_present": false,
+    "configured_embedding_revision": "237b580aea358e3042fcf5baf78124c33c3afd16",
+    "embedding_provenance": "LEGACY_V6_MANIFEST_DECLARED_NOT_DB_ATTESTED",
+    "read_only": true
+  },
+  "top5_parity": {
+    "compared": 85,
+    "mismatches": 0
+  },
+  "documents": 187,
+  "chunks": {
+    "600": 187,
+    "200": 427
+  },
+  "hmac_key_tag": "1b61e6f38e9fe9ed",
+  "chunker": "original reference ingest.chunk(max_chars=600 or 200), line boundaries, no hard token split",
+  "chunk_regions": "inherited fixed source-document metadata; not original region.py namespace",
+  "chunk_ranking": "original search._merge with original group limits; isolated memory KoE5, not original rag.chunks/API embedding reproduction",
+  "neutral": "frozen scorer: remove neutral from available top10 then scored k; online metrics use unchanged actual k. Legacy top5-only scoring also saved separately.",
+  "latency": {
+    "query_local_embedding_or_cache": {
+      "n": 85,
+      "p50_ms": 1.4631049998570234,
+      "p95_ms": 1.999950996832922
+    },
+    "own_v6_sql_rank": {
+      "n": 85,
+      "p50_ms": 76.82066800771281,
+      "p95_ms": 89.68521398492157
+    },
+    "team_v3_sql_rank": {
+      "n": 85,
+      "p50_ms": 76.47771699703299,
+      "p95_ms": 87.04980098991655
+    },
+    "hybrid_v1_sql_rank": {
+      "n": 85,
+      "p50_ms": 76.95459399838,
+      "p95_ms": 96.71928099123761
+    },
+    "chunk_rank_600": {
+      "n": 85,
+      "p50_ms": 17.07288800389506,
+      "p95_ms": 22.12507399963215
+    },
+    "chunk_rank_200": {
+      "n": 85,
+      "p50_ms": 36.84046701528132,
+      "p95_ms": 44.94053099188022
+    }
+  },
+  "R4": "BLOCKED: unapproved external embedding transfer",
+  "isolated_sql": "BLOCKED: no verified disposable database; no DDL/DML issued"
+}

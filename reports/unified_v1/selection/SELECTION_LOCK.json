@@ -1,0 +1,10 @@
+{
+  "policies": [
+    "F0"
+  ],
+  "version": "selection-v1-20261119",
+  "scorer_sha256": "ff4414bc442398de22923bbe500a8a48b156529b80c1ef09de695d57ae703f0c",
+  "before_B_performance": true,
+  "reason": "A: no safety/READY regression plus strict F1 improvement; otherwise frozen control",
+  "thresholds": "fixed by roadmap"
+}

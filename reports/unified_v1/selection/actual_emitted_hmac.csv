@@ -1,0 +1,3 @@
+dataset,state_mismatches,documents,LOCAL_PREPARED,hmac_outputs_compared,hmac_mismatches,emitted_hmac_strict_tp,emitted_hmac_strict_fp,REVIEW,scope,BLOCKED
+A,0,187,177,177,0,816,7,10,"actual original prepare+pseudonymizer on real-model cached spans; public diagnostic key, no mappings persisted",
+B,0,171,155,155,0,1263,36,14,"actual original prepare+pseudonymizer on real-model cached spans; public diagnostic key, no mappings persisted",2

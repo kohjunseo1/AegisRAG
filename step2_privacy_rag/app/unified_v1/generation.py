@@ -17,8 +17,10 @@ class PrivacyRecheck:
     """
     def __init__(self, independent_engine):
         self.engine=independent_engine
+        self.last_diagnostics=()
 
     def check(self,text, *, allowed_tokens=None):
+        self.last_diagnostics=()
         if not isinstance(text,str) or len(text)>20000:
             raise ContractError('RECHECK_INVALID_TEXT')
         tokens=set(TOKEN.findall(text))
@@ -32,7 +34,11 @@ class PrivacyRecheck:
         if re.search(r'<[A-Za-z_]+_',blank):
             raise ContractError('MALFORMED_OR_UNKNOWN_TOKEN')
         _,counts=redact_residual_pii(blank)
-        if any(counts.values()) or StructuralSentinel().candidates(blank) or ContextualBoost().candidates(blank):
+        proposals=StructuralSentinel().candidates(blank)+ContextualBoost().candidates(blank)
+        if any(counts.values()) or proposals:
+            self.last_diagnostics=tuple(dict(source=c.source_id,label=c.label,start=c.start,end=c.end,
+                                            rule_codes=c.evidence_codes) for c in proposals)
+            if any(counts.values()):self.last_diagnostics+=({'source':'outbound_patterns','counts':counts},)
             raise ContractError('RESIDUAL_PII_DETECTED')
         if self.engine is None:
             raise ContractError('INDEPENDENT_RECHECK_UNAVAILABLE')
@@ -46,6 +52,8 @@ class PrivacyRecheck:
                     row.validate(blank)
                     if row.source_id!=source:raise ValueError
             if any(evidence.raw_candidates_by_source.values()) or evidence.structural_candidates:
+                self.last_diagnostics=tuple(dict(source=c.source_id,label=c.label,start=c.start,end=c.end,
+                    rule_codes=c.evidence_codes) for rows in evidence.raw_candidates_by_source.values() for c in rows)
                 raise ContractError('RESIDUAL_PII_DETECTED')
         except ContractError:
             raise
@@ -68,17 +76,24 @@ class ContextBuilder:
         self.key_tag,self.policy_version,self.index_version,self.corpus_id=key_tag,policy_version,index_version,corpus_id
 
     def build(self,query, evidence):
+        self.last_stage='context_recheck'
+        self.last_subject='query'
         if query.identity_unresolved:
             raise ContractError('CLARIFY_UNRESOLVED_IDENTITY')
         validate_receipt(query.preparation,query.approval,key_tag=self.key_tag,policy_version=self.policy_version,
                          input_kind='query',corpus_id=self.corpus_id)
-        if query.lookup_only and len({e for row in evidence if row.token_match_count or 'NAME_LOOKUP_CANDIDATE_ONLY' in row.evidence_reason_codes for e in row.entity_ids})>1:
-            raise ContractError('CLARIFY_AMBIGUOUS_IDENTITY_CANDIDATES')
+        if query.lookup_only:
+            matched=[row for row in evidence if row.token_match_count or 'NAME_LOOKUP_CANDIDATE_ONLY' in row.evidence_reason_codes]
+            if len({e for row in matched for e in row.entity_ids})>1:
+                raise ContractError('CLARIFY_AMBIGUOUS_IDENTITY_CANDIDATES')
+            if len(matched)>1 and any(not row.entity_ids for row in matched):
+                raise ContractError('CLARIFY_UNVERIFIED_IDENTITY_CANDIDATES')
         if not 1<=len(evidence)<=5:
             raise ContractError('CONTEXT_EVIDENCE_COUNT')
         self.guard.check(query.preparation.sanitized_text)
         documents=[];seen=set()
         for row in evidence:
+            self.last_subject=row.doc_id
             if (not isinstance(row,RetrievedEvidence) or not DOCID.fullmatch(row.doc_id)
                     or row.doc_id in seen or row.identity_match=='conflict'
                     or row.approval_state not in ({'HUMAN_APPROVED','AUTO_APPROVED','LEGACY_READ_ONLY'} if self.local_read_only else {'HUMAN_APPROVED','AUTO_APPROVED'})
@@ -89,6 +104,8 @@ class ContextBuilder:
             seen.add(row.doc_id)
             documents.append({'doc_id':row.doc_id,'text':row.masked_text,
                               'verified_region_match':row.region_match})
+        self.last_stage='outbound'
+        self.last_subject='bounded_payload'
         try:
             question,docs,_=validate_outbound(query.preparation.sanitized_text,documents)
         except Exception:
@@ -136,6 +153,7 @@ class MockGenerator:
 
     def generate(self,query,evidence):
         context=self.builder.build(query,evidence)
+        self.builder.last_stage='mock_generation'
         payload={'model':'HCX-007','temperature':0,'max_completion_tokens':1024,'_has_region':context.has_region,
                  'response_format':{'type':'json_schema','json_schema':{'name':'aegis_unified_v1','schema':copy.deepcopy(SCHEMA)}},
                  'messages':[{'role':'system','content':SYSTEM},
@@ -146,6 +164,7 @@ class MockGenerator:
             response=validate_response(raw,list(context.documents),context.has_region)
         except Exception:
             raise ContractError('GENERATION_OR_SCHEMA_FAILED') from None
+        self.builder.last_stage='output_recheck'
         self.builder.guard.check(response['answer'],allowed_tokens=context.allowed_tokens)
         # Store the exact provided sanitized evidence range, not an invented claim verdict.
         support=tuple({'doc_id':d['doc_id'],'sanitized_start':0,'sanitized_end':len(d['text']),

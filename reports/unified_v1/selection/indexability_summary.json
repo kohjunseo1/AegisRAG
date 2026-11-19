@@ -1,0 +1,10 @@
+{
+  "counts": {
+    "FROZEN_READY": 177,
+    "INDEPENDENT_GUARD_BLOCKED": 101,
+    "FROZEN_REVIEW": 10,
+    "INDEPENDENT_GUARD_PASS": 76
+  },
+  "sql_writes": 0,
+  "scope": "local independent-guard eligibility, not remote corpus approval or actual insertion; no residual false-positive assumption"
+}

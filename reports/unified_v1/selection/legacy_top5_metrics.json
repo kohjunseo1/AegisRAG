@@ -1,0 +1,737 @@
+{
+  "own_v6": {
+    "total": 88,
+    "eligible": 85,
+    "deferred": 3,
+    "no_indexable_gold": 0,
+    "hit1": 77,
+    "hit5": 83,
+    "online_hit1": 77,
+    "online_hit5": 83,
+    "confusable_before_gold": 4,
+    "confusable_hit1": 5,
+    "confusable_hit5": 27,
+    "confusable_eligible": 29,
+    "hit1_rate": 0.9059,
+    "hit5_rate": 0.9765,
+    "online_hit1_rate": 0.9059,
+    "online_hit5_rate": 0.9765,
+    "online_full_set_hit1_rate": 0.875,
+    "online_full_set_hit5_rate": 0.9432,
+    "confusable_before_gold_rate": 0.0471,
+    "full_set_hit1_rate": 0.875,
+    "full_set_hit5_rate": 0.9432,
+    "full_set_mrr": 0.9034,
+    "query_coverage_rate": 0.9659,
+    "recall5_indexable": 0.8848,
+    "recall5_full_gold": 0.8848,
+    "mrr": 0.9353,
+    "confusable_at1_rate": 0.0588,
+    "confusable_at5_rate": 0.3176,
+    "confusable_at5_given_candidate": 0.931,
+    "confusable_mrr": 0.1635,
+    "by_type": {
+      "name_topic": {
+        "n": 7,
+        "hit1": 6,
+        "hit5": 7,
+        "hit1_rate": 0.8571,
+        "hit5_rate": 1.0
+      },
+      "name_variant": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "role_agent": {
+        "n": 5,
+        "hit1": 5,
+        "hit5": 5,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "person_all": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "value_exact": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "value_format_variant": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_exact": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_format_variant": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_partial": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "homonym_role": {
+        "n": 2,
+        "hit1": 1,
+        "hit5": 2,
+        "hit1_rate": 0.5,
+        "hit5_rate": 1.0
+      },
+      "semantic_no_pii": {
+        "n": 8,
+        "hit1": 7,
+        "hit5": 7,
+        "hit1_rate": 0.875,
+        "hit5_rate": 0.875
+      },
+      "hybrid_person_content": {
+        "n": 6,
+        "hit1": 4,
+        "hit5": 5,
+        "hit1_rate": 0.6667,
+        "hit5_rate": 0.8333
+      },
+      "hybrid_paraphrase": {
+        "n": 7,
+        "hit1": 6,
+        "hit5": 7,
+        "hit1_rate": 0.8571,
+        "hit5_rate": 1.0
+      },
+      "hybrid_within_type": {
+        "n": 4,
+        "hit1": 3,
+        "hit5": 4,
+        "hit1_rate": 0.75,
+        "hit5_rate": 1.0
+      },
+      "hybrid_status": {
+        "n": 4,
+        "hit1": 3,
+        "hit5": 4,
+        "hit1_rate": 0.75,
+        "hit5_rate": 1.0
+      },
+      "hybrid_homonym_semantic": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      }
+    },
+    "note": "Hit/Recall/MRR exclude neutral IDs only in scoring; confusable metrics use actual unfiltered production rankings."
+  },
+  "team_v3": {
+    "total": 88,
+    "eligible": 85,
+    "deferred": 3,
+    "no_indexable_gold": 0,
+    "hit1": 77,
+    "hit5": 83,
+    "online_hit1": 77,
+    "online_hit5": 83,
+    "confusable_before_gold": 4,
+    "confusable_hit1": 5,
+    "confusable_hit5": 27,
+    "confusable_eligible": 29,
+    "hit1_rate": 0.9059,
+    "hit5_rate": 0.9765,
+    "online_hit1_rate": 0.9059,
+    "online_hit5_rate": 0.9765,
+    "online_full_set_hit1_rate": 0.875,
+    "online_full_set_hit5_rate": 0.9432,
+    "confusable_before_gold_rate": 0.0471,
+    "full_set_hit1_rate": 0.875,
+    "full_set_hit5_rate": 0.9432,
+    "full_set_mrr": 0.9034,
+    "query_coverage_rate": 0.9659,
+    "recall5_indexable": 0.8848,
+    "recall5_full_gold": 0.8848,
+    "mrr": 0.9353,
+    "confusable_at1_rate": 0.0588,
+    "confusable_at5_rate": 0.3176,
+    "confusable_at5_given_candidate": 0.931,
+    "confusable_mrr": 0.1635,
+    "by_type": {
+      "name_topic": {
+        "n": 7,
+        "hit1": 6,
+        "hit5": 7,
+        "hit1_rate": 0.8571,
+        "hit5_rate": 1.0
+      },
+      "name_variant": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "role_agent": {
+        "n": 5,
+        "hit1": 5,
+        "hit5": 5,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "person_all": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "value_exact": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "value_format_variant": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_exact": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_format_variant": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_partial": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "homonym_role": {
+        "n": 2,
+        "hit1": 1,
+        "hit5": 2,
+        "hit1_rate": 0.5,
+        "hit5_rate": 1.0
+      },
+      "semantic_no_pii": {
+        "n": 8,
+        "hit1": 7,
+        "hit5": 7,
+        "hit1_rate": 0.875,
+        "hit5_rate": 0.875
+      },
+      "hybrid_person_content": {
+        "n": 6,
+        "hit1": 4,
+        "hit5": 5,
+        "hit1_rate": 0.6667,
+        "hit5_rate": 0.8333
+      },
+      "hybrid_paraphrase": {
+        "n": 7,
+        "hit1": 6,
+        "hit5": 7,
+        "hit1_rate": 0.8571,
+        "hit5_rate": 1.0
+      },
+      "hybrid_within_type": {
+        "n": 4,
+        "hit1": 3,
+        "hit5": 4,
+        "hit1_rate": 0.75,
+        "hit5_rate": 1.0
+      },
+      "hybrid_status": {
+        "n": 4,
+        "hit1": 3,
+        "hit5": 4,
+        "hit1_rate": 0.75,
+        "hit5_rate": 1.0
+      },
+      "hybrid_homonym_semantic": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      }
+    },
+    "note": "Hit/Recall/MRR exclude neutral IDs only in scoring; confusable metrics use actual unfiltered production rankings."
+  },
+  "hybrid_v1": {
+    "total": 88,
+    "eligible": 85,
+    "deferred": 3,
+    "no_indexable_gold": 0,
+    "hit1": 77,
+    "hit5": 83,
+    "online_hit1": 77,
+    "online_hit5": 83,
+    "confusable_before_gold": 4,
+    "confusable_hit1": 5,
+    "confusable_hit5": 27,
+    "confusable_eligible": 29,
+    "hit1_rate": 0.9059,
+    "hit5_rate": 0.9765,
+    "online_hit1_rate": 0.9059,
+    "online_hit5_rate": 0.9765,
+    "online_full_set_hit1_rate": 0.875,
+    "online_full_set_hit5_rate": 0.9432,
+    "confusable_before_gold_rate": 0.0471,
+    "full_set_hit1_rate": 0.875,
+    "full_set_hit5_rate": 0.9432,
+    "full_set_mrr": 0.9034,
+    "query_coverage_rate": 0.9659,
+    "recall5_indexable": 0.8848,
+    "recall5_full_gold": 0.8848,
+    "mrr": 0.9353,
+    "confusable_at1_rate": 0.0588,
+    "confusable_at5_rate": 0.3176,
+    "confusable_at5_given_candidate": 0.931,
+    "confusable_mrr": 0.1635,
+    "by_type": {
+      "name_topic": {
+        "n": 7,
+        "hit1": 6,
+        "hit5": 7,
+        "hit1_rate": 0.8571,
+        "hit5_rate": 1.0
+      },
+      "name_variant": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "role_agent": {
+        "n": 5,
+        "hit1": 5,
+        "hit5": 5,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "person_all": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "value_exact": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "value_format_variant": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_exact": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_format_variant": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_partial": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "homonym_role": {
+        "n": 2,
+        "hit1": 1,
+        "hit5": 2,
+        "hit1_rate": 0.5,
+        "hit5_rate": 1.0
+      },
+      "semantic_no_pii": {
+        "n": 8,
+        "hit1": 7,
+        "hit5": 7,
+        "hit1_rate": 0.875,
+        "hit5_rate": 0.875
+      },
+      "hybrid_person_content": {
+        "n": 6,
+        "hit1": 4,
+        "hit5": 5,
+        "hit1_rate": 0.6667,
+        "hit5_rate": 0.8333
+      },
+      "hybrid_paraphrase": {
+        "n": 7,
+        "hit1": 6,
+        "hit5": 7,
+        "hit1_rate": 0.8571,
+        "hit5_rate": 1.0
+      },
+      "hybrid_within_type": {
+        "n": 4,
+        "hit1": 3,
+        "hit5": 4,
+        "hit1_rate": 0.75,
+        "hit5_rate": 1.0
+      },
+      "hybrid_status": {
+        "n": 4,
+        "hit1": 3,
+        "hit5": 4,
+        "hit1_rate": 0.75,
+        "hit5_rate": 1.0
+      },
+      "hybrid_homonym_semantic": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      }
+    },
+    "note": "Hit/Recall/MRR exclude neutral IDs only in scoring; confusable metrics use actual unfiltered production rankings."
+  },
+  "team_groups_chunks600": {
+    "total": 88,
+    "eligible": 85,
+    "deferred": 3,
+    "no_indexable_gold": 0,
+    "hit1": 77,
+    "hit5": 83,
+    "online_hit1": 77,
+    "online_hit5": 83,
+    "confusable_before_gold": 4,
+    "confusable_hit1": 5,
+    "confusable_hit5": 27,
+    "confusable_eligible": 29,
+    "hit1_rate": 0.9059,
+    "hit5_rate": 0.9765,
+    "online_hit1_rate": 0.9059,
+    "online_hit5_rate": 0.9765,
+    "online_full_set_hit1_rate": 0.875,
+    "online_full_set_hit5_rate": 0.9432,
+    "confusable_before_gold_rate": 0.0471,
+    "full_set_hit1_rate": 0.875,
+    "full_set_hit5_rate": 0.9432,
+    "full_set_mrr": 0.9034,
+    "query_coverage_rate": 0.9659,
+    "recall5_indexable": 0.8848,
+    "recall5_full_gold": 0.8848,
+    "mrr": 0.9353,
+    "confusable_at1_rate": 0.0588,
+    "confusable_at5_rate": 0.3176,
+    "confusable_at5_given_candidate": 0.931,
+    "confusable_mrr": 0.1635,
+    "by_type": {
+      "name_topic": {
+        "n": 7,
+        "hit1": 6,
+        "hit5": 7,
+        "hit1_rate": 0.8571,
+        "hit5_rate": 1.0
+      },
+      "name_variant": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "role_agent": {
+        "n": 5,
+        "hit1": 5,
+        "hit5": 5,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "person_all": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "value_exact": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "value_format_variant": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_exact": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_format_variant": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_partial": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "homonym_role": {
+        "n": 2,
+        "hit1": 1,
+        "hit5": 2,
+        "hit1_rate": 0.5,
+        "hit5_rate": 1.0
+      },
+      "semantic_no_pii": {
+        "n": 8,
+        "hit1": 7,
+        "hit5": 7,
+        "hit1_rate": 0.875,
+        "hit5_rate": 0.875
+      },
+      "hybrid_person_content": {
+        "n": 6,
+        "hit1": 4,
+        "hit5": 5,
+        "hit1_rate": 0.6667,
+        "hit5_rate": 0.8333
+      },
+      "hybrid_paraphrase": {
+        "n": 7,
+        "hit1": 6,
+        "hit5": 7,
+        "hit1_rate": 0.8571,
+        "hit5_rate": 1.0
+      },
+      "hybrid_within_type": {
+        "n": 4,
+        "hit1": 3,
+        "hit5": 4,
+        "hit1_rate": 0.75,
+        "hit5_rate": 1.0
+      },
+      "hybrid_status": {
+        "n": 4,
+        "hit1": 3,
+        "hit5": 4,
+        "hit1_rate": 0.75,
+        "hit5_rate": 1.0
+      },
+      "hybrid_homonym_semantic": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      }
+    },
+    "note": "Hit/Recall/MRR exclude neutral IDs only in scoring; confusable metrics use actual unfiltered production rankings."
+  },
+  "team_groups_chunks200": {
+    "total": 88,
+    "eligible": 85,
+    "deferred": 3,
+    "no_indexable_gold": 0,
+    "hit1": 71,
+    "hit5": 81,
+    "online_hit1": 71,
+    "online_hit5": 81,
+    "confusable_before_gold": 6,
+    "confusable_hit1": 9,
+    "confusable_hit5": 27,
+    "confusable_eligible": 29,
+    "hit1_rate": 0.8353,
+    "hit5_rate": 0.9529,
+    "online_hit1_rate": 0.8353,
+    "online_hit5_rate": 0.9529,
+    "online_full_set_hit1_rate": 0.8068,
+    "online_full_set_hit5_rate": 0.9205,
+    "confusable_before_gold_rate": 0.0706,
+    "full_set_hit1_rate": 0.8068,
+    "full_set_hit5_rate": 0.9205,
+    "full_set_mrr": 0.857,
+    "query_coverage_rate": 0.9659,
+    "recall5_indexable": 0.8509,
+    "recall5_full_gold": 0.8509,
+    "mrr": 0.8873,
+    "confusable_at1_rate": 0.1059,
+    "confusable_at5_rate": 0.3176,
+    "confusable_at5_given_candidate": 0.931,
+    "confusable_mrr": 0.1971,
+    "by_type": {
+      "name_topic": {
+        "n": 7,
+        "hit1": 6,
+        "hit5": 7,
+        "hit1_rate": 0.8571,
+        "hit5_rate": 1.0
+      },
+      "name_variant": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "role_agent": {
+        "n": 5,
+        "hit1": 3,
+        "hit5": 5,
+        "hit1_rate": 0.6,
+        "hit5_rate": 1.0
+      },
+      "person_all": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "value_exact": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "value_format_variant": {
+        "n": 6,
+        "hit1": 6,
+        "hit5": 6,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_exact": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_format_variant": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "address_partial": {
+        "n": 4,
+        "hit1": 4,
+        "hit5": 4,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "homonym_role": {
+        "n": 2,
+        "hit1": 2,
+        "hit5": 2,
+        "hit1_rate": 1.0,
+        "hit5_rate": 1.0
+      },
+      "semantic_no_pii": {
+        "n": 8,
+        "hit1": 7,
+        "hit5": 7,
+        "hit1_rate": 0.875,
+        "hit5_rate": 0.875
+      },
+      "hybrid_person_content": {
+        "n": 6,
+        "hit1": 3,
+        "hit5": 4,
+        "hit1_rate": 0.5,
+        "hit5_rate": 0.6667
+      },
+      "hybrid_paraphrase": {
+        "n": 7,
+        "hit1": 4,
+        "hit5": 7,
+        "hit1_rate": 0.5714,
+        "hit5_rate": 1.0
+      },
+      "hybrid_within_type": {
+        "n": 4,
+        "hit1": 3,
+        "hit5": 4,
+        "hit1_rate": 0.75,
+        "hit5_rate": 1.0
+      },
+      "hybrid_status": {
+        "n": 4,
+        "hit1": 3,
+        "hit5": 4,
+        "hit1_rate": 0.75,
+        "hit5_rate": 1.0
+      },
+      "hybrid_homonym_semantic": {
+        "n": 6,
+        "hit1": 4,
+        "hit5": 5,
+        "hit1_rate": 0.6667,
+        "hit5_rate": 0.8333
+      }
+    },
+    "note": "Hit/Recall/MRR exclude neutral IDs only in scoring; confusable metrics use actual unfiltered production rankings."
+  }
+}

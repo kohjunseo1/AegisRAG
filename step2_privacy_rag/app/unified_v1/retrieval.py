@@ -108,7 +108,7 @@ class InMemoryIndex:
                                     for did,d in sorted(self._docs.items())]})
 
     def retrieve(self,query: QuerySpec, *, profile='hybrid_v1', top_k=5, dense_scorer=None):
-        if profile not in {'own_v6','team_v3','hybrid_v1'} or type(top_k) is not int or not 1<=top_k<=5:
+        if profile not in {'own_v6','team_v3','hybrid_v1'} or type(top_k) is not int or not 1<=top_k<=10:
             raise ContractError('INVALID_RETRIEVAL_PROFILE_OR_LIMIT')
         if query.identity_unresolved:
             raise ContractError('CLARIFY_UNRESOLVED_IDENTITY')
@@ -133,6 +133,8 @@ class InMemoryIndex:
                               key_tag=self.key_tag,policy_version=self.policy_version)
 
 def rank_documents(query, docs, scores, *, profile,top_k,index_version,key_tag,policy_version,dense_pool_limit=None):
+    if profile not in {'own_v6','team_v3','hybrid_v1'} or type(top_k) is not int or not 1<=top_k<=10:
+        raise ContractError('INVALID_RETRIEVAL_PROFILE_OR_LIMIT')
     qtokens=set(TOKEN.findall(query.preparation.sanitized_text))
     dense_sorted=sorted(scores,key=lambda did:(-scores[did],did))
     dense_rank={did:i for i,did in enumerate(dense_sorted,1)}

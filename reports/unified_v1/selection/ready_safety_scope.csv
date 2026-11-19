@@ -1,0 +1,8 @@
+dataset,policy,READY_documents,READY_gold,READY_whole_protected,READY_uncovered_gold,scope
+A,F0,177,843,843,0,"Gold coverage of emitted READY plans, not proof of unknown-PII absence"
+A,F1,49,252,252,0,"Gold coverage of emitted READY plans, not proof of unknown-PII absence"
+A,F2,0,0,0,0,"Gold coverage of emitted READY plans, not proof of unknown-PII absence"
+A,F3,145,707,707,0,"Gold coverage of emitted READY plans, not proof of unknown-PII absence"
+A,F4,156,785,785,0,"Gold coverage of emitted READY plans, not proof of unknown-PII absence"
+A,F5,169,803,803,0,"Gold coverage of emitted READY plans, not proof of unknown-PII absence"
+B,F0,155,1268,1268,0,"Gold coverage of emitted READY plans, not proof of unknown-PII absence"
