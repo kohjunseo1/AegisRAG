@@ -147,6 +147,8 @@ def main():
     cli.add_argument("--train-n",type=int,default=800)
     cli.add_argument("--dev-n",type=int,default=150)
     cli.add_argument("--seed",type=int,default=1234)
+    cli.add_argument("--replay-in",type=Path,
+                     help="historical official/dev JSONL (never test/holdout); kept local")
     args=cli.parse_args()
     if args.train_n<100 or args.dev_n<30:
         cli.error("train-n>=100 and dev-n>=30 required")
@@ -162,14 +164,47 @@ def main():
             if fingerprint in texts and texts[fingerprint]!=split:
                 raise ValueError("TRAIN_DEV_TEXT_COLLISION")
             texts[fingerprint]=split
+    replay=None
+    if args.replay_in is not None:
+        from ax_v7_train import UNSAFE_SPLIT, LABELS7
+        src=args.replay_in.expanduser().resolve()
+        if not src.is_file() or UNSAFE_SPLIT.search(src.name):
+            raise ValueError("REPLAY_SOURCE_MUST_BE_LOCAL_ORIGINAL_TRAIN_OR_OFFICIAL_DEV_NOT_TEST")
+        replay=[]
+        with src.open(encoding="utf-8-sig") as handle:
+            for i,line in enumerate(handle):
+                if not line.strip(): continue
+                row=json.loads(line)
+                text=row.get("text"); entities=row.get("entities")
+                if not isinstance(text,str) or not isinstance(entities,list):
+                    raise ValueError("REPLAY_BAD_SCHEMA")
+                clean=[]
+                for e in entities:
+                    lab=e.get("label");a=e.get("start");b=e.get("end")
+                    if lab not in LABELS7 or type(a) is not int or type(b) is not int or not 0<=a<b<=len(text):
+                        raise ValueError("REPLAY_UNKNOWN_7_LABEL_OR_OFFSET")
+                    if "text" in e and text[a:b]!=e["text"]:
+                        raise ValueError("REPLAY_SUBSTRING_MISMATCH")
+                    clean.append({"label":lab,"start":a,"end":b})
+                replay.append({"id":str(row.get("id",i)),"text":text,
+                               "entities":clean,"annotation_scope":"seven_only"})
+        if not replay:
+            raise ValueError("REPLAY_EMPTY")
+        if {hashlib.sha256(r["text"].encode()).hexdigest() for r in replay} & set(texts):
+            raise ValueError("REPLAY_OVERLAPS_SYNTHETIC_DATA")
     out.mkdir(parents=True,exist_ok=True)
     for split,rows in (("train",train),("dev",dev)):
         path=out/(split+".jsonl")
         with path.open("w",encoding="utf-8") as f:
             for row in rows:
                 f.write(json.dumps(row,ensure_ascii=False)+"\n")
+    if replay is not None:
+        with (out/"replay.jsonl").open("w",encoding="utf-8") as f:
+            for row in replay:
+                f.write(json.dumps(row,ensure_ascii=False)+"\n")
     print("V7_BOOTSTRAP_CREATED",json.dumps({
         "train":len(train),"dev":len(dev),
+        "partial_replay_docs":len(replay) if replay is not None else 0,
         "scope":"seven_only","no_real_user_data":True,
         "manual_annotation_review_required":True,
         "independent_blind_holdout":False,
