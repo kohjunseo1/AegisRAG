@@ -21,7 +21,7 @@ jobs:
       - name: Install smoke dependencies only
         run: python -m pip install pytest
       - name: Parse all V7 Python modules
-        run: python -m py_compile scripts/ax_v7_train.py scripts/ax_v7_eval.py scripts/ax_v7_make_data.py tests/test_ax_v7_train_prep.py
+        run: python -m py_compile scripts/ax_v7_train.py scripts/ax_v7_eval.py scripts/ax_v7_make_data.py scripts/ax_v7_review_cases.py tests/test_ax_v7_train_prep.py
       - name: Dataset and label-contract unit tests
         run: python -m pytest -q tests/test_ax_v7_train_prep.py
       - name: Smoke-generate schema fixtures (no private data, no HF)
