@@ -51,9 +51,22 @@ This generator is a **bounded synthetic pilot** with hashed train/dev PERSON val
 Run from repository root:
 
     git pull --ff-only origin feature/unified-v1
-    python scripts/ax_v7_make_data.py --out step2_privacy_rag/local_eval/v7_bootstrap --replay-in /YOUR/LOCAL/official/dev.jsonl
+    python scripts/ax_v7_make_data.py --out step2_privacy_rag/local_eval/v7_curated_v3 \
+        --train-n 800 --dev-n 150 --replay-in /YOUR/LOCAL/official/dev.jsonl
 
 This creates train.jsonl (targeted synthetic), dev.jsonl (new synthetic TEMPLATE SPLIT but not truly independent), replay.jsonl (old Official Dev conservatively marked seven_only). Never use official/test.jsonl in this command.
+
+**New 2026-11-20 upload audit:** The prior curated-v2 files (960 train / 180 dev) were structurally valid, with zero offset/cross-split duplicates. However, the source-generator audit found several noun-like two-character names (e.g. 조별, 이별), seven ungrammatical dev name+particle phrases, and too-short/repeated document layouts (median 35 chars versus median 644 chars on B). Do NOT start V7 on those original uploaded files. Curated-v3 uses vetted two-character names, fixes Korean particles, preserves compound surnames, and declares its policy as `v7_explicit_person_or_full_address_v3`.
+
+**Verify all 1,140 v3 rows before real-model preflight** (no model load):
+
+    python scripts/ax_v7_audit_data.py \
+        --train step2_privacy_rag/local_eval/v7_curated_v3/train.jsonl \
+        --dev step2_privacy_rag/local_eval/v7_curated_v3/dev.jsonl
+
+Expect `V7_CURATED_DATA_AUDIT_PASS`, or stop on the first error. Earlier v2 data are rejected by policy version. This quality check does not prove the actual 37-label A.X tokenizer can represent every Gold boundary.
+
+Even curated-v3 is still a PILOT: it has fewer training contexts and no complete 7-type replay until the old dataset is attached. Long documents, ZIP-in-address policy, role-reference protections, and arbitrary unseen names must be tested separately.
 
 JSONL schema:
     {"id":"x01","text":"고객 성명: ...","entities":[{"label":"person","start":7,"end":10}],"annotation_scope":"seven_only"}
@@ -65,7 +78,7 @@ The bootstrap generator is a **data contract smoke fixture**, not a carefully cu
 The existing project model runtime venv may not include GPU training dependencies. Use a new clean GPU-capable environment (Colab L4 recommended) after pinning and verifying compatible torch/transformers/accelerate versions.
 
     PY=/path/to/training/python
-    DATA=step2_privacy_rag/local_eval/v7_bootstrap
+    DATA=step2_privacy_rag/local_eval/v7_curated_v3
     OUT=step2_privacy_rag/local_eval/ax_v7_run1
     "$PY" scripts/ax_v7_train.py preflight \
         --train "$DATA/train.jsonl" --dev "$DATA/dev.jsonl" \
@@ -115,6 +128,7 @@ Existing generation.PrivacyRecheck verifies authorized tokens, structural residu
 Read these tracked sources:
 - scripts/ax_v7_train.py
 - scripts/ax_v7_make_data.py
+- scripts/ax_v7_audit_data.py
 - scripts/ax_v7_eval.py
 - tests/test_ax_v7_train_prep.py
 - reports/unified_v1/V7_SINGLE_AX_TRAINING_PLAN.md
