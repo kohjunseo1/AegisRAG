@@ -20,6 +20,16 @@ Team4 public hard403 PERSON 979: exact 886, boundary 57, completely no-overlap 3
 ADDRESS 171: exact 152, boundary 16, no-overlap 3. Postal-code-in-Gold 11: 6 boundary. Lot style 87: 10 boundary.
 These are *diagnostic* tags, not audited fine-grained surname/given-name categories. Before scaling data or setting label policy, locally inspect a small balanced sample of real failure categories to distinguish actual PII from a policy mismatch.
 
+## 2-1. Small manual inspection of actual error contexts (LOCAL SENSITIVE)
+The aggregate shape taxonomy alone is insufficient to decide whether a one/two-character PERSON is a genuine name, an honorific, or a data labeling mismatch. Inspect a balanced, small number of no-overlap/partial-boundary/unmatched FP examples **locally**, without copying those literal sentences to train:
+
+    PYTHONPATH=step2_privacy_rag/app python scripts/ax_v7_review_cases.py \
+        --data "$HOME/aegis_external_eval/team4/synth_hard_eval.jsonl" \
+        --out step2_privacy_rag/local_eval/ax_v7/manual_case_review.jsonl \
+        --confirm-local-sensitive-export
+
+This file contains original PII snippets and is not suitable for GitHub, HF, ChatGPT or external LLMs. It is permission 0600, stored under gitignored local_eval. Audit labels and then write **new independent synthetic template families**; do not train on the error-window examples themselves.
+
 ## 3. Build bootstrap data and prepare old Dev replay
 
 Run from repository root:
