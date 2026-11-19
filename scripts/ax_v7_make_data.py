@@ -70,6 +70,26 @@ NEG_DEV = (
     "검토자와 담당자는 결재 단계에서 협의했습니다.",
 )
 
+# These are explicitly *non-PII* tokens in context, not unlabeled Gold.
+# Reported hard_eval examples included questionable Gold such as the literal
+# header '주소' tagged ADDRESS and company/product aliases tagged PERSON.
+# We do NOT train directly on those potentially inconsistent annotations.
+TRAIN_HARD_NEGATIVES = (
+    ("상품 카탈로그의 이름 {TERM}은 사람 이름이 아니라 상품명입니다.", "솔빛알림"),
+    ("회사명 {TERM}은 법인 표기이며 개인 이름이 아닙니다.", "푸른결상사"),
+    ("안내문에 적힌 {TERM}은 문서의 항목명입니다.", "주소"),
+    ("사업 보고서의 {TERM}는 개인 거주지를 뜻하지 않습니다.", "서울지역"),
+    ("부서 공지의 {TERM}은 담당자의 개인 이름이 아닙니다.", "운영지원팀"),
+    ("상품명 {TERM}을 고객 성명으로 오인하지 마십시오.", "별빛포인트"),
+    ("재고 품목은 {TERM}이며 수취인은 따로 기재합니다.", "나래수첩"),
+)
+DEV_HARD_NEGATIVES = (
+    ("사업 목록의 등록 상표 {TERM}은 개인 이름이 아닙니다.", "은하로고"),
+    ("영업 지역 {TERM}을 고객의 상세주소로 취급하지 않습니다.", "부산지역"),
+    ("신청서 항목의 {TERM}은 실제 거주지가 아닙니다.", "주소"),
+    ("담당 팀명 {TERM}과 신청인 성명은 서로 다릅니다.", "고객지원팀"),
+)
+
 
 def made_name(rng, i):
     n = (1 if i%11 == 0 else 2 if i%4 == 0 else 3 if i%5 else 4)
@@ -131,12 +151,24 @@ def generate(seed, n, split):
             val = made_address(rng, i + (10001 if split=="dev" else 0))
             template = rng.choice(addresses)
             rows.append(entry(f"{split}_addr_{i:05d}", template, val))
-    # Hard negatives are seven_only (no O labels). Their function is
-    # for manual review and future complete annotation, NOT supervised FP suppression.
-    for i in range(max(1,n//10)):
-        rows.append({"id":f"{split}_negative_{i:05d}",
-                     "text":negatives[i%len(negatives)],
-                     "entities":[],"annotation_scope":"seven_only"})
+    # Unlike bare seven_only negatives (zero CE supervision), these
+    # *audited subspans* contribute an O loss while unknown 37-class
+    # regions remain ignored. Never mark an entire partially annotated
+    # document O merely because no seven-class Gold was supplied.
+    negatives_with_targets = (TRAIN_HARD_NEGATIVES if split == "train"
+                              else DEV_HARD_NEGATIVES)
+    for i in range(max(1,n//5)):
+        template, term = negatives_with_targets[i % len(negatives_with_targets)]
+        marker = "{TERM}"
+        start = template.index(marker)
+        text = template.replace(marker,term)
+        rows.append({
+            "id":f"{split}_negative_{i:05d}",
+            "text":text,
+            "entities":[],
+            "annotation_scope":"seven_only",
+            "verified_o_spans":[{"start":start,"end":start+len(term),"text":term}],
+        })
     rng.shuffle(rows)
     return rows
 
@@ -204,6 +236,8 @@ def main():
                 f.write(json.dumps(row,ensure_ascii=False)+"\n")
     print("V7_BOOTSTRAP_CREATED",json.dumps({
         "train":len(train),"dev":len(dev),
+        "verified_negative_train":sum(bool(x.get("verified_o_spans")) for x in train),
+        "verified_negative_dev":sum(bool(x.get("verified_o_spans")) for x in dev),
         "partial_replay_docs":len(replay) if replay is not None else 0,
         "scope":"seven_only","no_real_user_data":True,
         "manual_annotation_review_required":True,
