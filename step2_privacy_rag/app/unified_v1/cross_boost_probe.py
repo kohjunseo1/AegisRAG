@@ -22,7 +22,8 @@ from .lean_worker import reference_modules
 
 
 def overlap(a, b):
-    return a[1] < b[2] and b[1] < a[2]
+    """True for intersecting half-open (start, end) spans; touching is not overlap."""
+    return a[0] < b[1] and b[0] < a[1]
 
 
 def detector_v6(text, snapshot):
@@ -50,6 +51,12 @@ def add_stats(stats, pred, gold):
 
 
 def main():
+    # Fail immediately if pairwise span-overlap logic is accidentally changed.
+    assert overlap((1, 3), (2, 4))
+    assert overlap((2, 4), (1, 3))
+    assert not overlap((1, 3), (3, 5))
+    assert not overlap((3, 5), (1, 3))
+    assert not overlap((1, 2), (3, 4))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--datasets", nargs="+", choices=("A", "B"),
                         default=["A", "B"])
