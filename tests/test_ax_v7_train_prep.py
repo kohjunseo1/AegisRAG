@@ -198,8 +198,12 @@ class V7DataContracts(unittest.TestCase):
             self.assertEqual(row["entities"],[])
             region=row["verified_o_spans"][0]
             self.assertEqual(row["text"][region["start"]:region["end"]],region["text"])
-            self.assertTrue(any(prefix in row["text"] for prefix in
-                ("항목", "열 제목", "부서", "상품", "제품", "문서", "메뉴")))
+            if row["case_family"] == "negative_common_noun":
+                self.assertTrue(any(prefix in row["text"] for prefix in
+                    ("날씨", "기상", "농업")))
+            else:
+                self.assertTrue(any(prefix in row["text"] for prefix in
+                    ("항목", "열 제목", "부서", "상품", "제품", "문서", "메뉴")))
 
 
     def test_contextual_contrast_same_surface_not_same_label(self):
