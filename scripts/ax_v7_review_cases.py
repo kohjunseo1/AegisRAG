@@ -40,8 +40,10 @@ def main():
     p.add_argument("--out",type=Path,required=True)
     p.add_argument("--max-per-group",type=int,default=8)
     p.add_argument("--confirm-local-sensitive-export",action="store_true")
+    p.add_argument("--check-only",action="store_true",
+                   help="Validate input without starting a detector or writing sensitive snippets")
     args=p.parse_args()
-    if not args.confirm_local_sensitive_export:
+    if not args.confirm_local_sensitive_export and not args.check_only:
         p.error("Explicit --confirm-local-sensitive-export required because snippets contain raw PII")
     if not 1<=args.max_per_group<=50:
         p.error("--max-per-group must be 1..50")
@@ -55,6 +57,10 @@ def main():
     path=(S.A if args.dataset=="A" else S.B if args.dataset=="B"
           else args.data.expanduser()).resolve()
     rows=load_external(path)
+    if args.check_only:
+        print(f"AX_V7_REVIEW_INPUT_OK documents={len(rows)} "
+              "strict_gold_offsets=true no_model_or_export=true",flush=True)
+        return 0
     quota=defaultdict(int)
     counters=Counter()
     report=[]
