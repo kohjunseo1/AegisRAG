@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -24,10 +25,22 @@ from .lean_worker import reference_modules
 
 
 def load_external(path):
-    # Reuse existing strict JSONL reader; validates labels, original substrings,
-    # Unicode offsets, duplicate IDs, size, and overlapping Gold annotations.
-    from scripts.eval_blind_pii import read_rows
-    return read_rows(path)
+    """Load through the repository's strict reader, independent of PYTHONPATH.
+
+    File-invoked scripts add scripts/ rather than the repository root to
+    sys.path; importing scripts.eval_blind_pii would fail in that context.
+    Explicit local-file loading preserves the *same* read_rows validation
+    without globally changing sys.path or reimplementing its contracts.
+    """
+    reader = Path(__file__).resolve().parents[3] / "scripts" / "eval_blind_pii.py"
+    if not reader.is_file():
+        raise RuntimeError("STRICT_EVAL_READER_NOT_FOUND")
+    spec = importlib.util.spec_from_file_location("_aegis_strict_eval_reader", reader)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("STRICT_EVAL_READER_IMPORT_FAILED")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.read_rows(Path(path))
 
 
 def update(stats, predicted, gold):
