@@ -35,6 +35,25 @@ ONE_SYLLABLE_GIVEN = (
     "영", "아", "해", "미", "빈",
 )
 SURNAMES = ("김", "박", "이", "최", "정", "조", "강", "윤", "임", "한", "신", "오", "권")
+# Reviewed short full names: deliberately avoid obvious ordinary nouns such
+# as "이별" / "조별" created by an unrestricted Cartesian product. Explicit
+# personal-name fields still provide the supervision context.
+SHORT_FULL_NAMES = (
+    "김민","김솔","김별","김서","김현","김윤","김영","김율","김린",
+    "박준","박현","박영","박린","박솔","박민","박수","박진",
+    "이솔","이현","이린","이준","이서","이진","이영",
+    "최민","최린","최윤","최진","최영","최현","최서","최빈",
+    "정민","정윤","정현","정진","정서","정희",
+    "조현","조윤","조진","조빈","조민",
+    "강민","강현","강윤","강빈","강솔",
+    "윤서","윤민","윤진","윤현","윤솔",
+    "임서","임민","임현","임진",
+    "한솔","한별","한민","한서","한진",
+    "신영","신민","신윤","신서","신희",
+    "오준","오린","오민","오서","오윤",
+    "권민","권서","권현","권윤","권진",
+)
+
 COMPOUND_SURNAMES = ("남궁", "황보")
 REGION_DISTRICTS = (
     ("서울특별시", "강남구"),
@@ -62,7 +81,7 @@ def belongs_to_split(value, split):
 def make_person_pools(split):
     pools = {
         "full_name": [s+g for s in (*SURNAMES,*COMPOUND_SURNAMES) for g in GIVEN_NAMES],
-        "short_full_name": [s+g for s in SURNAMES for g in ONE_SYLLABLE_GIVEN],
+        "short_full_name": list(SHORT_FULL_NAMES),
         "given_only_explicit": list(GIVEN_NAMES),
         "single_name_explicit": list(ONE_SYLLABLE_GIVEN),
         "repeated_name_particle": [s+g for s in SURNAMES for g in GIVEN_NAMES],
@@ -85,7 +104,7 @@ TRAIN_NAME_TEMPLATES = (
     "개인 서명자 이름: [{PII}] / 서명 확인",
 )
 DEV_NAME_TEMPLATES = (
-    "이전 신청서의 신청인 이름은 [{PII}]로 기재되어 있습니다.",
+    "이전 신청서의 신청인 이름: [{PII}] / 기재 사항 확인",
     "상담 명단 / 대상자 성명: {PII}\n상태: 검토 중",
     "주문 관련 개인 수령인: ({PII}) / 처리 완료",
     "개인 정보 확인표 / 예금주 성명: [{PII}]",
@@ -154,7 +173,8 @@ def made_name(rng, i, split="train", family="full_name"):
     # exact boundary matters. Field anchoring makes single syllable person
     # supervision precise and auditable.
     if family == "full_name" and i % 17 == 0:
-        return name[0]+" "+name[1:]
+        surname_len = 2 if name.startswith(COMPOUND_SURNAMES) else 1
+        return name[:surname_len]+" "+name[surname_len:]
     return name
 
 
