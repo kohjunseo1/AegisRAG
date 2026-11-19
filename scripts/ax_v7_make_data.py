@@ -14,113 +14,113 @@ import json
 import random
 from pathlib import Path
 
-SYLLABLES = (
-    "가","나","다","라","마","바","사","아","자","차",
-    "하","별","솔","린","민","현","유","준","서","지",
-    "윤","정","태","도","율","온","수","희","빈","아",
+# HIGH-CONFIDENCE bootstrap only: the name is an explicitly labeled full
+# person name; the address is an explicit customer delivery/residence address.
+# One-character names, given-name-only mentions, surname-only references,
+# role-only text, ZIP inclusion and generic location mentions are EXCLUDED
+# pending the separate annotation-policy review.
+GIVEN_NAMES = (
+    "서준", "지우", "도윤", "민서", "유진", "하윤", "시우", "수아",
+    "지민", "현서", "준서", "나연", "예린", "예서", "가은", "수빈",
+    "은우", "채린", "지현", "준혁", "서연", "재민", "지호", "예지",
+    "윤서", "태윤", "서우", "승민", "가윤", "민준", "소윤", "지안",
 )
-SURNAMES = ("김","박","이","최","정","조","강","윤","임","한","남궁","황보")
-REGIONS = (
-    "서울특별시","부산광역시","대구광역시","인천광역시",
-    "대전광역시","경기도","강원특별자치도","충청남도",
-    "전북특별자치도","경상남도","제주특별자치도",
+SURNAMES = ("김", "박", "이", "최", "정", "조", "강", "윤", "임", "한", "신", "오", "권")
+COMPOUND_SURNAMES = ("남궁", "황보")
+REGION_DISTRICTS = (
+    ("서울특별시", "강남구"),
+    ("부산광역시", "해운대구"),
+    ("대구광역시", "달서구"),
+    ("인천광역시", "연수구"),
+    ("대전광역시", "유성구"),
+    ("경기도", "성남시 분당구"),
+    ("강원특별자치도", "춘천시"),
+    ("충청남도", "아산시"),
+    ("전북특별자치도", "전주시 완산구"),
+    ("경상남도", "창원시 성산구"),
+    ("제주특별자치도", "제주시"),
 )
-ROADS = ("가람로","나래길","솔빛로","샘터길","푸른로","새봄길","하늘로","새빛길")
-VILLAGES = ("가람동","새빛동","가상리","샘터동","나래리","솔빛동")
+ROADS = ("가람로", "나래길", "솔빛로", "샘터길", "푸른로", "새봄길", "하늘로", "새빛길")
+VILLAGES = ("가람동", "새빛동", "샘터동", "나래동", "솔빛동")
+
+# Value disjointness across train/dev is a stronger safeguard than text-only
+# deduplication. This is still a small synthetic smoke corpus, NOT a blind set.
+NAME_POOLS = {}
+for _split in ("train", "dev"):
+    pool = []
+    for surname in (*SURNAMES, *COMPOUND_SURNAMES):
+        for given in GIVEN_NAMES:
+            name = surname + given
+            bucket = int(hashlib.sha256(name.encode()).hexdigest()[:8], 16) % 5
+            if (bucket == 0) == (_split == "dev"):
+                pool.append((surname, given))
+    NAME_POOLS[_split] = tuple(pool)
+assert all(NAME_POOLS.values())
+
 TRAIN_NAME_TEMPLATES = (
-    "고객 성명: {PII} / 확인란에 서명했습니다.",
-    "상담 요청자 {PII}에게 접수 사실을 전달했습니다.",
-    "상담 기록에는 {PII}씨가 신청했다고 적혀 있습니다.",
-    "승인 안내를 받은 사람은 {PII}입니다.",
-    "처리 담당자가 기록한 신청인: {PII}",
-    "수취인 {PII}께서 수정 요청을 제출했습니다.",
-    "이름을 {PII}으로 변경해 주십시오.",
-    "문의 글의 작성자({PII})와 확인했습니다.",
+    "고객 성명: {PII}\n접수 상태: 대기",
+    "계약 신청인 성명: [{PII}] / 검토 완료",
+    "발송 수취인 이름: {PII} / 송장 확인",
+    "상담 예약자 성명: {PII}; 접수일은 별도",
+    "고객 정보 입력란 | 이름: {PII} | 확인",
+    "보험 계약자 성명: ({PII}) / 변경 요청",
+    "등록 직원 성명: {PII} / 부서 배정",
+    "개인 서명자 이름: [{PII}] / 서명 확인",
 )
 DEV_NAME_TEMPLATES = (
-    "접수 현황을 확인한 뒤 신청자 {PII}에게 안내했습니다.",
-    "실무 기록의 요청인 표기는 {PII}였습니다.",
-    "검토 결과 {PII}님이 처음 접수한 건이었습니다.",
+    "이전 신청서의 신청인 이름은 [{PII}]로 기재되어 있습니다.",
+    "상담 명단 / 대상자 성명: {PII}\n상태: 검토 중",
+    "주문 관련 개인 수령인: ({PII}) / 처리 완료",
 )
 TRAIN_ADDRESS_TEMPLATES = (
-    "주소: {PII} / 배송 정보",
-    "고객이 알려 준 주소는 {PII}입니다.",
-    "서류에 기재된 배송지는 {PII}였습니다.",
-    "신규 수령 장소는 {PII}로 등록합니다.",
-    "반송 대상 주소({PII})를 확인했습니다.",
-    "변경 주소를 {PII}라고 전달했습니다.",
+    "고객 배송지 전체주소: {PII}\n배송 메모: 없음",
+    "신청자 거주지 상세주소: [{PII}] / 본인 확인",
+    "우편 수령인의 주소: {PII}; 발송 예약",
+    "고객의 물품 반송 주소: ({PII}) / 배송팀 검수",
+    "거주자 등록 주소: {PII}\n변경 일자: 미정",
+    "택배 수취지: [{PII}] / 주소 변경 요청",
 )
 DEV_ADDRESS_TEMPLATES = (
-    "우편 발송에 사용할 주소: {PII}",
-    "주소 변경 내역에는 {PII}가 적혀 있었습니다.",
-    "서류 수취 위치가 {PII}로 신고됐습니다.",
-)
-NEG_TRAIN = (
-    "김 과장은 다음 회의의 일정을 정했습니다.",
-    "요청 접수 번호는 단순 업무용 번호입니다.",
-    "직원과 상담사는 업무 내용을 확인했습니다.",
-    "이름이라는 항목에는 값이 입력되지 않았습니다.",
-    "주소라는 항목에는 상세 내용이 없습니다.",
-    "부산 지역은 이번 검토의 대상이 아닙니다.",
-    "담당 부서는 서류의 형식만 검토했습니다.",
-)
-NEG_DEV = (
-    "서울 지역의 일반적인 서비스 동향을 논의했습니다.",
-    "이름과 직책이라는 제목만 있는 빈 표였습니다.",
-    "검토자와 담당자는 결재 단계에서 협의했습니다.",
+    "보험계약자 실제 거주 주소: {PII}\n심사 단계: 대기",
+    "등록된 개인 배송 주소는 [{PII}]입니다.",
+    "고객의 우편물 수신 주소: ({PII}) / 처리 단계: 완료",
 )
 
-# These are explicitly *non-PII* tokens in context, not unlabeled Gold.
-# Reported hard_eval examples included questionable Gold such as the literal
-# header '주소' tagged ADDRESS and company/product aliases tagged PERSON.
-# We do NOT train directly on those potentially inconsistent annotations.
+# Only clearly identified non-PII expressions receive verified O supervision.
+# Never mark the whole sentence O in a partially annotated 37-label model.
 TRAIN_HARD_NEGATIVES = (
-    ("상품 카탈로그의 이름 {TERM}은 사람 이름이 아니라 상품명입니다.", "솔빛알림"),
-    ("회사명 {TERM}은 법인 표기이며 개인 이름이 아닙니다.", "푸른결상사"),
-    ("안내문에 적힌 {TERM}은 문서의 항목명입니다.", "주소"),
-    ("사업 보고서의 {TERM}는 개인 거주지를 뜻하지 않습니다.", "서울지역"),
-    ("부서 공지의 {TERM}은 담당자의 개인 이름이 아닙니다.", "운영지원팀"),
-    ("상품명 {TERM}을 고객 성명으로 오인하지 마십시오.", "별빛포인트"),
-    ("재고 품목은 {TERM}이며 수취인은 따로 기재합니다.", "나래수첩"),
+    ("업무서식의 열 제목: [{TERM}] / 값은 비어 있습니다.", "주소"),
+    ("부서 분류명: [{TERM}] / 인사 공지입니다.", "고객지원팀"),
+    ("상품 카탈로그의 제품명: [{TERM}] / 재고 확인", "솔빛알림"),
+    ("문서 제목: [{TERM}] / 내용은 별도로 작성", "구매검토표"),
+    ("시스템 메뉴 이름: [{TERM}] / 메뉴 설정", "주소관리"),
+    ("장부의 입력 항목명: [{TERM}] / 실제 기재값 없음", "고객성명"),
 )
 DEV_HARD_NEGATIVES = (
-    ("사업 목록의 등록 상표 {TERM}은 개인 이름이 아닙니다.", "은하로고"),
-    ("영업 지역 {TERM}을 고객의 상세주소로 취급하지 않습니다.", "부산지역"),
-    ("신청서 항목의 {TERM}은 실제 거주지가 아닙니다.", "주소"),
-    ("담당 팀명 {TERM}과 신청인 성명은 서로 다릅니다.", "고객지원팀"),
+    ("운영 서식의 항목명: [{TERM}] / 데이터는 없습니다.", "주소"),
+    ("부서 목록의 팀 이름: [{TERM}] / 소속 분류", "관리지원팀"),
+    ("발주 관리의 상품명: [{TERM}] / 재고 목록", "나래알림"),
 )
 
 
-def made_name(rng, i):
-    n = (1 if i%11 == 0 else 2 if i%4 == 0 else 3 if i%5 else 4)
-    parts = [rng.choice(SYLLABLES) for _ in range(n)]
-    if n == 1:
-        return parts[0]
-    if n == 2 and i%3 == 0:
-        return rng.choice(SURNAMES) + parts[0]
-    if n >= 3:
-        full = rng.choice(SURNAMES) + "".join(parts[:n-1])
-    else:
-        full = "".join(parts)
-    if i%7 == 0 and len(full) > 2:
-        full = full[0] + " " + full[1:]
-    if i%17 == 0 and len(full)>2:
-        full = full[:-1] + "이"
-    return full
+def made_name(rng, i, split="train"):
+    surname, given = rng.choice(NAME_POOLS[split])
+    # Even with internal spacing these are unequivocally FULL names when a
+    # person-name field is explicit. No bare 1-char or given-only mentions.
+    return surname + (" " if i % 17 == 0 else "") + given
 
 
 def made_address(rng, i):
-    region = rng.choice(REGIONS)
-    code = rng.randrange(10, 950)
-    unit = rng.randrange(1, 95)
-    if i%3 == 0:
-        base = region + " " + rng.choice(VILLAGES) + " " + str(code) + "-" + str(unit)
+    region, district = rng.choice(REGION_DISTRICTS)
+    number = rng.randrange(20, 900)
+    if i % 3 == 0:
+        base = f"{region} {district} {rng.choice(VILLAGES)} {number}-{rng.randrange(1, 89)}"
     else:
-        base = region + " " + rng.choice(ROADS) + " " + str(code)
-        if i%4 == 0:
-            base += " " + str(unit) + "동 " + str(rng.randrange(101, 902)) + "호"
-    if i%13 == 0:
-        base = "(" + str(rng.randrange(10000,99999)) + ") " + base
+        base = f"{region} {district} {rng.choice(ROADS)} {number}"
+    if i % 4 == 0:
+        base += f" {rng.randrange(101, 109)}동 {rng.randrange(101, 908)}호"
+    # Five-digit postal-code policy remains unresolved. Exclude it until
+    # Gold/HMAC boundary rules are explicitly approved.
     return base
 
 
@@ -133,18 +133,18 @@ def entry(doc_id, template, value):
     ent = {"label":label,"start":start,"end":start+len(value)}
     if text[ent["start"]:ent["end"]] != value:
         raise ValueError("INVALID_UNICODE_OFFSET")
-    return {"id":doc_id,"text":text,"entities":[ent],"annotation_scope":"seven_only"}
+    return {"id":doc_id,"text":text,"entities":[ent],
+            "annotation_scope":"seven_only","quality_tier":"high_confidence"}
 
 
 def generate(seed, n, split):
     rng = random.Random(seed)
     names = TRAIN_NAME_TEMPLATES if split == "train" else DEV_NAME_TEMPLATES
     addresses = TRAIN_ADDRESS_TEMPLATES if split == "train" else DEV_ADDRESS_TEMPLATES
-    negatives = NEG_TRAIN if split == "train" else NEG_DEV
     rows=[]
     for i in range(n):
         if i%2 == 0:
-            val = made_name(rng, i + (10001 if split=="dev" else 0))
+            val = made_name(rng, i + (10001 if split=="dev" else 0), split)
             template = rng.choice(names)
             rows.append(entry(f"{split}_person_{i:05d}", template, val))
         else:
@@ -178,6 +178,7 @@ def generate(seed, n, split):
             "text":text,
             "entities":[],
             "annotation_scope":"seven_only",
+            "quality_tier":"high_confidence",
             "verified_o_spans":[{"start":start,"end":start+len(term),"text":term}],
         })
     rng.shuffle(rows)
