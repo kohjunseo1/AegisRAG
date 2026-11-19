@@ -99,7 +99,10 @@ def load_rows(path, *, role):
             raise ValueError(f"{role}: annotation_scope must be seven_only or full_37")
         ents = x.get("entities")
         if not isinstance(ents, list):
-            raise ValueError(f"{role}: entities must be an array (use [] for clean negatives)")
+            raise ValueError(f"{role}: entities must be an array")
+        o_regions = x.get("verified_o_spans", [])
+        if not isinstance(o_regions, list):
+            raise ValueError(f"{role}: verified_o_spans must be an array")
         intervals = []
         for ent in ents:
             label, a, b = ent.get("label"), ent.get("start"), ent.get("end")
@@ -115,6 +118,21 @@ def load_rows(path, *, role):
         intervals.sort()
         if any(intervals[i][0] < intervals[i-1][1] for i in range(1, len(intervals))):
             raise ValueError(f"{role}: overlapping Gold spans not supported")
+        checked_o = []
+        for region in o_regions:
+            if not isinstance(region, dict):
+                raise ValueError(f"{role}: verified O interval must be a mapping")
+            a, b = region.get("start"), region.get("end")
+            if type(a) is not int or type(b) is not int or not 0 <= a < b <= len(x["text"]):
+                raise ValueError(f"{role}: verified O interval invalid")
+            if region.get("text") != x["text"][a:b]:
+                raise ValueError(f"{role}: verified O substring mismatch")
+            if any(a < e and s < b for s,e in intervals):
+                raise ValueError(f"{role}: verified O overlaps positive Gold")
+            checked_o.append((a,b))
+        checked_o.sort()
+        if any(checked_o[i][0] < checked_o[i-1][1] for i in range(1,len(checked_o))):
+            raise ValueError(f"{role}: verified O spans overlap")
         if len(x["text"]) < 2:
             raise ValueError(f"{role}: empty or invalid text")
         rows.append(x)
@@ -181,6 +199,12 @@ def create_alignment(rows, tokenizer, idx, labels, names, o_id, max_length):
         for n, (a, b) in enumerate(offsets):
             if a == b:
                 targets[n] = -100
+        for region in row.get("verified_o_spans", []):
+            start, end = region["start"], region["end"]
+            for i, (a,b) in enumerate(offsets):
+                # Only tokens *fully* inside an audited non-PII region get O.
+                if a < b and start <= a and b <= end:
+                    targets[i] = o_id
         for ent in row["entities"]:
             entity_label = ent["label"]
             if entity_label in names:
@@ -196,6 +220,12 @@ def create_alignment(rows, tokenizer, idx, labels, names, o_id, max_length):
                        if a < b and a < ent["end"] and ent["start"] < b]
             if not touched:
                 raise ValueError("ENTITY_WITH_NO_ALIGNED_TOKEN")
+            first_a = offsets[touched[0]][0]
+            last_b = offsets[touched[-1]][1]
+            if first_a != ent["start"] or last_b != ent["end"]:
+                raise ValueError(
+                    "ENTITY_TOKEN_BOUNDARY_MISMATCH: cannot safely supervise "
+                    "a token that crosses the annotated PERSON/ADDRESS edge")
             for j, i in enumerate(touched):
                 if targets[i] not in (-100, o_id):
                     raise ValueError("TOKEN_OVERLAPS_MULTIPLE_GOLD_SPANS")
@@ -212,6 +242,7 @@ def report_set(name, path, rows):
         "sha256": checksum(path), "documents": len(rows),
         "annotations": dict(sorted(c.items())),
         "annotation_scopes": dict(counts),
+        "verified_o_spans": sum(len(row.get("verified_o_spans", [])) for row in rows),
     }, ensure_ascii=False), flush=True)
 
 
