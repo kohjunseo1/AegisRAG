@@ -51,6 +51,8 @@ def load_rows(path, *, role):
         raise ValueError(f"{role}: expected an existing .jsonl file")
     if role in ("train", "replay", "dev") and UNSAFE_SPLIT.search(path.name):
         raise ValueError(f"{role}: withheld/test-named data cannot be used to train or select checkpoints")
+    if role == "dev" and re.search(r"(generated[_-]?val|group[_-]?val|official[_-]?dev)", path.name, re.I):
+        raise ValueError("DEV_LEAKAGE_RISK: previous epoch-selection or training dev cannot select V7")
     rows, seen = [], set()
     for line in path.open(encoding="utf-8-sig"):
         if not line.strip():
@@ -195,7 +197,7 @@ def main():
     cli.add_argument("--batch-size", type=int, default=2)
     cli.add_argument("--grad-accum", type=int, default=8)
     cli.add_argument("--replay-fraction", type=float, default=0.35)
-    cli.add_argument("--distill-weight", type=float, default=0.25)
+    cli.add_argument("--distill-weight", type=float, default=0.5)
     cli.add_argument("--seed", type=int, default=42)
     cli.add_argument("--hf-read-check", action="store_true")
     cli.add_argument("--confirm-upload-to", default=None,
@@ -213,8 +215,12 @@ def main():
     sets = {}
     for name in ("train", "replay", "dev"):
         sets[name] = load_rows(getattr(args, name), role=name)
-    if any(x["annotation_scope"] != "full_37" for x in sets["replay"][1]):
-        raise ValueError("REPLAY_MUST_BE_FULL_37: old official dev with only seven labels is NOT safe full-head replay")
+    partial_replay = any(x["annotation_scope"] == "seven_only" for x in sets["replay"][1])
+    if partial_replay and args.distill_weight < 0.5:
+        raise ValueError("SEVEN_ONLY_REPLAY_REQUIRES_DISTILL_WEIGHT_GE_0_5: unannotated 37-class tokens are UNKNOWN, not O")
+    if partial_replay:
+        print("REPLAY_WARNING partial seven-label annotations; full 37-class replay unavailable. "
+              "Teacher KL preserves old outputs but does not guarantee no forgetting.", flush=True)
     check_splits(sets)
     model_dir = find_model_dir(args.model_dir)
     idx, labels, names, o_id = read_labels(model_dir)
@@ -321,8 +327,8 @@ def train(args, sets, model_dir, idx, labels, names, o_id):
             return (loss, outputs) if return_outputs else loss
 
     out = args.out.expanduser().resolve()
-    if (out / "best_model").exists():
-        raise ValueError("OUTPUT_ALREADY_EXISTS: protect existing trained checkpoint; choose new --out")
+    if out.exists() and any(out.iterdir()):
+        raise ValueError("OUTPUT_NOT_EMPTY: protect previous runs; supply a fresh --out directory")
     out.mkdir(parents=True, exist_ok=True)
     args_hf = TrainingArguments(
         output_dir=str(out/"checkpoints"),
