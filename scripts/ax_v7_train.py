@@ -45,6 +45,38 @@ def checksum(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def load_fast_tokenizer(model_dir):
+    """Match frozen Step1 backend compatibility for older A.X tokenizer_config."""
+    import shutil
+    import tempfile
+    from transformers import AutoTokenizer, PreTrainedTokenizerFast
+    try:
+        tok = AutoTokenizer.from_pretrained(
+            str(model_dir), use_fast=True, local_files_only=True)
+    except ValueError as ex:
+        if "TokenizersBackend" not in str(ex):
+            raise
+        try:
+            tok = PreTrainedTokenizerFast.from_pretrained(
+                str(model_dir), local_files_only=True)
+        except Exception:
+            with tempfile.TemporaryDirectory(prefix="ax-v7-tokenizer-") as tmp:
+                tmp_dir=Path(tmp)
+                for file in Path(model_dir).iterdir():
+                    if file.is_file() and file.suffix not in (".safetensors",".bin"):
+                        shutil.copy2(file,tmp_dir/file.name)
+                config=tmp_dir/"tokenizer_config.json"
+                if not config.is_file():
+                    raise ValueError("TOKENIZER_COMPAT_CONFIG_MISSING")
+                meta=json.loads(config.read_text(encoding="utf-8"))
+                meta["tokenizer_class"]="PreTrainedTokenizerFast"
+                config.write_text(json.dumps(meta,ensure_ascii=False),encoding="utf-8")
+                tok=AutoTokenizer.from_pretrained(str(tmp_dir),use_fast=True,local_files_only=True)
+    if not tok.is_fast:
+        raise ValueError("FAST_TOKENIZER_REQUIRED_FOR_UNICODE_OFFSETS")
+    return tok
+
+
 def load_rows(path, *, role):
     path = Path(path).expanduser().resolve()
     if not path.is_file() or path.suffix != ".jsonl":
@@ -224,8 +256,10 @@ def main():
     check_splits(sets)
     model_dir = find_model_dir(args.model_dir)
     idx, labels, names, o_id = read_labels(model_dir)
+    tokenizer = load_fast_tokenizer(model_dir)
     for name, (path, rows) in sets.items():
         report_set(name, path, rows)
+        create_alignment(rows, tokenizer, idx, labels, names, o_id, args.max_length)
         for row in rows:
             for e in row["entities"]:
                 if e["label"] not in names and (
@@ -262,9 +296,7 @@ def train(args, sets, model_dir, idx, labels, names, o_id):
 
     torch.manual_seed(args.seed)
     random.seed(args.seed)
-    tok = AutoTokenizer.from_pretrained(str(model_dir), use_fast=True, local_files_only=True)
-    if not tok.is_fast:
-        raise ValueError("OFFSET_MAPPING_REQUIRES_FAST_TOKENIZER")
+    tok = load_fast_tokenizer(model_dir)
     training_rows = list(sets["train"][1])
     old_rows = list(sets["replay"][1])
     replay_n = min(len(old_rows), max(1, int(len(training_rows)*args.replay_fraction)))
