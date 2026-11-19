@@ -219,5 +219,21 @@ class V7DataContracts(unittest.TestCase):
                 self.assertEqual(row["entities"],[])
 
 
+    def test_curated_short_names_and_grammar(self):
+        for split, seed, n in (("train", 1234, 800), ("dev", 21171, 150)):
+            rows=maker.generate(seed,n,split)
+            self.assertTrue(all(x["label_policy"].endswith("_v3") for x in rows))
+            for row in rows:
+                self.assertNotIn("]로 기재되어 있습니다",row["text"])
+                if row["case_family"]=="short_full_name":
+                    name=row["text"][row["entities"][0]["start"]:row["entities"][0]["end"]]
+                    self.assertIn(name, maker.SHORT_FULL_NAMES)
+                    self.assertNotIn(name, {"조별","이별"})
+                if row["case_family"]=="full_name":
+                    person=row["text"][row["entities"][0]["start"]:row["entities"][0]["end"]]
+                    self.assertNotIn("남 궁",person)
+                    self.assertNotIn("황 보",person)
+
+
 if __name__=="__main__":
     unittest.main()
