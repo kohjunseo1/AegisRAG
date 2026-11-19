@@ -157,11 +157,22 @@ def generate(seed, n, split):
     # document O merely because no seven-class Gold was supplied.
     negatives_with_targets = (TRAIN_HARD_NEGATIVES if split == "train"
                               else DEV_HARD_NEGATIVES)
+    # Vary benign document context to avoid repeating a tiny set of exact
+    # negative sentences dozens of times in a larger bootstrap corpus.
+    benign_purposes = ("정기점검", "내부검토", "분기보고", "업무정리", "사전확인",
+                       "품질검토", "자료편집", "분류작업", "처리기록")
+    benign_sections = ("분류표", "요약문", "업무자료", "참조표", "검토자료",
+                       "기록표", "안내서", "상태표", "추가설명")
     for i in range(max(1,n//5)):
         template, term = negatives_with_targets[i % len(negatives_with_targets)]
         marker = "{TERM}"
         start = template.index(marker)
-        text = template.replace(marker,term)
+        core = template.replace(marker,term)
+        prefix = (benign_purposes[(i//len(negatives_with_targets)) % len(benign_purposes)]
+                  + " " + benign_sections[(i//(len(negatives_with_targets)*len(benign_purposes))) % len(benign_sections)]
+                  + ": ")
+        text = prefix + core
+        start += len(prefix)
         rows.append({
             "id":f"{split}_negative_{i:05d}",
             "text":text,
