@@ -114,10 +114,22 @@ def make_value(rng, split, typ):
     raise ValueError(typ)
 
 
+def korean_name(rng, split, family):
+    if family == 'person_ko_short':
+        return rng.choice(v7.NAME_POOLS[split]['short_full_name'])
+    name = rng.choice(v7.NAME_POOLS[split]['full_name'])
+    if family == 'person_ko_spaced':
+        family_len = 2 if any(name.startswith(s) for s in v7.COMPOUND_SURNAMES) else 1
+        return name[:family_len] + ' ' + name[family_len:]
+    return name
+
+
 def synthetic_row(rng, split, i):
-    classes=('person_roman','person_alias','address_zip','phone_number',
-             'account_number','card_number','resident_registration_number',
-             'email','mixed','mixed','negative')
+    classes=('person_roman','person_alias','person_ko_full','person_ko_short',
+             'person_ko_spaced','person_ko_repeated','address_zip',
+             'address_lot','address_detail','phone_number','account_number',
+             'card_number','resident_registration_number','email',
+             'mixed','mixed','negative','negative')
     family=classes[i%len(classes)]
     text=f'{rng.choice(FIELDS_T if split=="train" else FIELDS_D)} / 업무 참조번호 Z-{rng.randrange(100000,999999)}\n'
     entities=[];verified=[]
@@ -133,12 +145,19 @@ def synthetic_row(rng, split, i):
     else:
         types=rng.sample(list(TYPES),rng.randrange(2,6)) if family=='mixed' else [
             'person' if family.startswith('person_') else
-            'address' if family=='address_zip' else family]
+            'address' if family.startswith('address_') else family]
         for typ in types:
             text+=rng.choice(LABEL_CUES[typ])+': '
             if family=='person_alias':
                 korean,english=roman(rng,split)
                 add(korean,'person');text+=' (영문 표기: ';add(english,'person');text+=')'
+            elif family.startswith('person_ko_'):
+                name=korean_name(rng,split,family)
+                add(name,'person')
+                if family=='person_ko_repeated':
+                    text+='\n동일 인물 '
+                    add(name,'person')
+                    text+='의 신청 기록을 확인했습니다.'
             else:add(make_value(rng,split,typ),typ)
             text+=rng.choice((' / 확인 필요\n','; 변경 요청\n','\n'))
     ends=TRAIN_ENDINGS if split=='train' else DEV_ENDINGS
@@ -185,14 +204,11 @@ def validate(train,dev):
 
 def generate(seed,n,split):
     rng=random.Random(seed)
-    # Reviewed v7 examples give short full names, particles and lot/road address.
-    old=v7.generate(seed,n//2,split)
-    for row in old:
-        row['id']='v71_'+row['id']
-        row['label_policy']='v71_synthetic_pilot'
-    new=[synthetic_row(rng,split,i) for i in range(n-len(old))]
-    result=old+new;rng.shuffle(result)
-    return result
+    # Do not call legacy v7.generate: its limited template pool can exhaust
+    # on some splits before any output is saved.
+    rows=[synthetic_row(rng,split,i) for i in range(n)]
+    rng.shuffle(rows)
+    return rows
 
 
 def main():
@@ -206,8 +222,13 @@ def main():
     if args.train_n<200 or args.dev_n<100:p.error('train >=200 and dev >=100')
     out=args.out.expanduser().resolve()
     if args.audit_only:
-        rows=[[json.loads(s) for s in (out/f'{name}.jsonl').read_text().splitlines() if s.strip()]
-              for name in ('train','dev')]
+        rows=[]
+        for name in ('train','dev'):
+            path=out/f'{name}.jsonl'
+            if not path.is_file():
+                raise ValueError(f'DATASET_NOT_GENERATED:{path} (run without --audit-only first)')
+            rows.append([json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()
+                         if line.strip()])
     else:
         if out.exists() and any(out.iterdir()):raise ValueError('OUTPUT_DIRECTORY_NOT_EMPTY')
         train=generate(args.seed,args.train_n,'train')
