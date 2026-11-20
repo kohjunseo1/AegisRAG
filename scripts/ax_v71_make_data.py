@@ -210,7 +210,21 @@ def main():
               for name in ('train','dev')]
     else:
         if out.exists() and any(out.iterdir()):raise ValueError('OUTPUT_DIRECTORY_NOT_EMPTY')
-        rows=[generate(args.seed,args.train_n,'train'),generate(args.seed+24311,args.dev_n,'dev')]
+        train=generate(args.seed,args.train_n,'train')
+        # Old curated address values are random; deterministically retry a dev
+        # seed if a synthetic surface accidentally collides across splits.
+        for attempt in range(24):
+            dev=generate(args.seed+24311+attempt*7919,args.dev_n,'dev')
+            try:
+                validate(train,dev)
+            except ValueError as exc:
+                if str(exc).startswith(('SPLIT_PII_OVERLAP_','SPLIT_DOC_OVERLAP')):
+                    continue
+                raise
+            rows=[train,dev]
+            break
+        else:
+            raise ValueError('SPLIT_DIVERSITY_EXHAUSTED')
     report=validate(*rows)
     if not args.audit_only:
         out.mkdir(parents=True,exist_ok=True)
