@@ -144,7 +144,7 @@ def main():
         predictor = make_predictor(checkpoint, "cpu")
     print("LOCAL SENSITIVE VIEW — DO NOT SHARE TERMINAL OUTPUT")
     print("Decision: 1=VALID_PII 2=INVALID_GOLD 3=POLICY_DISPUTED 4=INSUFFICIENT_CONTEXT")
-    print("Cause: 1=MODEL_NO_OVERLAP 2=BOUNDARY 3=LABEL_CONFLICT 4=MASK_GAP 5=GOLD_POLICY 6=UNKNOWN")
+    print("Cause is saved automatically: GOLD_POLICY for INVALID_GOLD; UNKNOWN otherwise.")
     displayed = 0
     for i, case in enumerate(cases):
         if args.coverage != "BOTH" and case["coverage"] != args.coverage:
@@ -172,11 +172,9 @@ def main():
             if displayed >= args.limit:
                 break
             continue
-        cause = input("cause [1/2/3/4/5/6/s]: ").strip().lower()
-        if cause not in CAUSES:
-            if displayed >= args.limit:
-                break
-            continue
+        # Human reviewers judge Gold validity only. A model error cause cannot
+        # reliably be inferred from Gold text alone; analyze predictions later.
+        cause = "5" if choice == "2" else "6"
         saved["decisions"][key] = {
             "decision": DECISIONS[choice], "cause": CAUSES[cause],
             "coverage": case["coverage"], "label": case["label"]
