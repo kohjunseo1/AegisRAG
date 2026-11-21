@@ -195,6 +195,10 @@ def create_alignment(rows, tokenizer, idx, labels, names, o_id, max_length):
         if len(tokens["input_ids"]) > max_length:
             raise ValueError("TOKENIZED_ROW_TOO_LONG: split sentence/doc into short, offset-verified training examples")
         offsets = tokens.pop("offset_mapping")
+        # Some V7 tokenizer snapshots emit BERT-style segment IDs. ModernBERT
+        # token classification does not accept token_type_ids in forward().
+        # These IDs are not needed for single-document sequence labeling.
+        tokens.pop("token_type_ids", None)
         targets = [o_id if row["annotation_scope"] == "full_37" else -100] * len(offsets)
         for n, (a, b) in enumerate(offsets):
             if a == b:
