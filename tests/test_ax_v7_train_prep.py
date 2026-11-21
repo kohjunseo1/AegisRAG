@@ -85,6 +85,44 @@ class V7DataContracts(unittest.TestCase):
         )
 
 
+    def test_modernbert_training_inputs_exclude_token_type_ids(self):
+        """Tokenizer may emit BERT segment IDs; ModernBERT forward rejects them."""
+        types = ["PERSON", "PHONE", "EMAIL", "ADDRESS", "RRN", "ACCOUNT", "CARD"]
+        types.extend(f"OTHER_{i}" for i in range(11))
+        tags = ["O"] + [f"{part}-{kind}" for kind in types for part in ("B", "I")]
+        folder = self.folder / "segment_id_model"
+        folder.mkdir()
+        (folder / "config.json").write_text(json.dumps({
+            "id2label": {str(i): tag for i, tag in enumerate(tags)}
+        }), encoding="utf-8")
+        idx, labels, names, o_id = tr.read_labels(folder)
+
+        class SegmentTokenizer:
+            def __call__(self, text, **kwargs):
+                return {
+                    "input_ids": [101, 5, 6, 102],
+                    "attention_mask": [1, 1, 1, 1],
+                    "token_type_ids": [0, 0, 0, 0],
+                    "offset_mapping": [(0, 0), (0, 1), (1, 2), (0, 0)],
+                }
+
+        row = {
+            "id": "mock", "text": "김민", "annotation_scope": "seven_only",
+            "entities": [{"label": "person", "start": 0, "end": 2}],
+        }
+        encoded = tr.create_alignment([row], SegmentTokenizer(), idx,
+                                      labels, names, o_id, 384)[0]
+        self.assertNotIn("token_type_ids", encoded)
+        self.assertEqual(encoded["labels"],
+                         [-100, names["person"][0], names["person"][1], -100])
+
+        # Simulates the exact ModernBERT failure: no segment-id parameter.
+        def modernbert_forward(input_ids, attention_mask):
+            return len(input_ids), len(attention_mask)
+        features = {k: v for k, v in encoded.items() if k != "labels"}
+        self.assertEqual(modernbert_forward(**features), (4, 4))
+
+
     def test_verified_o_token_supervision_not_whole_document(self):
         train = maker.generate(234, 100, "train")
         negatives = [x for x in train if x.get("verified_o_spans")]
