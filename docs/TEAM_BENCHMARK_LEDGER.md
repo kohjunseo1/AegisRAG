@@ -238,3 +238,15 @@ Source: user local FINAL_RESULT A187/B171/Hard403 and STEP1_FINAL_REGRESSION_PAS
 Raw and typed document parity, expected review counts, and no newly uncovered chars all passed. Hard403 73 additional Gold chars covered by unresolved candidate union, 106 candidate chars outside Gold; 14/33 complete misses fully covered by candidates, 16/33 overlapped. Typed complete misses remain 33. 22/41 baseline leaky docs reviewed, 19/41 not reviewed. Four unmapped non-O uncovered tokens remain diagnostic items. A187/B171 extra candidate chars outside Gold 8/121 respectively. Audit docs and review docs can overlap. Candidate offsets are not confirmed entities or actual masked output. No external release approval. Final run shares one model across corpora; latency versus earlier fresh-process benchmark is descriptive, not isolated overhead measurement.
 
 Decision: stop Step1 tuning; freeze development candidate and preserve original scores, checkpoint, pinned code and evaluation evidence. Step2 E2E must validate actual pseudonymization, review blocking, unresolved candidate handling and local/external boundary. Existing legacy, other branches, Holdout2 and prior Step2 work preserved. Storage cleanup requires read-only inventory of all local worktrees, untracked assets and Drive checkpoints before deletion; do not delete the only validated model copy, evaluation manifests/data or uncommitted work. No files deleted by this record.
+
+
+## 2026-11-24 context review refinement — final Step1 development selection
+
+Source: user local CONTEXT_FINAL_RESULT A187 and B171, implementation 4b090e6, benchmark 491059c, documentation 0fa8593. Same model SHA256 as above. Policy core_postal_join_guard_seed25_adjacent10_context_v2. User reports validation completed; model distribution smoke test pending.
+
+| Dataset | TP/FP/FN | Strict F1 | Typed mask recall | Protected Gold chars | Review docs before/after | Review events before/after | Mean ms | P95 ms |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| A187 | 909/3/3 | .996711 | 1 | 7642/7642 | 10/3 | 10/3 | 427.6129 | 864.9022 |
+| B171 | 1435/56/4 | .979522 | 1 | 12459/12459 | 44/8 | 82/11 | 1571.1905 | 3287.1881 |
+
+A187 resolved 7 events (bereavement body 2, header 1, surname/title 4); remaining name suffix 3. B171 resolved 71 (surname/title 56, URL host 4, dialogue label 7, service contact 3, amount placeholder 1). Zero Gold-overlap chars in resolved events. Protection outside Gold 94/399 chars respectively. No typed changes or mask shrinking; unresolved candidates and audit protection still require Step2 gate. No actual pseudonymized output/egress test. Hard403 not rerun under new context policy; prior results historical only. A187 and B171 are exposed development corpora, not independent final generalization evidence. Holdout2 untouched. Stop Step1 policy tuning; proceed with pinned private Hub checkpoint provisioning and local/offline smoke parity before Step2. No automatic fallback to another model or base weights.
