@@ -207,3 +207,19 @@ Source: user CASE_AUDIT_PARITY_PASS, CASE_SUMMARY and CANDIDATE_COST from e78a34
 All 33 missed entities had owner winner O in overlapping tokens. 25% is a provisional candidate seed threshold: same 6/7 likely-name overlap as 10%, lower incidental candidate burden, but only 8/14 plausible cases fully covered. B171 review burden still 44/171 and Hard403 residual leaky docs unreviewed 19/41; NOT accepted as final operating threshold. At 10% two plausible/ambiguous cases still have no direct candidate overlap (one name adjacent to account number with max PII .055275; one ambiguous ordinary-word/name value with .003801). The additional ambiguous case missed at 25% has max .134238. These are illustrative categories, not runtime exceptions. No automatic Gold exclusions or specific-case rules.
 
 Next: bounded same-type adjacent token candidate expansion using cached offset scores (25% seed, 10% support), compare protection/overmask cost against unchanged 10% and 25% signals. Keep unresolved candidates separate from confirmed entities; no automatic HMAC or release. If final operating safety/utility remains inadequate, consider optional selective second-pass/independent detector instead of promising zero miss with one encoder. Validate on independent material before deployment.
+
+
+## 2026-11-24 EXP6-B boundary ablation and Step1 final candidate selection
+
+Source: user-provided BOUNDARY_SELF_TEST_PASS and BOUNDARY_ABLATION_COMPLETE, boundary_ablation_20261124_154325.json. All original Gold preserved.
+
+| Mode | Hard403 review docs | Leaky docs reviewed /41 | Complete miss overlap /33 | Complete miss full candidate coverage /33 | Newly covered Gold chars | Candidate chars outside Gold | Remaining Gold chars after candidate union |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| o_pii_10 | 130 | 28 | 24 | 20 | 86 | 214 | 67 |
+| o_pii_25 | 89 | 22 | 16 | 13 | 66 | 89 | 87 |
+| seed25_adjacent10 | 89 | 22 | 16 | 14 | 73 | 106 | 80 |
+| seed25_space10 | 89 | 22 | 16 | 14 | 73 | 107 | 80 |
+
+Select adjacent-only 25% seed and 10% same-type contiguous support, with audit separation. User prioritizes A187/B171 performance and adequate Hard403 performance; stop tuning the exposed Hard403. No new weights, additional model, broad honorific, field, format, repeat or window rules in this selected policy. Prior format/repeat experiments retained for comparison only. Selected candidate implementation starter/v7_validated.py at 7ff179c, local final regression tools/benchmark_v7_validated.py at 6e0df14. Existing legacy and frozen baseline paths unchanged. Final regression pending on user machine; no measured integrated latency yet.
+
+Typed entities unchanged per design; raw+typed mask union retained and expanded by unresolved uncertainty candidate intervals. Suppression audit does not unmask; resolved postal events become audit. Review label is a hypothesis, not an HMAC entity. Audit events can coexist with review. READY_FOR_LOCAL_PSEUDONYMIZATION is only local processing eligibility; deployment_approved remains false. Step2 must consume review_events and mask_intervals, quarantine unresolved documents/queries, and verify actual protection before release. No claim of zero misses. Original Hard403 typed F1 .908636, typed mask recall .991890, candidate-union proxy expected 18786/18866 (.995760); 19/41 leaky docs still unreviewed in this regression. Expected review A187 10/187, B171 44/171, Hard403 89/403. B171 review burden remains nontrivial; accepted as provisional development tradeoff, not optimized production gate. Final integrated run must reproduce each document's raw and typed spans, exact review counts, no mask regression and Hard403 candidate counts, then transition to Step2 development without further threshold search. Holdout2 untouched.
