@@ -63,8 +63,14 @@ def _load_model():
         if not MODEL_DIR.exists():
             raise FileNotFoundError(f"모델 폴더가 없습니다: {MODEL_DIR}  (.env 의 PII_MODEL_DIR 확인)")
         torch.set_num_threads(NUM_THREADS)
-        _tok = AutoTokenizer.from_pretrained(str(MODEL_DIR))
-        _model = AutoModelForTokenClassification.from_pretrained(str(MODEL_DIR)).eval()
+        tok = AutoTokenizer.from_pretrained(str(MODEL_DIR))
+        model = AutoModelForTokenClassification.from_pretrained(str(MODEL_DIR)).eval()
+        # The pinned RoBERTa checkpoint was saved with torchscript=True.
+        # Eager inference expects ModelOutput.logits, not a TorchScript tuple.
+        # Match the original benchmark's runtime-only config normalization.
+        model.config.torchscript = False
+        model.config.return_dict = True
+        _tok, _model = tok, model
     return _tok, _model
 
 
