@@ -133,3 +133,20 @@ A187/B171/Hard403는 모두 기존에 분석된 회귀 자료이며 신규 독�
 - Decision: freeze V7 weights and Core candidate for Step2 development, do not further tune on exposed A187/B171/Hard403 merely for F1. Audit complete misses by label and whether document review catches them, and evaluate independent structural verification, gate false READY and actual release coverage before final deployment. No new Gold inspection for runtime. A187 remains primary scoring reference; Holdout2 remains untouched.
 - Mean speedup Legacy/V7: A187 2.22x, B171 3.26x, Hard403 1.32x. Hard403 P95 501.75 -> 509.90 ms (slight regression); cold start and RSS pending actual saved aggregate JSON.
 - Honorific policy: 3팀 develop report confirms 성+호칭 exclusion as policy; 4팀 final README line 111 explicitly detects one-character given names with 님/씨 (e.g. 린님/진씨) and excludes surname+job-title; do not blanket-remove all one-character names followed by 님/씨. Our Core retained; Combined remains unselected. Context/identity and ambiguity review in Step2.
+
+
+## 2026-11-24 V7 residual audit and REVIEW scenarios
+
+Source: user-provided AUDIT_AGGREGATE output from tools/audit_v7_residuals.py (51f380d). Raw/typed counts and current review counts reproduced. No Gold edited; no model or runtime policy changed. Offline scenario only, not Gate deployment approval.
+
+| Dataset | Current review docs | Audit-only suppression | Also resolve postal | Also flag ambiguous honorific | Uncovered docs (current / proposed reviewed) |
+|---|---:|---:|---:|---:|---|
+| A187 | 32 | 7 | 3 | 3 | 0 (0 / 0) |
+| B171 | 8 | 0 | 0 | 2 | 0 (0 / 0) |
+| Hard403 | 19 | 19 | 19 | 21 | 41 (0 / 2) |
+
+A187: 25 suppression events overlap no Gold (10 status, 9 extension, 6 bereavement); 4 postal overlap events all resolved by join; remaining 3 name-suffix review docs. B171: 8 surname-title suppression events overlap no Gold; 11 ambiguous honorific predictions across 2 docs. These scenarios retain protection; audit-only classification does not itself authorize unmasking. No newly uncovered Gold characters from raw to typed in any corpus.
+
+Hard403: 33 complete misses across 27 docs (person 29, address 2, phone 1, RRN 1); 21 partial misses; 89 fully covered strict FN (81 same-label boundary, 8 wrong-label). Total 153 uncovered chars across 41 docs. Current review catches 0/41 leaky docs and 0/33 complete-miss entities. Honorific scenario catches 2/41 docs and 3/33 entities via document-level signals, with 0 direct overlap with the missed spans. 39 leaky docs remain unreviewed. Complete-miss policy flags: 4 possible surname-title, 2 ambiguous surname/given-name honorific, 27 no identified policy conflict. These are heuristic candidates, not adjudicated Gold errors. Preserve original Gold; any policy-aligned evaluation requires independent consistent full-corpus annotation review. Do not exclude FN selectively.
+
+Next: separate auto audit events from unresolved human-review queue without changing typed spans or reducing protection; inspect private residual context locally; test independent structural/field validation and name ambiguity signals against missed-span and false-review metrics. Keep V7 weights frozen while evaluating lightweight safeguards. Do not interpret current REVIEW rate as actual false READY for external transfer; no production gate run.
