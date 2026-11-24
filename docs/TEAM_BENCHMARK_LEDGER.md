@@ -167,3 +167,26 @@ Source: user-provided completed validator_ablation_20261124_152343.log output, s
 | all | 31 | 67 | 69 | 10 | 4 |
 
 All-combination Hard403 proposal-protection proxy .992844 vs typed .991890; hypothetical candidate coverage only, not actual masking. 31/41 leaky docs still not reviewed. No newly uncovered chars. Field/honorific generator deliberately produces weak review-only candidates; zero auto-adds does not prove that all possible alternative algorithms fail. Do not expand field vocabulary or data-specific exclusions for regression F1. Broad honorific and field rules not selected; format and repeat remain optional shadow signals, pending uncertainty experiment and cost/benefit assessment. Retain the separate narrow ambiguity scenario (previous audit), which is distinct from this broad honorific generator. A187 is primary, all three are exposed regression sets; no Gold edits. Next: EXP4–5 using frozen model score capture and raw-cache per-document parity. No production code changed.
+
+
+## 2026-11-24 EXP4–5 uncertainty and window ablation
+
+Source: user-provided UNCERTAINTY_ABLATION_COMPLETE output, uncertainty_ablation_20261124_152711.json, script f045721. Original typed F1, mask recall and complete misses remain unchanged in all review-only scenarios. No runtime policy or Gold changes.
+
+| Mode | A187 review | B171 review | Hard403 review | Hard403 leaky docs reviewed / 41 | Complete miss candidate overlap / 33 | Complete miss fully covered by candidates / 33 | Complete miss entities in unreviewed docs / 33 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| baseline_audit | 3 | 0 | 19 | 0 | 0 | 0 | 33 |
+| o_pii_10 | 27 | 65 | 130 | 28 | 24 | 20 | 8 |
+| o_pii_25 | 10 | 44 | 89 | 22 | 16 | 13 | 16 |
+| o_pii_40 | 4 | 16 | 50 | 15 | 7 | 5 | 23 |
+| o_pii_60 | 3 | 0 | 20 | 1 | 0 | 0 | 33 |
+| o_margin_15 | 4 | 11 | 44 | 14 | 7 | 5 | 23 |
+| window_any / window_p50 | 3 | 0 | 19 | 0 | 0 | 0 | 33 |
+| o25_plus_window / o25_plus_repeat | 10 | 44 | 89 | 22 | 16 | 13 | 16 |
+| o25_plus_format_repeat | 10 | 44 | 101 | 23 | 16 | 13 | 15 |
+
+- Hard403 proposal protection proxies: .996449 (o10), .995389 (o25), .993533 (o40), .993215 (margin15), .995707 (o25+format+repeat). These are hypothetical offset unions, not actual protection; typed recall remains .991890.
+- Overlap availability: A187 0/187 docs, B171 8/171 docs (1024 tokens), Hard403 0/403 docs. No new eligible window signals here; not evidence against effectiveness in long documents generally.
+- Four uncovered non-O tokens with unmapped type on Hard403 require label-map inspection (not proven PII). Owner O-only filtering and raw+typed protection filtering limit this experiment's scope.
+- Uncertainty substantially outperforms broad lexical rules on direct miss discovery, but no threshold yet offers both small review burden and sufficient safety. Margin15 is a low-cost comparison candidate, not approved; 27/41 leaky documents still unreviewed. No claim that suspected policy-conflict misses are the ones detected: aggregate output cannot identify intersections. Preserve original Gold.
+- Next decision: investigate case-level signal coverage and candidate false masking cost, particularly suspected policy-conflict vs plausible genuine misses; validate bounded candidate/context grouping and risk tiers on separate development/counterexamples rather than tuning to exposed Holdout scores. Keep one encoder and frozen Core; no automatic release or blanket token masking. Review rates are not actual egress safety.
