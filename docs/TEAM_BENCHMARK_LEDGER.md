@@ -3,7 +3,7 @@
 - 최초 기록: 2026-11-24 (KST)
 - 관리 브랜치: `experiment/team-v7-integration`
 - 목적: 실전1 탐지 / 실전2 검색 / 종합 E2E의 비교 근거를 보존하고, 동일 데이터셋의 최신 검증 결과를 추가한다.
-- 상태: Legacy 실측 완료, V7 이전 실험 재현 대기, 타 팀 공개 수치 참조. 미측정은 이 비교 원장에서 확인된 수치 없음(실제 실행 여부는 별개).
+- 상태: Legacy 및 V7 통합 실측 완료, V7 이전 strict/coverage 집계 재현, 타 팀 공개 수치 참조. 미측정은 이 비교 원장에서 확인된 수치 없음(실제 실행 여부는 별개).
 - **비교 원칙:** 같은 원본 Gold/라벨 정의/분모/평가 단계만 직접 비교한다. 최신 버전과 최고 공개 수치를 별도 행으로 기록한다. mask union과 최종 반환 span의 커버리지를 구분한다. 이전 실험은 새 통합 실측으로 대체하지 않는다. 타 기기의 latency를 배수 비교하지 않는다. Gold/원문/가중치/비밀은 커밋하지 않는다.
 
 ## 데이터셋 등록
@@ -31,7 +31,7 @@ A187/B171/Hard403는 모두 기존에 분석된 회귀 자료이며 신규 독�
 | 5팀 Legacy 4모델 실측 | .933128 | .994518 | .962845 | 1.000000 | 907/65/5 | 538.82 | 1037.64 | 미측정 | OWN-LEG |
 | V7 Onepass Raw (이전) | 0.960680 | 0.991228 | .975715 | .997383 | 904/37/8 | 미측정 | 미측정 | 미측정 | OWN-V7 |
 | V7 Onepass Core Postal Join Guard (이전) | 0.996711 | 0.996711 | .996711 | 1.000000* | 909/3/3 | 미측정 | 미측정 | 미측정 | OWN-V7 |
-| V7 Onepass Core 통합 실측 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 예정 |
+| V7 Onepass Core 통합 실측 | .996711 | .996711 | .996711 | 1.000000 | 909/3/3 | 242.92 | 326.45 | 미측정 | OWN-V7-LIVE |
 
 ## 실전1 — B171
 
@@ -44,7 +44,7 @@ A187/B171/Hard403는 모두 기존에 분석된 회귀 자료이며 신규 독�
 | V7 Onepass Raw (이전) | 0.957305 | 0.997220 | .976855 | 1.000000 | 1435/64/4 | 미측정 | 미측정 | 미측정 | OWN-V7 |
 | V7 Onepass Core Postal Join Guard (이전) | 0.962441 | 0.997220 | .979522 | 1.000000* | 1435/56/4 | 미측정 | 미측정 | 미측정 | OWN-V7 |
 | V7 Onepass Combined Guard (이전, 미선정) | 0.969595 | 0.997220 | .983213 | 1.000000* | 1435/45/4 | 미측정 | 미측정 | 미측정 | OWN-V7 |
-| V7 Onepass Core 통합 실측 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 예정 |
+| V7 Onepass Core 통합 실측 | .962441 | .997220 | .979522 | 1.000000 | 1435/56/4 | 803.05 | 1361.81 | 미측정 | OWN-V7-LIVE |
 
 ## 실전1 — Hard403
 
@@ -62,7 +62,7 @@ A187/B171/Hard403는 모두 기존에 분석된 회귀 자료이며 신규 독�
 | V7 Onepass Raw (이전) | 0.887310 | 0.924923 | .905726 | .991678 | 1811/230/147 | 미측정 | 미측정 | 미측정 | OWN-V7 |
 | V7 Onepass Core Postal Join Guard (이전) | 0.891016 | 0.926966 | .908636 | .991890* | 1815/222/143 | 미측정 | 미측정 | 미측정 | OWN-V7; 신규 exact loss 0 |
 | V7 Onepass Combined Guard (이전, 미선정) | 0.890748 | 0.924413 | .907268 | .991890* | 1810/222/148 | 미측정 | 미측정 | 미측정 | OWN-V7; 신규 exact loss 5 |
-| V7 Onepass Core 통합 실측 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 예정 |
+| V7 Onepass Core 통합 실측 | .891016 | .926966 | .908636 | .991890 | 1815/222/143 | 261.02 | 509.90 | 미측정 | OWN-V7-LIVE |
 
 * mask union: 원본 탐지 후보 + 보정 후보의 문자 커버리지. 실제 가명처리 출력 보호를 입증하지 않는다. Legacy Mask Rec은 최종 반환 span의 커버리지. Legacy 누락 문자 A187 0/7642, B171 2/12459, Hard403 177/18866. 완전 미탐 0/0/23. V7 이전 summary는 raw cache 기반, CPU 속도 비교 아님.
 
@@ -114,6 +114,22 @@ A187/B171/Hard403는 모두 기존에 분석된 회귀 자료이며 신규 독�
 
 - 우선 후보: V7 Final Onepass + Core Postal Join Guard. Combined는 Hard403에서 신규 exact loss 5개로 보류. 추가 학습 중단, 실제 코드/가명처리 계약 검증 우선. V6/Legacy는 비교/rollback 경로 유지.
 - 실전1 개발 종료 목표: A187 F1>=.9951 / mask=1, B171 F1>.976109 / mask=1, Hard403 F1>=.90 / mask>=.990618, 후처리 추가 노출 없음, 동일 기기 속도 개선. Gate 미검증 상태는 배포 승인 아님.
-- 다음 갱신: V7 통합 raw/core 결과 및 기존 전체 Legacy JSON의 cold start 추가. 동일 scoring contract에서 typed strict와 실제 mask coverage를 별도 계측. 모델별 최적 CPU thread 설정은 별도 짧은 tuning 후 표기; 기존 controlled 결과 유지.
+- 다음 갱신: 양쪽 전체 실행 JSON에서 cold start/peak RSS 및 소스 해시 추가. 모델별 최적 CPU thread 설정은 별도 짧은 tuning 후 표기; 기존 controlled 결과 유지. Step2 gate의 실제 마스킹/외부 전송과 false READY 검증은 별도 단계.
 - 타 팀 업데이트: pinned commit, 경로, 데이터 해시(가능하면), 날짜, 평가 정책을 기록하여 해당 행을 추가한다. 미측정을 추정으로 채우지 않는다.
 - Holdout2 수령 전 모델/정책/임계값/스코어러/환경/커밋을 고정한다. 최종 평가 후 수정이 필요하면 해당 세트를 회귀 자료로 재분류하고 별도 신규 확인셋을 사용한다.
+
+## 2026-11-24 V7 통합 실측 추가 (OWN-V7-LIVE)
+
+사용자 로컬 BENCHMARK_COMPLETE 로그, 개인 브랜치 8b17cf6 이후, 동일 원본 Gold 해시 및 CPU 2스레드 비교. 정책 core_postal_join_guard_v1_audited. 이전 raw 및 core TP/FP/FN과 최종 점수 모두 재현. 모델 학습 없음. Mask Rec은 최종 typed span coverage이고 실제 외부 전송 유출 검사와 다름.
+
+| Dataset | Raw TP/FP/FN | Raw F1 | Raw mask | Typed leak chars | Typed fully uncovered | Typed partly uncovered only | Union proxy recall | Review docs |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| A187 | 904/37/8 | .975715 | .997383 | 0 | 0 | 0 | 1.000000 | 32/187 |
+| B171 | 1435/64/4 | .976855 | 1.000000 | 0 | 0 | 0 | 1.000000 | 8/171 |
+| Hard403 | 1811/230/147 | .905726 | .991678 | 153 | 33 | 21 | .991890 | 19/403 |
+
+- Review reasons: A187 bereavement_kinship_role 6, event_status_nominal 10, explicit_internal_extension 9, name_suffix:review_only 3, postal:review_overlap 4; B171 standalone_surname_title 8; Hard403 name_suffix:review_only 20, postal:review_unlabeled_prefix 4. Counts are candidate events, not review recall.
+- Legacy fully uncovered Hard403=23 vs V7=33, despite fewer missed chars (177 -> 153) and strict FN (225 -> 143). Complete miss is an independent risk; the 19 review documents do not establish capture of those 33 entities. No deployment approval. Keep Legacy/V6 fallback as explicit evaluation/rollback only, not automatic fail-open.
+- Decision: freeze V7 weights and Core candidate for Step2 development, do not further tune on exposed A187/B171/Hard403 merely for F1. Audit complete misses by label and whether document review catches them, and evaluate independent structural verification, gate false READY and actual release coverage before final deployment. No new Gold inspection for runtime. A187 remains primary scoring reference; Holdout2 remains untouched.
+- Mean speedup Legacy/V7: A187 2.22x, B171 3.26x, Hard403 1.32x. Hard403 P95 501.75 -> 509.90 ms (slight regression); cold start and RSS pending actual saved aggregate JSON.
+- Honorific policy: 3팀 develop report confirms 성+호칭 exclusion as policy; 4팀 final README line 111 explicitly detects one-character given names with 님/씨 (e.g. 린님/진씨) and excludes surname+job-title; do not blanket-remove all one-character names followed by 님/씨. Our Core retained; Combined remains unselected. Context/identity and ambiguity review in Step2.
