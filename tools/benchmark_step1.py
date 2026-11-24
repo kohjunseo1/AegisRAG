@@ -189,8 +189,27 @@ def main():
     torch.set_num_interop_threads(2)
     from starter import pii_pipeline as P
     if a.backend == "legacy":
+        # V6's original ONNX decoder requests 4 threads. For the shared
+        # two-thread CPU benchmark only, bound every ORT session as in the
+        # earlier lean_worker experiment. Production code stays unchanged.
+        import onnxruntime as ort
+        original_init = ort.InferenceSession.__init__
+        def bounded_init(self, *args, **kwargs):
+            positional = list(args)
+            opts = (positional[1] if len(positional) > 1
+                    else kwargs.get("sess_options")) or ort.SessionOptions()
+            opts.intra_op_num_threads = 2
+            opts.inter_op_num_threads = 2
+            if len(positional) > 1:
+                positional[1] = opts
+                kwargs.pop("sess_options", None)
+            else:
+                kwargs["sess_options"] = opts
+            original_init(self, *positional, **kwargs)
+        ort.InferenceSession.__init__ = bounded_init
         from starter import v6_client
         require(P.HYBRID and not P.ENSEMBLE and v6_client.MODE == "inproc", "LEGACY_PROFILE_MISMATCH")
+        print("CPU_THREAD_POLICY torch=2 ort_intra=2 ort_inter=2", flush=True)
     else:
         require(getattr(P, "BACKEND", None) == "v7_onepass", "V7_ADAPTER_NOT_IMPLEMENTED")
     def detect(text):
@@ -244,7 +263,7 @@ def main():
                   python=sys.version.split()[0], platform=platform.platform(),
                   versions=versions, cold_start_ms=cold_ms,
                   peak_rss_mb=rss/(1024**2 if sys.platform=="darwin" else 1024),
-                  cpu_threads=2, datasets=results, profile=LEGACY if a.backend=="legacy" else {},
+                  cpu_threads=2, ort_threads=2 if a.backend=="legacy" else None, datasets=results, profile=LEGACY if a.backend=="legacy" else {},
                   mask_definition="coverage of final typed spans returned by common entrypoint",
                   gate_e2e_validated=False, repeat=1)
     a.out.parent.mkdir(parents=True, exist_ok=True)
