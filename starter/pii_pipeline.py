@@ -30,6 +30,9 @@ from .rules_detector import detect as rule_detect
 
 TOKEN_PATTERN = re.compile(r"<[A-Z_]+_[0-9A-Za-z]+>")
 IS_DEMO = False
+BACKEND = os.getenv("PII_BACKEND", "legacy")
+if BACKEND not in ("legacy", "v7_onepass"):
+    raise ValueError("UNKNOWN_PII_BACKEND")
 
 # ---------------------------------------------------------------- 설정 (실전 1 v1 노트북과 동일)
 MODEL_DIR = Path(os.getenv("PII_MODEL_DIR", str(config.ROOT / "models" / "roberta_small_v1")))
@@ -294,9 +297,14 @@ def detect(text, use_model=True):
     return detect_info(text, use_model)[0]
 
 
-def detect_info(text, use_model=True):
+def detect_info(text, use_model=True, *, benchmark_only=False):
     """(spans, info) — info: {"source": cache|hybrid|merge|hybrid_fallback, "review": [...], "v6_status": ...}
     review 는 한쪽 탐지기만 잡은 구간 (위치·라벨만, 원문 없음) → 적재 때 검수 대기열에 기록"""
+    if BACKEND == "v7_onepass":
+        if not benchmark_only or not use_model:
+            raise RuntimeError("V7_E2E_NOT_APPROVED")
+        from .v7_onepass import detect_info as detect_v7
+        return detect_v7(text)
     from .span_cache import lookup
     cached = lookup(text)
     if cached is not None:

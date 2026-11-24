@@ -213,14 +213,14 @@ def main():
     else:
         require(getattr(P, "BACKEND", None) == "v7_onepass", "V7_ADAPTER_NOT_IMPLEMENTED")
     def detect(text):
-        spans, info = P.detect_info(text)
+        spans, info = P.detect_info(text, benchmark_only=a.backend == "v7_onepass")
         expected = "merge" if a.backend == "legacy" else "v7_onepass"
         require(info.get("source") == expected, "BACKEND_SOURCE_MISMATCH")
         if a.backend == "legacy":
             require(info.get("v6_status") in ("READY_FOR_PSEUDONYMIZATION","REVIEW_REQUIRED"),
                     "V6_BAD_STATUS")
             require(v6_client.STATS["v6_fail"] == 0, "V6_FALLBACK_FORBIDDEN")
-        return spans
+        return spans, info
     warmup = "합성 테스트 고객 홍길동 님의 연락처는 010-1234-5678 입니다."
     print("[4/5] FIRST_INFERENCE_START", a.backend, flush=True)
     detect(warmup)
@@ -233,14 +233,23 @@ def main():
     results = {}
     for name, rows in datasets.items():
         c, times = Counter(), []
+        raw_counts, mask_counts, review_reasons = Counter(), Counter(), Counter()
+        review_docs = 0
         selected = rows[:a.limit] if a.limit else rows
         dataset_started = time.perf_counter()
         print("DATASET_START", name, len(selected), flush=True)
         for i, row in enumerate(selected,1):
             t = time.perf_counter()
-            spans = detect(row["text"])
+            spans, info = detect(row["text"])
             times.append((time.perf_counter()-t)*1000)
             score(c, spans, row["entities"], len(row["text"]))
+            if a.backend == "v7_onepass":
+                score(raw_counts, info["raw_spans"], row["entities"], len(row["text"]))
+                # Union intervals are label-free, use dummy label only for coverage calculation.
+                score(mask_counts, [{"label":"person", **x} for x in info["mask_intervals"]],
+                      row["entities"], len(row["text"]))
+                review_docs += bool(info["review"])
+                review_reasons.update(e["source"] for e in info["review"])
             if i == 1 or i % 10 == 0 or i == len(selected):
                 elapsed = time.perf_counter()-dataset_started
                 eta = elapsed/i*(len(selected)-i)
@@ -249,6 +258,12 @@ def main():
         results[name] = dict(metrics(c), docs=len(selected), dataset_sha256=DATA[name][2],
                              mean_ms=statistics.mean(times),
                              p95_ms=sorted(times)[math.ceil(.95*len(times))-1])
+        if a.backend == "v7_onepass":
+            m = metrics(mask_counts)
+            results[name]["raw"] = metrics(raw_counts)
+            results[name]["mask_union_proxy"] = {k:m[k] for k in ("mask_recall","gold_chars","covered_chars","leak_chars","fully_uncovered","partly_uncovered_only")}
+            results[name]["review_docs"] = review_docs
+            results[name]["review_reasons"] = dict(review_reasons)
         print("RESULT", name, json.dumps(results[name], sort_keys=True), flush=True)
     versions = {}
     for pkg in ("torch","transformers","tokenizers","numpy","onnxruntime","pii-detector"):
@@ -264,8 +279,13 @@ def main():
                   versions=versions, cold_start_ms=cold_ms,
                   peak_rss_mb=rss/(1024**2 if sys.platform=="darwin" else 1024),
                   cpu_threads=2, ort_threads=2 if a.backend=="legacy" else None, datasets=results, profile=LEGACY if a.backend=="legacy" else {},
-                  mask_definition="coverage of final typed spans returned by common entrypoint",
+                  mask_definition="typed span coverage; V7 additionally reports raw+typed union proxy (not actual release)",
                   gate_e2e_validated=False, repeat=1)
+    if a.backend == "v7_onepass":
+        from starter import v7_frozen, v7_onepass
+        report["v7_policy"] = v7_onepass.POLICY
+        report["v7_source_sha256"] = v7_frozen.SOURCE_SHA256
+        report["v7_model_sha256"] = ONEPASS_SHA
     a.out.parent.mkdir(parents=True, exist_ok=True)
     with a.out.open("x", encoding="utf-8") as f:
         json.dump(report,f,indent=2,sort_keys=True)
