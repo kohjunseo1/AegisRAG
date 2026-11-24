@@ -1,0 +1,11 @@
+{
+  "repo_id": "PII-detect/pii-v7-onepass",
+  "revision": "8ff10e86137c4abb2f402a0fd91264b7c02f6404",
+  "sha256": {
+    "config.json": "e5f449ad0613c5612c7b9546ea5c04288135be46620172a617338af890b32173",
+    "model.safetensors": "978a1c8a7100d2c2411ce797c72cb08b235dcf150f77d3003e4f05881bd8bd1a",
+    "special_tokens_map.json": "b2e1eb3be501860648066506fbb9b207b84d378b72f0177f72ff2deeadf1ff71",
+    "tokenizer.json": "ef9bebca9c6529bdefa19909059e07dfdfd7c2f8afeefbf4d230a784a3847d64",
+    "tokenizer_config.json": "c0ec5fbeec122e27c229d135f2b6b29653264e2490dc6d3a6675d000a3ef8d01"
+  }
+}
