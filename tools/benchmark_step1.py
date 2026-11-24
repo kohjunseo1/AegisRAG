@@ -152,11 +152,14 @@ def main():
         return
     require(a.data and a.out and (a.limit is None or a.limit > 0), "MISSING_ARGUMENTS")
     require(not a.out.exists(), "OUTPUT_ALREADY_EXISTS")
+    print("[1/5] DATASET_VALIDATION_START", flush=True)
     datasets = {}
     for item in a.data:
         name, path = item.split("=", 1)
         require(name in DATA and name not in datasets, "UNKNOWN_OR_DUPLICATE_DATASET")
         datasets[name] = load_data(name, Path(path).expanduser())
+        print("DATASET_OK", name, len(datasets[name]), flush=True)
+    print("[2/5] MODEL_HASH_VALIDATION_START", flush=True)
     os.environ.update(COMMON, PII_BACKEND=a.backend)
     if a.backend == "legacy":
         require(a.team_model_root is not None, "TEAM_MODELS_REQUIRED")
@@ -164,12 +167,14 @@ def main():
         for model, files in MODEL_HASHES.items():
             for filename, sha in files.items():
                 require(digest(root/model/filename) == sha, "TEAM_MODEL_HASH_MISMATCH_" + model)
+            print("MODEL_HASH_OK", model, flush=True)
         os.environ.update(LEGACY, PII_MODEL_DIR=str(root/"roberta_small_v1"),
                           PII_HYBRID_MODEL=str(root/"koelectra_ft5"))
     else:
         require(a.v7_checkpoint is not None, "V7_CHECKPOINT_REQUIRED")
         ck = a.v7_checkpoint.expanduser().resolve()
         require(digest(ck/"model.safetensors") == ONEPASS_SHA, "V7_MODEL_HASH_MISMATCH")
+        print("MODEL_HASH_OK", "v7_onepass", flush=True)
         os.environ.update(PII_V7_MODEL_DIR=str(ck), PII_V6="", PII_V6_URL="",
                           PII_HYBRID="0", PII_ENSEMBLE="0")
     def deny(*args, **kwargs):
@@ -177,6 +182,7 @@ def main():
     socket.socket.connect = deny
     socket.socket.connect_ex = deny
     socket.create_connection = deny
+    print("[3/5] RUNTIME_IMPORT_START", flush=True)
     started = time.perf_counter()
     import torch
     torch.set_num_threads(2)
@@ -197,22 +203,30 @@ def main():
             require(v6_client.STATS["v6_fail"] == 0, "V6_FALLBACK_FORBIDDEN")
         return spans
     warmup = "합성 테스트 고객 홍길동 님의 연락처는 010-1234-5678 입니다."
+    print("[4/5] FIRST_INFERENCE_START", a.backend, flush=True)
     detect(warmup)
     cold_ms = (time.perf_counter()-started)*1000
+    print("FIRST_INFERENCE_OK", a.backend, flush=True)
     for _ in range(2):
         detect(warmup)
     print("MODEL_READY", a.backend, "cold_ms=", round(cold_ms,2), flush=True)
+    print("[5/5] DATASET_INFERENCE_START", flush=True)
     results = {}
     for name, rows in datasets.items():
         c, times = Counter(), []
         selected = rows[:a.limit] if a.limit else rows
+        dataset_started = time.perf_counter()
+        print("DATASET_START", name, len(selected), flush=True)
         for i, row in enumerate(selected,1):
             t = time.perf_counter()
             spans = detect(row["text"])
             times.append((time.perf_counter()-t)*1000)
             score(c, spans, row["entities"], len(row["text"]))
-            if i % 25 == 0 or i == len(selected):
-                print("PROGRESS", a.backend, name, f"{i}/{len(selected)}", flush=True)
+            if i == 1 or i % 10 == 0 or i == len(selected):
+                elapsed = time.perf_counter()-dataset_started
+                eta = elapsed/i*(len(selected)-i)
+                print("PROGRESS", a.backend, name, f"{i}/{len(selected)}",
+                      f"elapsed_s={elapsed:.1f}", f"eta_s={eta:.1f}", flush=True)
         results[name] = dict(metrics(c), docs=len(selected), dataset_sha256=DATA[name][2],
                              mean_ms=statistics.mean(times),
                              p95_ms=sorted(times)[math.ceil(.95*len(times))-1])
@@ -242,10 +256,21 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except KeyboardInterrupt:
+        print("BENCHMARK_CANCELLED", flush=True)
+        raise SystemExit(130) from None
     except Exception as e:
-        # Do not leak arbitrary library exceptions containing source text.
-        if type(e) is RuntimeError and str(e).isupper():
-            print("BENCHMARK_FAILED", str(e), flush=True)
-        else:
-            print("BENCHMARK_FAILED", type(e).__name__, flush=True)
+        # Report location and safe metadata only: no exception text, source lines,
+        # input documents, predictions, locals, or credentials.
+        import traceback
+        print("BENCHMARK_FAILED", type(e).__name__, flush=True)
+        if type(e) is RuntimeError and str(e).isidentifier() and str(e).isupper():
+            print("ERROR_CODE", str(e), flush=True)
+        if isinstance(e, AttributeError):
+            name = getattr(e, "name", None)
+            if name in {"logits", "type_vocab_size", "config", "id2label", "return_dict", "torchscript", "tolist", "shape", "device"}:
+                print("MISSING_ATTRIBUTE", name, flush=True)
+            print("OBJECT_TYPE", type(getattr(e, "obj", None)).__name__, flush=True)
+        for frame in traceback.extract_tb(e.__traceback__):
+            print("ERROR_FRAME", Path(frame.filename).name, frame.lineno, frame.name, flush=True)
         raise SystemExit(1) from None
