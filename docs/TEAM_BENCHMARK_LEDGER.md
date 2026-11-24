@@ -190,3 +190,20 @@ Source: user-provided UNCERTAINTY_ABLATION_COMPLETE output, uncertainty_ablation
 - Four uncovered non-O tokens with unmapped type on Hard403 require label-map inspection (not proven PII). Owner O-only filtering and raw+typed protection filtering limit this experiment's scope.
 - Uncertainty substantially outperforms broad lexical rules on direct miss discovery, but no threshold yet offers both small review burden and sufficient safety. Margin15 is a low-cost comparison candidate, not approved; 27/41 leaky documents still unreviewed. No claim that suspected policy-conflict misses are the ones detected: aggregate output cannot identify intersections. Preserve original Gold.
 - Next decision: investigate case-level signal coverage and candidate false masking cost, particularly suspected policy-conflict vs plausible genuine misses; validate bounded candidate/context grouping and risk tiers on separate development/counterexamples rather than tuning to exposed Holdout scores. Keep one encoder and frozen Core; no automatic release or blanket token masking. Review rates are not actual egress safety.
+
+
+## 2026-11-24 EXP6-A individual complete-miss uncertainty audit
+
+Source: user CASE_AUDIT_PARITY_PASS, CASE_SUMMARY and CANDIDATE_COST from e78a345, uncertainty_cases_20261124_153735. Joined with prior private complete-miss CSV by document ordinal, label, start/end. Prior manual semantic grouping is provisional, not a Gold correction. No raw values stored here. Original Gold unchanged.
+
+| Mode | Suspected policy/annotation conflicts overlapping /19 | Ambiguous cases overlapping /7 | Likely personal-name misses overlapping /7 | Combined plausible overlapping /14 | Combined plausible fully covered /14 | New candidate Gold chars | Candidate chars outside Gold |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| o_pii_10 | 12 | 6 | 6 | 12 | 9 | 86 | 214 |
+| o_pii_25 | 5 | 5 | 6 | 11 | 8 | 66 | 89 |
+| o_pii_40 | 1 | 4 | 2 | 6 | 4 | 31 | 30 |
+| o_margin_15 | 1 | 4 | 2 | 6 | 4 | 25 | 20 |
+| o_pii_60 | 0 | 0 | 0 | 0 | 0 | 2 | 0 |
+
+All 33 missed entities had owner winner O in overlapping tokens. 25% is a provisional candidate seed threshold: same 6/7 likely-name overlap as 10%, lower incidental candidate burden, but only 8/14 plausible cases fully covered. B171 review burden still 44/171 and Hard403 residual leaky docs unreviewed 19/41; NOT accepted as final operating threshold. At 10% two plausible/ambiguous cases still have no direct candidate overlap (one name adjacent to account number with max PII .055275; one ambiguous ordinary-word/name value with .003801). The additional ambiguous case missed at 25% has max .134238. These are illustrative categories, not runtime exceptions. No automatic Gold exclusions or specific-case rules.
+
+Next: bounded same-type adjacent token candidate expansion using cached offset scores (25% seed, 10% support), compare protection/overmask cost against unchanged 10% and 25% signals. Keep unresolved candidates separate from confirmed entities; no automatic HMAC or release. If final operating safety/utility remains inadequate, consider optional selective second-pass/independent detector instead of promising zero miss with one encoder. Validate on independent material before deployment.
