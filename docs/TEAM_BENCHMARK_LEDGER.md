@@ -150,3 +150,20 @@ A187: 25 suppression events overlap no Gold (10 status, 9 extension, 6 bereaveme
 Hard403: 33 complete misses across 27 docs (person 29, address 2, phone 1, RRN 1); 21 partial misses; 89 fully covered strict FN (81 same-label boundary, 8 wrong-label). Total 153 uncovered chars across 41 docs. Current review catches 0/41 leaky docs and 0/33 complete-miss entities. Honorific scenario catches 2/41 docs and 3/33 entities via document-level signals, with 0 direct overlap with the missed spans. 39 leaky docs remain unreviewed. Complete-miss policy flags: 4 possible surname-title, 2 ambiguous surname/given-name honorific, 27 no identified policy conflict. These are heuristic candidates, not adjudicated Gold errors. Preserve original Gold; any policy-aligned evaluation requires independent consistent full-corpus annotation review. Do not exclude FN selectively.
 
 Next: separate auto audit events from unresolved human-review queue without changing typed spans or reducing protection; inspect private residual context locally; test independent structural/field validation and name ambiguity signals against missed-span and false-review metrics. Keep V7 weights frozen while evaluating lightweight safeguards. Do not interpret current REVIEW rate as actual false READY for external transfer; no production gate run.
+
+
+## 2026-11-24 EXP1–3 independent validator ablation
+
+Source: user-provided completed validator_ablation_20261124_152343.log output, script commit 5a7823f. All three raw/typed parity checks and synthetic self-test passed. No automatic additions in ANY scenario. Original F1/mask/complete misses unchanged. Review-only vs auto scenarios identical in these runs.
+
+| Scenario | A187 review docs | B171 review docs | Hard403 review docs | Hard403 leaky docs caught / 41 | Hard403 complete-miss spans directly overlapped / 33 |
+|---|---:|---:|---:|---:|---:|
+| baseline_audit | 3 | 0 | 19 | 0 | 0 |
+| format | 3 | 1 | 34 | 4 | 0 |
+| field | 3 | 2 | 21 | 0 | 0 |
+| honorific | 31 | 64 | 54 | 7 | 3 |
+| repeat | 3 | 0 | 20 | 1 | 1 |
+| format_field | 3 | 3 | 36 | 4 | 0 |
+| all | 31 | 67 | 69 | 10 | 4 |
+
+All-combination Hard403 proposal-protection proxy .992844 vs typed .991890; hypothetical candidate coverage only, not actual masking. 31/41 leaky docs still not reviewed. No newly uncovered chars. Field/honorific generator deliberately produces weak review-only candidates; zero auto-adds does not prove that all possible alternative algorithms fail. Do not expand field vocabulary or data-specific exclusions for regression F1. Broad honorific and field rules not selected; format and repeat remain optional shadow signals, pending uncertainty experiment and cost/benefit assessment. Retain the separate narrow ambiguity scenario (previous audit), which is distinct from this broad honorific generator. A187 is primary, all three are exposed regression sets; no Gold edits. Next: EXP4–5 using frozen model score capture and raw-cache per-document parity. No production code changed.
