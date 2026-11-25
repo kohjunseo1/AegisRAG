@@ -33,6 +33,20 @@ def intervals(bits):
         out.append(dict(start=a,end=i))
     return out
 
+# Distinguish a grammatical address-field reference from a road-name suffix.
+# Keep actual numeric/road/dong tails protected; ambiguous forms remain strict.
+_FIELD_REFERENCE=re.compile(r"^\s+(?:주소|거주지|소재지)(?:로|으로)\s+(?:된|등록된|기재된|입력된|표기된)(?=\s|$|[,.;?!])")
+_DETAIL_TAIL=re.compile(r"\s*(?:[0-9]|[가-힣0-9]+(?:로|길|번지|동|리|읍|면|호)(?=\s|[0-9]|$|[,.)]))")
+
+def has_address_detail(tail):
+    return bool(_DETAIL_TAIL.match(tail)) and not bool(_FIELD_REFERENCE.match(tail))
+
+def _tail_self_test():
+    for t in (" 주소로 된 고객", " 소재지로 등록된 사업장", " 거주지로 기재된 고객"):
+        assert not has_address_detail(t)
+    for t in (" 가상로 25", " 주소로 25", " 가상길", " 101동", " 25", " 가상동"):
+        assert has_address_detail(t)
+
 def project(text,strict,meta,*,key,query=False,region_lookup=lambda _:False):
     """Requires a verified strict output; never operate on an unresolved doc.
     Regional recognition is a heuristic plus observed scoped document key,
@@ -52,7 +66,7 @@ def project(text,strict,meta,*,key,query=False,region_lookup=lambda _:False):
         # Do not treat a leading region of an apparent detailed address as
         # standalone. Unknown formats stay strict; downstream intent still required.
         tail=text[b:]
-        detail=re.match(r"\s*(?:[0-9]|[가-힣0-9]+(?:로|길|번지|동|리|읍|면|호)(?=\s|[0-9]|$|[,.)]))",tail)
+        detail=has_address_detail(tail)
         crossing=any(overlaps(a,b,e) and not (a<=e["start"]<e["end"]<=b and e.get("label")=="address") for e in typed+pending)
         if not detail and not crossing and region_lookup(k):region=(a,b,k)
     removed=set();released=[]
@@ -86,3 +100,7 @@ def project(text,strict,meta,*,key,query=False,region_lookup=lambda _:False):
             redaction_intervals=[]),hmac_key=key,include_vault_records=True)
     return LocalProjection(strict,result,tuple(released),(region[2],) if region else ())
 
+
+if __name__=="__main__":
+    _tail_self_test()
+    print("ADDRESS_TAIL_SELF_TEST_PASS",flush=True)
