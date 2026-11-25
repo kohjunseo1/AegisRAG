@@ -16,6 +16,7 @@ from starter.s2_pseudonymizer import LABELS,V7_POLICY
 from starter.v7_model_store import read_manifest
 from tools.benchmark_s2_prepare import queries,mask
 from tools.benchmark_step1 import require
+from starter.s2_query_controller import region_paths
 
 ALIASES={"name":"person","phone":"phone_number","rrn":"resident_registration_number",
          "account":"account_number","card":"card_number","resident_number":"resident_registration_number"}
@@ -45,10 +46,33 @@ def parse_gold(text,items):
         spans.append(dict(start=a,end=b,label=label))
     return spans,None
 
+def describe_extra(text,record,expected,actual):
+    # Character shapes and structural flags only: no raw values, note text,
+    # normalized keys, or document identifiers are emitted.
+    def shape(s):
+        return "".join("H" if "가"<=ch<="힣" else "D" if ch.isdecimal()
+            else "A" if ch.isalpha() else " " if ch.isspace() else
+            ch if ch in "-.,()*/@" else "?" for ch in s)
+    paths=region_paths(text)
+    out=[]
+    for kind,items in (("typed",record["entities"]),("review",record["review_events"])):
+        for e in items:
+            a,b=e["start"],e["end"]
+            extra=sum(actual[i] and not expected[i] for i in range(a,b))
+            if not extra:continue
+            out.append(dict(kind=kind,label=e.get("label"),start=a,end=b,
+                shape=shape(text[a:b]),outside_gold_chars=extra,
+                entirely_outside_gold=not any(expected[a:b]),
+                inside_region_path=any(x<=a<b<=y for x,y,_ in paths),
+                contains_region_path=any(a<=x<y<=b for x,y,_ in paths),
+                overlaps_region_path=any(a<y and x<b for x,y,_ in paths)))
+    return dict(extra_spans=out,region_paths_count=len(paths),query_shape=shape(text))
+ 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--query-cache",required=True,type=Path)
     p.add_argument("--controller-report",required=True,type=Path)
+    p.add_argument("--describe-differences",action="store_true")
     a=p.parse_args()
     root=Path.home()/"AegisRAG/step2_privacy_rag/local_eval"
     qp=root/"holdout_retrieval_queries.jsonl";gp=root/"holdout_retrieval_queries_gold.jsonl"
@@ -90,6 +114,8 @@ def main():
         c["mask_exact_queries"]+=not (miss or extra)
         c["gold_negative_queries"]+=not spans
         c["gold_negative_with_protection"]+=not spans and bool(extra)
+        if extra and a.describe_differences:
+            print("QUERY_EXTRA_STRUCTURE",json.dumps(dict(qid=qid,**describe_extra(text,r,expected,actual)),ensure_ascii=False),flush=True)
         typed_known=all(e["label"] in LABELS for e in spans)
         tp=fp=fn=None
         if typed_known and qid not in changed:
