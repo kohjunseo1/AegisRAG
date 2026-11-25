@@ -86,7 +86,7 @@ def self_test():
     require(make_hmac_token(key,"account_number","01000000000")[0]!=make_hmac_token(key,"phone_number","01000000000")[0],"LABEL_DOMAIN_SEPARATION")
     print("S2_PREPARATION_SELF_TEST_PASS",flush=True)
 
-def run(name,rows,det,key,seen,has_gold):
+def run(name,rows,det,key,seen,has_gold,*,cache=None):
     counts=Counter();reasons=Counter();labels=Counter();c=Counter();times=[];prep_times=[];issues=[]
     for i,row in enumerate(rows,1):
         text=row["text"]
@@ -102,6 +102,13 @@ def run(name,rows,det,key,seen,has_gold):
         counts[p.decision]+=1
         reasons[p.reason]+=1
         if has_gold:score(c,typed,row["entities"],len(text))
+        if cache is not None:
+            # Persist only offset/label information, never values, tokens or raw text.
+            cache.append(dict(qid=row.get("qid"),length=len(text),
+                              entities=[{k:e[k] for k in ("label","start","end")} for e in typed],
+                              mask_intervals=[{k:e[k] for k in ("start","end")} for e in meta["mask_intervals"]],
+                              review_events=[{k:e[k] for k in ("source","start","end","label") if k in e} for e in meta["review_events"]],
+                              decision=p.decision,reason=p.reason))
         if p.decision==READY:
             actual=inspect_output(text,meta,p.output,key,seen)
             counts["hmac_entities"]+=p.output.hmac_entity_count
@@ -115,7 +122,7 @@ def run(name,rows,det,key,seen,has_gold):
                 counts["ready_protected_outside_gold_chars"]+=sum(y and not x for x,y in zip(gold,actual))
         else:
             require(p.output is None,"NON_READY_OUTPUT")
-            issues.append(dict(row_index=i,decision=p.decision,reason=p.reason,
+            issues.append(dict(row_index=i,qid=row.get("qid"),decision=p.decision,reason=p.reason,
                                detector_sources=sorted({e["source"] for e in meta["review_events"]})))
         if i==1 or i%25==0 or i==len(rows):print("PROGRESS",name,f"{i}/{len(rows)}",flush=True)
     result=dict(counts=dict(counts),reasons=dict(reasons),hmac_labels=dict(labels),issues=issues,
@@ -134,10 +141,14 @@ def queries(path):
     rows=[json.loads(s) for s in path.read_text(encoding="utf-8-sig").splitlines() if s.strip()]
     require(len(rows)==88,"QUERY_COUNT_MISMATCH")
     texts=[]
+    ids=set()
     for r in rows:
         vals=[r[k] for k in ("query","question","text") if isinstance(r.get(k),str)]
         require(vals and len(set(vals))==1 and vals[0].strip(),"QUERY_TEXT_FIELD_INVALID")
-        texts.append(dict(text=vals[0]))
+        qid=r.get("qid")
+        require(isinstance(qid,str) and qid.startswith("Q") and qid[1:].isdigit() and qid not in ids,"QUERY_ID_INVALID")
+        ids.add(qid)
+        texts.append(dict(qid=qid,text=vals[0]))
     return texts
 
 def main():
@@ -146,17 +157,37 @@ def main():
     p.add_argument("--out",type=Path)
     p.add_argument("--queries",type=Path)
     p.add_argument("--model-dir",type=Path)
+    p.add_argument("--queries-only",action="store_true")
+    p.add_argument("--query-gold",type=Path)
+    p.add_argument("--cache-query-offsets",action="store_true")
     a=p.parse_args();self_test()
     if a.self_test:return
     require(a.out is not None,"OUTPUT_REQUIRED")
     out=a.out.expanduser().resolve()
     require(not out.exists() and not any((d/".git").exists() for d in [out,*out.parents]),"OUTPUT_INVALID")
     home=Path.home()
-    datasets={"A187":load_data("A187",home/"AegisRAG/step2_privacy_rag/local_eval/holdout_labeled.jsonl"),
+    require(not a.queries_only or a.queries is not None,"QUERY_FILE_REQUIRED")
+    require(not (a.query_gold or a.cache_query_offsets) or a.queries is not None,"QUERY_FILE_REQUIRED")
+    documents_path=home/"AegisRAG/step2_privacy_rag/local_eval/holdout_labeled.jsonl"
+    datasets={} if a.queries_only else {"A187":load_data("A187",documents_path),
               "B171":load_data("B171",home/"Downloads/blind_eval.jsonl")}
+    gold_summary=None
     if a.queries:
         datasets["Q88"]=queries(a.queries.expanduser())
         print("QUERY_DATASET_OK",len(datasets["Q88"]),flush=True)
+        if a.query_gold:
+            docs=datasets.get("A187") or load_data("A187",documents_path)
+            doc_ids={str(d["id"]) for d in docs}
+            rows=[json.loads(s) for s in a.query_gold.expanduser().read_text(encoding="utf-8-sig").splitlines() if s.strip()]
+            ids=[g.get("qid") for g in rows]
+            require(len(rows)==88 and len(set(ids))==88 and set(ids)=={q["qid"] for q in datasets["Q88"]},"QUERY_GOLD_ID_MISMATCH")
+            for g in rows:
+                refs=g.get("relevant_doc_ids")
+                require(isinstance(refs,list) and all(isinstance(x,str) for x in refs) and len(set(refs))==len(refs) and set(refs)<=doc_ids,"QUERY_GOLD_DOC_MISMATCH")
+            gold_summary=dict(rows=len(rows),with_relevant=sum(bool(g["relevant_doc_ids"]) for g in rows),
+                              without_relevant=sum(not g["relevant_doc_ids"] for g in rows),
+                              sha256=hashlib.sha256(a.query_gold.expanduser().read_bytes()).hexdigest())
+            print("QUERY_GOLD_OK",json.dumps(gold_summary),flush=True)
     else:print("QUERY_DATASET_NOT_REQUESTED",flush=True)
     m=read_manifest(Path(__file__).resolve().parents[1]/"models/v7_model_release.json")
     os.environ.update(COMMON)
@@ -175,11 +206,14 @@ def main():
     from starter.v7_context_validated import ContextValidatedOnepass
     torch.set_num_threads(2);torch.set_num_interop_threads(2)
     det=ContextValidatedOnepass(model);key=secrets.token_bytes(32);seen={}
-    results={name:run(name,rows,det,key,seen,name!="Q88") for name,rows in datasets.items()}
+    query_cache=[] if a.cache_query_offsets else None
+    results={name:run(name,rows,det,key,seen,name!="Q88",cache=query_cache if name=="Q88" else None) for name,rows in datasets.items()}
     report=dict(policy=V7_POLICY,model_revision=m["revision"],model_source=source,
                 datasets=results,query_evaluated="Q88" in results,
                 query_sha256=hashlib.sha256(a.queries.expanduser().read_bytes()).hexdigest() if a.queries else None,
-                external_transfer_approved=False)
+                query_gold=gold_summary,external_transfer_approved=False)
+    if query_cache is not None:
+        report["private_query_offsets"]=query_cache
     os.umask(0o077);out.parent.mkdir(parents=True,exist_ok=True)
     fd=os.open(out,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
     with os.fdopen(fd,"w",encoding="utf-8") as f:json.dump(report,f,ensure_ascii=False,indent=2)
