@@ -18,6 +18,7 @@ CUE_LABEL={"전화번호":"phone_number","휴대전화번호":"phone_number",
            "휴대폰번호":"phone_number","연락처":"phone_number",
            "주민등록번호":"resident_registration_number","주민번호":"resident_registration_number",
            "카드번호":"card_number","계좌번호":"account_number"}
+SUFFIX_CUE=re.compile(r"^\s*(?:은|는|이|가)?\s*(전화번호|휴대전화번호|휴대폰번호|연락처|주민등록번호|주민번호|카드\s*번호|계좌\s*번호)(?=\s*(?:입니다|이다|이에요|예요|임|[,.?!]|$))")
 PHONE=re.compile(r"(?:01[016789][0-9]{7,8}|02[0-9]{7,8}|0[3-6][1-5][0-9]{7,8}|070[0-9]{8}|050[0-9]{8,9})\Z")
 
 @dataclass(frozen=True,repr=False)
@@ -75,6 +76,11 @@ def plans(text,typed,review,*,key,lookup):
         labels=eligible(v)
         cue=CUE.search(text[:a])
         explicit=CUE_LABEL[re.sub(r"\s+","",cue.group(1))] if cue else None
+        suffix=SUFFIX_CUE.match(text[b:])
+        suffix_label=CUE_LABEL[re.sub(r"\s+","",suffix.group(1))] if suffix else None
+        if explicit and suffix_label and explicit!=suffix_label:
+            out.append(NumericPlan(a,b,"CLARIFY","conflicting_type_cues"));continue
+        explicit=explicit or suffix_label
         hits={}
         for label in labels:
             t,_=make_hmac_token(key,label,v)
