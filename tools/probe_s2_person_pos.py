@@ -4,7 +4,7 @@ masks/tokens. Gold is used only to score the proposed candidates.
 No raw corpus values, names, or token strings are printed.
 """
 from collections import Counter
-import argparse,hashlib,json,statistics,time
+import argparse,hashlib,json,statistics,time,resource,sys
 from pathlib import Path
 from starter.s2_project_projection import case_nominal,_CASE_ROLE
 from starter.s2_pseudonymizer import V7_POLICY
@@ -47,7 +47,14 @@ def main():
         import kiwipiepy
         from kiwipiepy import Kiwi
     except ImportError:raise SystemExit("KIWI_NOT_INSTALLED")
+    rss0=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    t0=time.perf_counter()
     kiwi=Kiwi(num_workers=1)
+    kiwi.analyze("초기화 확인 문장입니다.",top_n=3)
+    cold_ms=(time.perf_counter()-t0)*1000
+    rss1=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    rss_scale=1024**2 if sys.platform=='darwin' else 1024
+    print("POS_INIT",json.dumps(dict(cold_ms=cold_ms,peak_rss_increase_mib=max(0,rss1-rss0)/rss_scale)),flush=True)
     root=Path.home()/"AegisRAG/step2_privacy_rag/local_eval"
     qp=root/"holdout_retrieval_queries.jsonl";gp=root/"holdout_retrieval_queries_gold.jsonl"
     cache=json.loads(a.query_cache.expanduser().read_text());m=read_manifest(Path(__file__).resolve().parents[1]/"models/v7_model_release.json")
@@ -96,5 +103,8 @@ def main():
         partial_gold_overlap=partial,corpus={k:dict(v) for k,v in corpus.items()},
         synthetic={k:dict(v) for k,v in synthetic.items()},fixture_count=len(fixtures),
         analysis_mean_ms=statistics.mean(times) if times else None,
+        analysis_p95_ms=sorted(times)[max(0,__import__("math").ceil(.95*len(times))-1)] if times else None,
+        analysis_max_ms=max(times) if times else None,analyzed_queries=len(times),
+        cold_ms=cold_ms,peak_rss_increase_mib=max(0,resource.getrusage(resource.RUSAGE_SELF).ru_maxrss-rss0)/rss_scale,
         policy="diagnostic_only_no_release"),ensure_ascii=False),flush=True)
 if __name__=="__main__":main()
