@@ -20,6 +20,7 @@ from starter.s2_pseudonymizer import (
 from starter.v7_model_store import read_manifest, provision, DEFAULT_LOCAL
 from tools.benchmark_step1 import COMMON, load_data, require
 from tools.benchmark_s2_prepare import queries, inspect_output
+from starter.s2_numeric_recovery import plans, self_test as numeric_self_test
 
 NUM = ("phone_number","resident_registration_number","card_number","account_number")
 # Diagnostic full numeric runs, not production detection or automatic merging.
@@ -74,7 +75,10 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--query-cache",required=True,type=Path)
     p.add_argument("--out",required=True,type=Path)
+    p.add_argument("--save-document-offsets",action="store_true")
+    p.add_argument("--numeric-plan",action="store_true")
     a=p.parse_args()
+    if a.numeric_plan:numeric_self_test()
     root=Path.home()/"AegisRAG/step2_privacy_rag/local_eval"
     out=a.out.expanduser().resolve()
     require(not out.exists() and not any((d/".git").exists() for d in (out,*out.parents)),"OUTPUT_INVALID")
@@ -96,11 +100,19 @@ def main():
     require(all(qcache[q["qid"]]["length"]==len(q["text"]) for q in qs),"QUERY_CACHE_LENGTH_MISMATCH")
     det=local_model(m);key=secrets.token_bytes(32)
     index=defaultdict(set);ready=set();seen={}
-    residual=Counter();sources=Counter();probe_values=defaultdict(list)
+    residual=Counter();sources=Counter();probe_values=defaultdict(list);doc_cache=[]
     for i,d in enumerate(docs,1):
         text=d["text"];did=str(d["id"])
         typed,meta=det.detect(text)
         p=prepare_from_detection(text,typed,meta,hmac_key=key,include_vault_records=True)
+        if a.save_document_offsets:
+            def span(e):return {k:e[k] for k in ("label","start","end","source","action") if k in e}
+            doc_cache.append(dict(doc_id=did,length=len(text),decision=p.decision,reason=p.reason,
+                entities=[span(e) for e in typed],mask_intervals=[span(e) for e in meta["mask_intervals"]],
+                raw_spans=[span(e) for e in meta["raw_spans"]],core_mask_intervals=[span(e) for e in meta["core_mask_intervals"]],
+                uncertainty_candidates=[span(e) for e in meta["uncertainty_candidates"]],
+                review_events=[span(e) for e in meta["review_events"]],audit_events=[span(e) for e in meta["audit_events"]],
+                unmapped_non_o_uncovered_tokens=meta["unmapped_non_o_uncovered_tokens"]))
         if p.decision==READY:
             ready.add(did)
             inspect_output(text,meta,p.output,key,seen)
@@ -124,7 +136,7 @@ def main():
     require(residual["intervals"]==31 and residual["chars"]==91,"RESIDUAL_REGRESSION")
     print("RESIDUAL_SUMMARY",json.dumps(dict(residual),ensure_ascii=False),flush=True)
     print("RESIDUAL_AUDIT_OVERLAP",json.dumps(dict(sources),ensure_ascii=False),flush=True)
-    aggregate=Counter();detail=[];kinds=defaultdict(Counter)
+    aggregate=Counter();detail=[];kinds=defaultdict(Counter);plan_summary=Counter();plan_details=[]
     for q in qs:
         qid=q["qid"];text=q["text"];r=qcache[qid];g=refs[qid]&ready
         typed=r["entities"];review=r["review_events"]
@@ -153,6 +165,19 @@ def main():
                 overlaps=[e["label"] for e in matched],index_docs=len(found),known_gold_ready_docs=len(found&g),
                 new_index_docs=len(found-baseline),
                 matched_type_count=sum(bool(index.get(t)) for t in ts)))
+        if a.numeric_plan:
+            ps=plans(text,typed,review,key=key,lookup=lambda t:bool(index.get(t)))
+            if ps:plan_summary["queries_with_plans"]+=1
+            for p in ps:
+                plan_summary[p.status]+=1
+                hits=index.get(p.token,set()) if p.token else set()
+                if p.status=="CANDIDATE":
+                    plan_summary["candidate_known_gold_match"]+=bool(hits&g)
+                    plan_summary["candidate_outside_known_gold"]+=bool(hits-refs[qid])
+                row=dict(qid=qid,status=p.status,reason=p.reason,label=p.label,
+                         matched_labels=p.matched_labels,known_gold_ready_docs=len(hits&g),index_docs=len(hits))
+                plan_details.append(row)
+                if p.status!="UNCHANGED":print("NUMERIC_PLAN",json.dumps(row,ensure_ascii=False),flush=True)
         aggregate["queries_with_typed"]+=bool(typed)
         aggregate["queries_with_numeric_signal"]+=bool(signals)
         aggregate["queries_with_ready_gold"]+=bool(g)
@@ -191,11 +216,15 @@ def main():
                 c["boundary_mismatch"]+=bool(hits) and not any(e["start"]==target["start"] and e["end"]==target["end"] for e in hits)
                 c["review"]+=bool(meta["review_events"])
     probe_summary={k:dict(v) for k,v in probes.items()}
+    if a.numeric_plan:print("NUMERIC_PLAN_SUMMARY",json.dumps(dict(plan_summary)),flush=True)
     print("CONTEXT_PROBE_SUMMARY",json.dumps(probe_summary,ensure_ascii=False),flush=True)
     report=dict(residual=dict(residual),residual_audit_overlap=dict(sources),
                 token_match=dict(aggregate),match_by_label={k:dict(v) for k,v in kinds.items()},
                 query_details=detail,context_probes=probe_summary,model_revision=m["revision"],
                 notes="Local diagnostic only. Known gold references are not exhaustive; token hits are not retrieval accuracy or identity confirmation.")
+    if a.numeric_plan:report.update(numeric_plan=dict(plan_summary),numeric_plan_details=plan_details)
+    if a.save_document_offsets:
+        report.update(private_document_offsets=doc_cache,document_sha256=hashlib.sha256((root/"holdout_labeled.jsonl").read_bytes()).hexdigest(),policy=V7_POLICY)
     os.umask(0o077);out.parent.mkdir(parents=True,exist_ok=True)
     fd=os.open(out,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
     with os.fdopen(fd,"w",encoding="utf-8") as f:json.dump(report,f,ensure_ascii=False,indent=2)
