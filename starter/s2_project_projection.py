@@ -47,6 +47,26 @@ def _tail_self_test():
     for t in (" 가상로 25", " 주소로 25", " 가상길", " 101동", " 25", " 가상동"):
         assert has_address_detail(t)
 
+# Narrow grammatical disambiguation, not a single-syllable-name blacklist.
+# A case noun after an already typed person + explicit business role, with
+# a copular predicate, is evidence for a non-person interpretation.
+# Do not use an absent token lookup as evidence of non-PII.
+_CASE_ROLE=re.compile(r"[ \t]+(?:고객(?:님)?|신청인|계약자|수취인|담당자)[ \t]*$")
+_CASE_PREDICATE=re.compile(r"^(?:인데요|인데|입니다|이에요|이어서|이라서|이라고|이라며|이다|이었는데|이었습니다)(?=$|[\s,.;?!])")
+
+def case_nominal(text,a,b,typed):
+    if text[a:b]!="건" or not _CASE_PREDICATE.match(text[b:]):
+        return False
+    # The preceding typed person must be separate, not another fragment
+    # of the candidate name. No punctuation or clause crossing.
+    previous=[e for e in typed if e["label"]=="person" and e["end"]<a
+              and _CASE_ROLE.fullmatch(text[e["end"]:a])]
+    if len(previous)!=1:return False
+    p=previous[0]
+    if any(e!=p and (e["start"],e["end"])!=(a,b)
+           and overlaps(p["end"],b,e) for e in typed):return False
+    return not F.PERSON_FIELD.search(text[max(0,a-75):a])
+
 def project(text,strict,meta,*,key,query=False,region_lookup=lambda _:False):
     """Requires a verified strict output; never operate on an unresolved doc.
     Regional recognition is a heuristic plus observed scoped document key,
@@ -89,6 +109,9 @@ def project(text,strict,meta,*,key,query=False,region_lookup=lambda _:False):
                 if m.span("s")== (a,b) and m.group("s") in F.SURNAMES and not any(overlaps(*m.span(),e) and (e["start"],e["end"])!=(a,b) for e in typed):
                     if not F.PERSON_FIELD.search(text[max(0,a-75):a]):
                         reason="explicit_surname_title";break
+        if query and kind=="hmac" and j.get("label")=="person" and b-a==1 and not pe and not ev and not reason:
+            if case_nominal(text,a,b,typed):
+                reason="business_case_nominal_candidate"
         if reason:
             bits[a:b]=b"\0"*(b-a);removed.add((a,b))
             released.append(dict(start=a,end=b,reason=reason))
