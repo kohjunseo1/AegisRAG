@@ -254,3 +254,15 @@ A187 resolved 7 events (bereavement body 2, header 1, surname/title 4); remainin
 ## 2026-11-24 final Step1 model distribution smoke — PASS
 
 User local output: PRIMARY verified_hub_snapshot; simulated HUB_ACQUISITION_FAILED OSError; FALLBACK verified_local_fallback; FINAL_POLICY_SELF_TEST_PASS; CONTEXT_SELF_TEST_PASS; HUB_LOCAL_SMOKE_PASS 4 documents (identical raw, typed, mask, review, audit, status); FALLBACK_SMOKE_PASS; MODEL_PROVISION_READY. Private model PII-detect/pii-v7-onepass revision 8ff10e86137c4abb2f402a0fd91264b7c02f6404; all five asset SHA256 values pinned in models/v7_model_release.json (fde93fc). Provisioning uses Hub snapshot first, explicitly supplied identical local fallback on acquisition failure only, not on integrity or inference errors. Inference offline; user verified both copies. Final context policy selected; earlier tag step1-v7-validated-20261124 retained. Step1 development freeze; no further model/policy tuning planned. Runtime integration into team ingestion/query still pending Step2; no deployment or external release authorization. Holdout2 remains untouched. Preserve local/Drive fallback and original evaluation assets until integrated E2E passes.
+
+
+## 2026-11-25 S2-01 local preparation regression — completed
+
+User local S2_LOCAL_PREPARATION_REGRESSION_COMPLETE, report s2_prepare_20261125_100131.json; implementation 46a098a, benchmark 17367eb. Frozen V7 context policy unchanged.
+
+| Corpus | READY (local only) | REVIEW | BLOCKED | HMAC entities | Residual intervals/chars | READY Gold chars replaced | READY unprotected Gold chars | Detect mean/p95 ms | Prepare mean/p95 ms |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| A187 | 184 | 3 | 0 | 891 | 31/91 | 7385 | 0 | 357.064/605.342 | 0.295/0.525 |
+| B171 | 163 | 8 | 0 | 1397 | 78/103 | 11793 | 0 | 1009.809/2098.566 | 0.426/1.021 |
+
+Typed parity: A187 909/3/3, B171 1435/56/4; mask recall 1 on both. Actual output replacement trace verified for READY docs only. A187 review rows 57/116/135 (name suffix); B171 21/34/62/80/83/114/138/148. Protected outside Gold chars on READY: 91/331. No DB, embeddings, HCX, or external authorization. Query set not evaluated in this run. A187+official Q88 primary development benchmark; B171 supplementary protection/normalization regression only (no official queries); Hard403 historical Step1 only. Holdout2 remains untouched. Keep review cases quarantined for automatic baseline, separately report any explicit human-approved run. Next: normalize/value token consistency and query preparation, followed by identity and retrieval.
