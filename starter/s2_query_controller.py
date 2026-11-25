@@ -96,7 +96,10 @@ def _plan(text,typed,meta,key,lookup,region_lookup):
         if _review_kind(events)=="address":
             # Only an observed full regional hierarchy, exact ACL-scoped key,
             # and all unresolved spans inside that hierarchy. No unmasking.
-            matches=[(a,b,_key(key,p)) for a,b,p in region_paths(text)
+            paths=region_paths(text)
+            if len(paths)!=1:
+                return clarify("address","ambiguous_region_conditions")
+            matches=[(a,b,_key(key,p)) for a,b,p in paths
                      if all(a<=e["start"]<e["end"]<=b for e in events)
                      and not any(overlaps(a,b,e) for e in typed)]
             if len(matches)==1 and region_lookup(matches[0][2]):
