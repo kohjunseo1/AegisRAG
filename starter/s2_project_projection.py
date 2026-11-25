@@ -65,9 +65,12 @@ def case_nominal(text,a,b,typed):
     p=previous[0]
     if any(e!=p and (e["start"],e["end"])!=(a,b)
            and overlaps(p["end"],b,e) for e in typed):return False
-    return not F.PERSON_FIELD.search(text[max(0,a-75):a])
+    # The entire bridge was already validated as a role, not a new field.
+    # PERSON_FIELD includes 신청인/수취인, so rechecking the bridge rejects
+    # those roles by construction. No explicit field can occur inside it.
+    return True
 
-def project(text,strict,meta,*,key,query=False,region_lookup=lambda _:False):
+def project(text,strict,meta,*,key,query=False,region_lookup=lambda _:False,case_grammar=False):
     """Requires a verified strict output; never operate on an unresolved doc.
     Regional recognition is a heuristic plus observed scoped document key,
     not proof of public/non-identifying information. Only local projection.
@@ -109,7 +112,7 @@ def project(text,strict,meta,*,key,query=False,region_lookup=lambda _:False):
                 if m.span("s")== (a,b) and m.group("s") in F.SURNAMES and not any(overlaps(*m.span(),e) and (e["start"],e["end"])!=(a,b) for e in typed):
                     if not F.PERSON_FIELD.search(text[max(0,a-75):a]):
                         reason="explicit_surname_title";break
-        if query and kind=="hmac" and j.get("label")=="person" and b-a==1 and not pe and not ev and not reason:
+        if case_grammar and query and kind=="hmac" and j.get("label")=="person" and b-a==1 and not pe and not ev and not reason:
             if case_nominal(text,a,b,typed):
                 reason="business_case_nominal_candidate"
         if reason:
