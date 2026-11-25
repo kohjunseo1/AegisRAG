@@ -11,7 +11,7 @@ def person(a,b):return dict(start=a,end=b,label="person")
 def test(name,text,typed,expected,*,audit=(),pending=()):
     old=pseudonymize_local(text,dict(decision=READY,entities=typed,entities_for_pseudonymization=typed,
         mask_intervals=typed,redaction_intervals=[]),hmac_key=KEY,include_vault_records=True)
-    new=project(text,old,dict(audit_events=list(audit),review_events=list(pending)),key=KEY,query=True)
+    new=project(text,old,dict(audit_events=list(audit),review_events=list(pending)),key=KEY,query=True,case_grammar=True)
     released=[(e["start"],e["end"]) for e in new.released]
     assert released==expected,name
     assert new.strict is old and new.external_transfer_approved is False,name
