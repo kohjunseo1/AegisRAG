@@ -639,7 +639,12 @@ def main():
                             ids.append(d);pairs.append((marked_q,v))
                     window_pairs+=len(pairs)
                     return dict(zip(ids,ce.score(pairs)))
-                ss=get_scores(False);cs=get_scores(True)
+                wt=time.perf_counter();wp=ce.pairs
+                ss=get_scores(False)
+                emit("MR_VIEW",qid=qid,view="sentence",requested_pairs=len(ss),actual_pairs=ce.pairs-wp,elapsed_ms=(time.perf_counter()-wt)*1000)
+                wt=time.perf_counter();wp=ce.pairs
+                cs=get_scores(True)
+                emit("MR_VIEW",qid=qid,view="context",requested_pairs=len(cs),actual_pairs=ce.pairs-wp,elapsed_ms=(time.perf_counter()-wt)*1000,top4_pairs=sum(d in cs for d in prefix[:4]))
                 mr["MR1_sentence"]=window_ranking(base,base,ss,conditions,a.rerank_k)
                 mr["MR2_context"]=window_ranking(base,base,cs,conditions,a.rerank_k)
                 mr["MR3_context_fused"]=window_ranking(base,rr["RR4_fused"],cs,conditions,a.rerank_k)
@@ -696,6 +701,7 @@ def main():
     require(nq["RR0_baseline","all88"]==88 and nq["RR0_baseline","name55"]==55 and nq["RR0_baseline","ambiguous12"]==12,"RR_GROUP_PARITY")
     require(totals["RR0_baseline","all88"]["hit1"]==78 and totals["RR0_baseline","all88"]["hit5"]==87,"RR_BASELINE_PARITY")
     require(all(nq[mode,"all88"]==88 for mode in ("RR1_plain","RR2_condition","RR3_marked","RR4_fused","RR0_baseline_shortlist","RR1_plain_shortlist","RR2_condition_shortlist","RR3_marked_shortlist","RR4_fused_shortlist")),"RR_MODE_PARITY")
+    emit("MR_RR4_REPLAY",hit1=totals["RR4_fused","all88"]["hit1"],hit5=totals["RR4_fused","all88"]["hit5"],expected_hit1=83,expected_hit5=87)
     for (mode,group),c in sorted(totals.items()):
         n=nq[mode,group]
         if not mode.startswith(("RR","MR")):continue
