@@ -13,7 +13,7 @@ from tools.benchmark_s2_identity_incremental import full_snapshot
 from tools.audit_s2_query_identity_evidence import role_of
 from tools.benchmark_s2_prepare import queries
 from tools.inspect_s2_protection_private import rebuild,overlap
-from starter.s2_pseudonymizer import V7_POLICY,make_hmac_token,canonicalize
+from starter.s2_pseudonymizer import READY,REVIEW,BLOCKED,V7_POLICY,make_hmac_token,canonicalize
 from starter.s2_query_controller import document_region_keys
 from starter.s2_numeric_recovery import plans
 from starter.s2_project_projection import project
@@ -113,14 +113,15 @@ def main():
         typed=list(r["entities"]);change=changes.get(qid)
         if change:
             if change["reason"]=="numeric_candidate":
+                require(r["decision"]==BLOCKED,"NUMERIC_BASELINE:"+qid)
                 ps=plans(text,typed,r["review_events"],key=secret,lookup=index.__contains__)
                 chosen=[x for x in ps if x.status=="CANDIDATE"]
                 require(bool(chosen) and not any(x.status=="CLARIFY" for x in ps),"NUMERIC_REPLAY")
                 typed=[e for e in typed if not any(overlap(x.start,x.end,e) for x in chosen)]
                 typed=sorted(typed+[dict(start=x.start,end=x.end,label=x.label) for x in chosen],key=lambda e:e["start"])
-            elif change["reason"]=="region_candidate":require(not typed and bool(r["review_events"]),"REGION_REPLAY")
+            elif change["reason"]=="region_candidate":require(r["decision"]==REVIEW and not typed and bool(r["review_events"]),"REGION_REPLAY:"+qid)
             else:raise RuntimeError("UNKNOWN_RECOVERY")
-        else:require(r["decision"]=="READY","QUERY_READY")
+        else:require(r["decision"]==READY,"QUERY_READY:"+qid+":"+str(r["decision"]))
         strict=rebuild(text,typed,r["mask_intervals"],secret)
         proj=project(text,strict,r,key=secret,query=True,region_lookup=regions.__contains__)
         require(proj.external_transfer_approved is False,"EGRESS")
