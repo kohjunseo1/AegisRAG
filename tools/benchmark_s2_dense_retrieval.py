@@ -93,7 +93,24 @@ def dense_scores(name,docs,qs,batch,threads):
     from transformers import AutoTokenizer,AutoModel
     torch.set_num_threads(threads)
     model_id=MODELS[name]
-    rev=HfApi().model_info(model_id,token=False).sha
+    api=HfApi()
+    # BGE-M3 main publishes pickle weights only at the observed revision.
+    # Use the same-repository SFconvertbot safetensors conversion, pinned
+    # by commit; verify that its original weights/config/tokenizer match main.
+    if name=="bge":
+        original=api.model_info(model_id,revision="5617a9f61b028005a4858fdac845db406aefb181",files_metadata=True,token=False)
+        converted=api.model_info(model_id,revision="9a0624b896d81da7492a910ffa53731274b6cf3d",files_metadata=True,token=False)
+        orig={f.rfilename:f for f in original.siblings}
+        conv={f.rfilename:f for f in converted.siblings}
+        for file in ("pytorch_model.bin","config.json","tokenizer.json","tokenizer_config.json","sentencepiece.bpe.model","1_Pooling/config.json"):
+            require(file in orig and file in conv,"BGE_CONVERSION_SOURCE_MISSING:"+file)
+            x,y=orig[file],conv[file]
+            require(bool(x.blob_id) and x.blob_id==y.blob_id,"BGE_CONVERSION_SOURCE_MISMATCH:"+file)
+        require("model.safetensors" in conv,"BGE_SAFETENSORS_MISSING")
+        rev=converted.sha
+        emit("DR_BGE_CONVERSION",original_revision=original.sha,conversion_revision=rev,source_files_match=True)
+    else:
+        rev=api.model_info(model_id,token=False).sha
     require(bool(rev),"MODEL_REVISION")
     emit("DR_MODEL_START",model=name,repo=model_id,revision=rev,device="cpu",batch=batch)
     t0=time.perf_counter()
@@ -101,6 +118,7 @@ def dense_scores(name,docs,qs,batch,threads):
         allow_patterns=["*.json","*.safetensors","*.model","*.txt","*.vocab"],
         ignore_patterns=["onnx/*","openvino/*","**/onnx/*","**/openvino/*","**/optimizer*"]))
     # Read model's declared pooling instead of assuming same pooling for all.
+    require((folder/"model.safetensors").is_file() or (folder/"model.safetensors.index.json").is_file(),"SAFE_WEIGHTS_MISSING:"+name)
     pooling=json.loads((folder/"1_Pooling/config.json").read_text())
     modes=[k for k,v in pooling.items() if k.startswith("pooling_mode_") and v is True]
     require(len(modes)==1 and modes[0] in ("pooling_mode_mean_tokens","pooling_mode_cls_token"),"POOLING_UNSUPPORTED:"+name)
