@@ -295,7 +295,7 @@ def main():
             ranks["DR_token_kiwi_rrf"]=rrf(tok_rank,kr)
         else:kr=lex_rank
         name_sets=[];exact_sets=[]
-        for name,_ in dict.fromkeys(qnames):
+        for name in dict.fromkeys(n for n,_ in qnames):
             exact_sets.append({nodes[i]["doc"] for i in by_name[name]})
             name_sets.append({n["doc"] for n in nodes if n["name"]==name or suffix(n["name"],name)})
         required=[set(index.get(tok,())) for lab,tok in dict.fromkeys(qattrs)]
@@ -348,9 +348,6 @@ def main():
                 case_results.append(dict(qid=qid,mode=mode,**v))
             for group in groups:
                 totals[mode,group].update(v);nq[mode,group]+=1
-            if False and targets and mode.startswith("IR"):
-                emit("IR_CASE",qid=qid,mode=mode,**v,detected_name_spans=len(qnames),gold_name_spans=len(target_items),ambiguous=ambiguous,
-                     strict_anchor_seeds=len(strict_seeds),role_seeds=len(role_seeds),graph_extra_mentions=len(linked-broad))
         ts.append((time.perf_counter()-t0)*1000)
     require(nq["IR0_exact","name55"]==55 and nq["IR0_exact","ambiguous12"]==12,"Q55_PARITY")
     for (mode,group),c in sorted(totals.items()):
