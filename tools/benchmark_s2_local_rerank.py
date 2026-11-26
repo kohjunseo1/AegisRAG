@@ -540,11 +540,6 @@ def main():
             matched=defaultdict(set)
             for i in gs:matched[nodes[i]["doc"]].update(truth[m] for m in nodes[i]["mentions"])
             gold_candidate["relevant"]+=len(eligible);gold_candidate["matched"]+=sum(targets<=matched[d] for d in eligible)
-        for mode in ("IR0_exact","IR1_alias","IR2_graph","IR3_candidate_attributes","IR4_role","IR4_role_only_control","IR5_local_fusion"):
-            if mode not in ranks:
-                # Report all Q88 without silently excluding missed name detections.
-                ranks[mode]=ranks["R_token_lexical_rrf"] if mode=="IR5_local_fusion" else tok_rank
-                ids_for[mode]=set()
         for mode,rank in ranks.items():
             matched=defaultdict(set)
             for i in ids_for.get(mode,broad):
@@ -569,7 +564,9 @@ def main():
             for group in groups:
                 totals[mode,group].update(v);nq[mode,group]+=1
         ts.append((time.perf_counter()-t0)*1000)
-    require(nq["IR0_exact","name55"]==55 and nq["IR0_exact","ambiguous12"]==12,"Q55_PARITY")
+    require(nq["RR0_baseline","all88"]==88 and nq["RR0_baseline","name55"]==55 and nq["RR0_baseline","ambiguous12"]==12,"RR_GROUP_PARITY")
+    require(totals["RR0_baseline","all88"]["hit1"]==78 and totals["RR0_baseline","all88"]["hit5"]==87,"RR_BASELINE_PARITY")
+    require(all(nq[mode,"all88"]==88 for mode in ("RR1_plain","RR2_condition","RR3_marked","RR4_fused","RR0_baseline_shortlist","RR1_plain_shortlist","RR2_condition_shortlist","RR3_marked_shortlist","RR4_fused_shortlist")),"RR_MODE_PARITY")
     for (mode,group),c in sorted(totals.items()):
         n=nq[mode,group]
         if not mode.startswith("RR"):continue
