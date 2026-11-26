@@ -159,11 +159,12 @@ def main():
                 if mode>=2:v+=2.0*anchors(i,nodes)+(.5 if i in expanded else 0)
                 if mode>=3:v+=.5*max(0,anchors(i,wide_nodes)-anchors(i,nodes))
                 if mode>=4:v+=1.0*role_match(i)
+                if mode==5:v= (2.0 if i in exact else 1.0)+1.0*role_match(i)
                 out[n["doc"]]=max(out[n["doc"]],v)
             return out
         ids_for={}
         if qnames:
-            for mode,ids,k in (("IR0_exact",exact,0),("IR1_alias",broad,1),("IR2_graph",linked,2),("IR3_candidate_attributes",linked,3),("IR4_role",linked,4)):
+            for mode,ids,k in (("IR0_exact",exact,0),("IR1_alias",broad,1),("IR2_graph",linked,2),("IR3_candidate_attributes",linked,3),("IR4_role",linked,4),("IR4_role_only_control",broad,5)):
                 s=scores(ids,k);ranks[mode]=ranked(set(s),s,lex);ids_for[mode]=ids
             ranks["IR5_local_fusion"]=rrf(ranks["IR4_role"],tok_rank,lex_rank);ids_for["IR5_local_fusion"]=linked
         # Evaluation starts here: Gold never decides rank or seeds.
@@ -180,7 +181,7 @@ def main():
             matched=defaultdict(set)
             for i in gs:matched[nodes[i]["doc"]].update(truth[m] for m in nodes[i]["mentions"])
             gold_candidate["relevant"]+=len(eligible);gold_candidate["matched"]+=sum(targets<=matched[d] for d in eligible)
-        for mode in ("IR0_exact","IR1_alias","IR2_graph","IR3_candidate_attributes","IR4_role","IR5_local_fusion"):
+        for mode in ("IR0_exact","IR1_alias","IR2_graph","IR3_candidate_attributes","IR4_role","IR4_role_only_control","IR5_local_fusion"):
             if mode not in ranks:
                 # Report all Q88 without silently excluding missed name detections.
                 ranks[mode]=ranks["R_token_lexical_rrf"] if mode=="IR5_local_fusion" else tok_rank
@@ -205,5 +206,6 @@ def main():
              ready_candidate_recall=c["ready_rel_candidates"]/c["ready_relevant"] if c["ready_relevant"] else None,
              target_relevant_candidate_recall=c["target_rel_candidates"]/c["ready_relevant"] if group in ("name55","ambiguous12") else None,
              counts=dict(c))
+    require(gold_candidate["relevant"]==147 and gold_candidate["matched"]==147,"GOLD_ALIAS_ORACLE_PARITY")
     emit("IR_COMPLETE",gold_span_alias_oracle=dict(gold_candidate),mean_combined_query_ms=sum(ts)/len(ts),scope="local lexical and candidate diagnostic; no dense retrieval, real ACL, evidence authorization, HCX or Holdout2")
 if __name__=="__main__":main()
